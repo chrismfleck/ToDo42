@@ -34,6 +34,7 @@ final class TodoItem {
     var categoryRaw: String
     var isDone: Bool
     var createdAt: Date
+    var sortOrder: Int = 0
 
     init(
         title: String,
@@ -42,7 +43,8 @@ final class TodoItem {
         imageAssetName: String? = nil,
         imageURLString: String? = nil,
         imageData: Data? = nil,
-        notes: String = ""
+        notes: String = "",
+        sortOrder: Int = 0
     ) {
         self.id = UUID()
         self.title = title
@@ -56,6 +58,7 @@ final class TodoItem {
         self.deenaHearted = false
         self.isDone = false
         self.createdAt = .now
+        self.sortOrder = sortOrder
     }
 
     var category: ItemCategory {
@@ -92,13 +95,14 @@ enum SampleData {
         seeds.first { $0.title == title }
     }
 
-    static func makeItem(_ seed: Seed) -> TodoItem {
+    static func makeItem(_ seed: Seed, sortOrder: Int = 0) -> TodoItem {
         TodoItem(
             title: seed.title,
             category: seed.category,
             urlString: seed.urlString,
             imageAssetName: seed.imageAssetName,
-            notes: seed.notes
+            notes: seed.notes,
+            sortOrder: sortOrder
         )
     }
 }
