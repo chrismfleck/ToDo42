@@ -2,33 +2,35 @@ import SwiftUI
 import SwiftData
 import UIKit
 
-private let brandBlue = Color(uiColor: UIColor { traits in
-    if traits.userInterfaceStyle == .dark {
-        return UIColor(red: 0.42, green: 0.64, blue: 1.0, alpha: 1)
+enum Palette {
+    static func brandBlue(_ scheme: ColorScheme) -> Color {
+        scheme == .dark
+            ? Color(red: 0.45, green: 0.66, blue: 1.0)
+            : Color(red: 0.14, green: 0.42, blue: 0.92)
     }
-    return UIColor(red: 0.14, green: 0.42, blue: 0.92, alpha: 1)
-})
 
-private let mist = Color(uiColor: UIColor { traits in
-    if traits.userInterfaceStyle == .dark {
-        return .black
+    static func canvas(_ scheme: ColorScheme) -> Color {
+        scheme == .dark ? .black : Color(red: 0.93, green: 0.96, blue: 1.0)
     }
-    return UIColor(red: 0.93, green: 0.96, blue: 1.0, alpha: 1)
-})
 
-private let pageBottom = Color(uiColor: UIColor { traits in
-    traits.userInterfaceStyle == .dark ? .black : .white
-})
-
-private let cardFill = Color(uiColor: UIColor { traits in
-    if traits.userInterfaceStyle == .dark {
-        return UIColor(red: 0.16, green: 0.17, blue: 0.20, alpha: 1)
+    static func card(_ scheme: ColorScheme) -> Color {
+        scheme == .dark ? .black : .white
     }
-    return .white
-})
+}
+
+private extension View {
+    func appCard(cornerRadius: CGFloat, scheme: ColorScheme) -> some View {
+        background(Palette.card(scheme), in: RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
+            .overlay {
+                RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                    .strokeBorder(scheme == .dark ? Color.white.opacity(0.16) : Color.clear, lineWidth: 1)
+            }
+    }
+}
 
 struct ContentView: View {
     @Environment(\.modelContext) private var modelContext
+    @Environment(\.colorScheme) private var colorScheme
     @Query(sort: \TodoItem.createdAt, order: .reverse) private var items: [TodoItem]
     @Environment(\.scenePhase) private var scenePhase
     @State private var category: ItemCategory = .places
@@ -42,7 +44,7 @@ struct ContentView: View {
     var body: some View {
         NavigationStack {
             ZStack {
-                LinearGradient(colors: [mist, pageBottom], startPoint: .top, endPoint: .bottom)
+                Palette.canvas(colorScheme)
                     .ignoresSafeArea()
 
                 VStack(alignment: .leading, spacing: 22) {
@@ -50,7 +52,7 @@ struct ContentView: View {
                         VStack(spacing: 8) {
                             Text("ToDo42")
                                 .font(.system(size: 34, weight: .bold, design: .rounded))
-                                .foregroundStyle(brandBlue)
+                                .foregroundStyle(Palette.brandBlue(colorScheme))
                             Text("ToDo's for Two")
                                 .font(.subheadline.weight(.medium))
                                 .foregroundStyle(.secondary)
@@ -61,7 +63,7 @@ struct ContentView: View {
                         Button { showAdd = true } label: {
                             Image(systemName: "plus.circle.fill")
                                 .font(.system(size: 32))
-                                .foregroundStyle(brandBlue)
+                                .foregroundStyle(Palette.brandBlue(colorScheme))
                         }
                         .accessibilityLabel("Add item")
                         .padding(.top, 8)
@@ -114,7 +116,7 @@ struct ContentView: View {
                 if phase == .active { importSharedDrafts() }
             }
         }
-        .tint(brandBlue)
+        .tint(Palette.brandBlue(colorScheme))
     }
 
     private func seedIfNeeded() {
@@ -212,6 +214,7 @@ struct SwipeToDeleteRow<Content: View>: View {
 }
 
 struct ItemRowView: View {
+    @Environment(\.colorScheme) private var colorScheme
     let item: TodoItem
 
     var body: some View {
@@ -239,12 +242,13 @@ struct ItemRowView: View {
             .frame(maxWidth: .infinity, alignment: .leading)
         }
         .padding(14)
-        .background(cardFill, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+        .appCard(cornerRadius: 18, scheme: colorScheme)
         .opacity(item.isDone ? 0.7 : 1)
     }
 }
 
 struct ItemDetailView: View {
+    @Environment(\.colorScheme) private var colorScheme
     @Bindable var item: TodoItem
     @State private var isEditing = false
     @State private var draftTitle = ""
@@ -262,7 +266,7 @@ struct ItemDetailView: View {
                 }
             }
             .font(.body.weight(.semibold))
-            .foregroundStyle(brandBlue)
+            .foregroundStyle(Palette.brandBlue(colorScheme))
             .disabled(isEditing && draftTitle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
             .accessibilityLabel(isEditing ? "Done editing" : "Edit item")
             .padding(.horizontal, 20)
@@ -281,7 +285,7 @@ struct ItemDetailView: View {
                                 TextField("Title", text: $draftTitle)
                                     .font(.title.bold())
                                     .padding(12)
-                                    .background(cardFill, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                                    .appCard(cornerRadius: 12, scheme: colorScheme)
                             }
                         } else {
                             Text(item.title)
@@ -304,14 +308,14 @@ struct ItemDetailView: View {
                                     .keyboardType(.URL)
                                     .autocorrectionDisabled()
                                     .padding(12)
-                                    .background(cardFill, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                                    .appCard(cornerRadius: 12, scheme: colorScheme)
                             }
 
                             labeledField("Notes") {
                                 TextField("Add a note", text: $draftNotes, axis: .vertical)
                                     .lineLimit(3...8)
                                     .padding(12)
-                                    .background(cardFill, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                                    .appCard(cornerRadius: 12, scheme: colorScheme)
                             }
 
                             labeledField("Category") {
@@ -346,7 +350,9 @@ struct ItemDetailView: View {
             }
             .scrollDismissesKeyboard(.interactively)
         }
-        .background(mist.ignoresSafeArea())
+        .background(Palette.canvas(colorScheme).ignoresSafeArea())
+        .toolbarBackground(Palette.canvas(colorScheme), for: .navigationBar)
+        .toolbarBackground(.visible, for: .navigationBar)
         .toolbar(.visible, for: .navigationBar)
         .navigationBarTitleDisplayMode(.inline)
         .navigationTitle(item.title)
@@ -393,6 +399,7 @@ struct ItemDetailView: View {
 private let heartPink = Color(red: 0.92, green: 0.28, blue: 0.45)
 
 struct DoneCheckButton: View {
+    @Environment(\.colorScheme) private var colorScheme
     @Binding var isDone: Bool
     var size: CGFloat = 34
     var name: String? = nil
@@ -406,7 +413,7 @@ struct DoneCheckButton: View {
             VStack(spacing: 6) {
                 Image(systemName: isDone ? "checkmark.circle.fill" : "circle")
                     .font(.system(size: size, weight: .semibold))
-                    .foregroundStyle(isDone ? brandBlue : Color.secondary.opacity(0.55))
+                    .foregroundStyle(isDone ? Palette.brandBlue(colorScheme) : Color.secondary.opacity(0.55))
                     .scaleEffect(isDone ? 1.08 : 1)
                 if let name {
                     Text(name)
@@ -455,6 +462,7 @@ struct PartnerHeartButton: View {
 struct AddItemView: View {
     @Environment(\.modelContext) private var modelContext
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.colorScheme) private var colorScheme
     var category: ItemCategory
 
     @State private var title = ""
@@ -492,7 +500,7 @@ struct AddItemView: View {
             }
             .onAppear { selectedCategory = category }
         }
-        .tint(brandBlue)
+        .tint(Palette.brandBlue(colorScheme))
     }
 
     private func save() {
@@ -512,6 +520,7 @@ struct AddItemView: View {
 }
 
 struct ItemPhotoView: View {
+    @Environment(\.colorScheme) private var colorScheme
     let item: TodoItem
     var cornerRadius: CGFloat = 12
     var placeholderIconSize: CGFloat = 22
@@ -537,7 +546,7 @@ struct ItemPhotoView: View {
                         placeholder
                     case .empty:
                         ZStack {
-                            mist
+                            Palette.canvas(colorScheme)
                             ProgressView()
                         }
                     @unknown default:
@@ -550,16 +559,16 @@ struct ItemPhotoView: View {
         }
         .frame(minWidth: 0, maxWidth: .infinity, minHeight: 0, maxHeight: .infinity, alignment: .center)
         .clipped()
-        .background(mist)
+        .background(Palette.canvas(colorScheme))
         .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
     }
 
     private var placeholder: some View {
         ZStack {
-            mist
+            Palette.canvas(colorScheme)
             Image(systemName: item.category.systemImage)
                 .font(.system(size: placeholderIconSize))
-                .foregroundStyle(brandBlue)
+                .foregroundStyle(Palette.brandBlue(colorScheme))
         }
     }
 }
