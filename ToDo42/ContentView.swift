@@ -213,6 +213,7 @@ struct ContentView: View {
         .onAppear {
             importSharedDrafts()
             seedIfNeeded()
+            normalizeStoredText()
         }
         .onChange(of: scenePhase) { _, phase in
             if phase == .active { importSharedDrafts() }
@@ -240,6 +241,15 @@ struct ContentView: View {
 
     private func nextSortOrder(for category: ItemCategory) -> Int {
         (items.filter { $0.category == category }.map(\.sortOrder).min() ?? 0) - 1
+    }
+
+    private func normalizeStoredText() {
+        for item in items {
+            let title = SharedText.normalized(item.title)
+            if item.title != title { item.title = title }
+            let notes = SharedText.normalized(item.notes)
+            if item.notes != notes { item.notes = notes }
+        }
     }
 
     private func reorderOffset(for item: TodoItem) -> CGFloat {
@@ -323,7 +333,7 @@ struct ContentView: View {
     private func importSharedDrafts() {
         var nextOrders: [ItemCategory: Int] = [:]
         for (payload, imageData) in ShareInbox.consumeDrafts() {
-            let title = payload.title.trimmingCharacters(in: .whitespacesAndNewlines)
+            let title = SharedText.normalized(payload.title)
             guard !title.isEmpty else { continue }
             let link = payload.urlString.trimmingCharacters(in: .whitespacesAndNewlines)
             let category = ItemCategory(rawValue: payload.category) ?? .places
@@ -335,7 +345,7 @@ struct ContentView: View {
                     category: category,
                     urlString: link.isEmpty ? nil : link,
                     imageData: imageData,
-                    notes: payload.notes,
+                    notes: SharedText.normalized(payload.notes),
                     sortOrder: sortOrder
                 )
             )
@@ -449,12 +459,13 @@ struct ItemRowView: View {
                 .frame(width: 76, height: 76)
 
             VStack(alignment: .leading, spacing: 6) {
-                Text(item.title)
+                Text(verbatim: SharedText.normalized(item.title))
                     .font(.headline)
+                    .fontWeight(.semibold)
                     .lineLimit(2)
                     .foregroundStyle(.primary)
                 if !item.notes.isEmpty {
-                    Text(item.notes)
+                    Text(verbatim: SharedText.normalized(item.notes))
                         .font(.caption)
                         .foregroundStyle(.secondary)
                         .lineLimit(1)
@@ -582,7 +593,7 @@ struct ItemDetailView: View {
                                     .appCard(cornerRadius: 12, scheme: colorScheme)
                             }
                         } else {
-                            Text(item.title)
+                            Text(verbatim: SharedText.normalized(item.title))
                                 .font(.title.bold())
                                 .padding(.top, 4)
                         }
@@ -634,7 +645,7 @@ struct ItemDetailView: View {
                                     Text("Notes")
                                         .font(.caption.weight(.semibold))
                                         .foregroundStyle(.secondary)
-                                    Text(item.notes)
+                                    Text(verbatim: SharedText.normalized(item.notes))
                                 }
                             }
                         }
@@ -714,11 +725,11 @@ struct ItemDetailView: View {
     private func commitEdits() {
         let trimmedTitle = draftTitle.trimmingCharacters(in: .whitespacesAndNewlines)
         if !trimmedTitle.isEmpty {
-            item.title = trimmedTitle
+            item.title = SharedText.normalized(trimmedTitle)
         }
         let trimmedLink = draftLink.trimmingCharacters(in: .whitespacesAndNewlines)
         item.urlString = trimmedLink.isEmpty ? nil : trimmedLink
-        item.notes = draftNotes.trimmingCharacters(in: .whitespacesAndNewlines)
+        item.notes = SharedText.normalized(draftNotes)
         item.category = draftCategory
         withAnimation(.easeInOut(duration: 0.2)) {
             isEditing = false
@@ -895,9 +906,9 @@ struct AddItemView: View {
     }
 
     private func save() {
-        let trimmedTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmedTitle = SharedText.normalized(title)
         let trimmedLink = urlString.trimmingCharacters(in: .whitespacesAndNewlines)
-        let trimmedNotes = notes.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmedNotes = SharedText.normalized(notes)
         let nextSortOrder = (items.filter { $0.category == selectedCategory }.map(\.sortOrder).min() ?? 0) - 1
         modelContext.insert(
             TodoItem(

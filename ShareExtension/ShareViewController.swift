@@ -285,9 +285,9 @@ struct ShareFormView: View {
                     Button("Save") {
                         onSave(
                             SharePayload(
-                                title: title.trimmingCharacters(in: .whitespacesAndNewlines),
+                                title: SharedText.normalized(title),
                                 urlString: urlString.trimmingCharacters(in: .whitespacesAndNewlines),
-                                notes: notes.trimmingCharacters(in: .whitespacesAndNewlines),
+                                notes: SharedText.normalized(notes),
                                 category: category
                             ),
                             previewImage
