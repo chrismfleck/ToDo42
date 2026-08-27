@@ -40,15 +40,31 @@ private extension View {
 struct ContentView: View {
     @Environment(\.modelContext) private var modelContext
     @Environment(\.colorScheme) private var colorScheme
-    @Query(sort: \TodoItem.createdAt, order: .reverse) private var items: [TodoItem]
+    @Query private var items: [TodoItem]
     @Environment(\.scenePhase) private var scenePhase
     @State private var category: ItemCategory = .places
     @State private var showAdd = false
     @State private var swipingItemID: UUID?
     @State private var selectedItem: TodoItem?
+    @State private var isListEditing = false
+    @State private var reorderDrag: ReorderDrag?
+    @State private var rowHeights: [UUID: CGFloat] = [:]
 
     private var filtered: [TodoItem] {
-        items.filter { $0.category == category }
+        items
+            .filter { $0.category == category }
+            .sorted { lhs, rhs in
+                if lhs.sortOrder == rhs.sortOrder {
+                    return lhs.createdAt > rhs.createdAt
+                }
+                return lhs.sortOrder < rhs.sortOrder
+            }
+    }
+
+    private var reorderRowStride: CGFloat {
+        let heights = filtered.compactMap { rowHeights[$0.id] }
+        let averageHeight = heights.isEmpty ? 104 : heights.reduce(0, +) / CGFloat(heights.count)
+        return averageHeight + 14
     }
 
     var body: some View {
@@ -57,7 +73,7 @@ struct ContentView: View {
                 .ignoresSafeArea()
 
             VStack(alignment: .leading, spacing: 22) {
-                ZStack(alignment: .topTrailing) {
+                ZStack {
                     VStack(spacing: 8) {
                         Text("ToDo 4 2")
                             .font(.system(size: 34, weight: .bold, design: .rounded))
@@ -70,12 +86,29 @@ struct ContentView: View {
                     .frame(maxWidth: .infinity)
                     .padding(.top, 12)
 
-                    Button { showAdd = true } label: {
-                        Image(systemName: "plus.circle.fill")
-                            .font(.system(size: 32))
-                            .foregroundStyle(Palette.brandBlue(colorScheme))
+                    HStack {
+                        Button(isListEditing ? "Done" : "Edit") {
+                            if isListEditing {
+                                reorderDrag = nil
+                                isListEditing = false
+                            } else {
+                                normalizeSortOrders()
+                                isListEditing = true
+                            }
+                        }
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(Palette.brandBlue(colorScheme))
+                        .accessibilityLabel(isListEditing ? "Done reordering" : "Reorder list")
+
+                        Spacer()
+
+                        Button { showAdd = true } label: {
+                            Image(systemName: "plus.circle.fill")
+                                .font(.system(size: 32))
+                                .foregroundStyle(Palette.brandBlue(colorScheme))
+                        }
+                        .accessibilityLabel("Add item")
                     }
-                    .accessibilityLabel("Add item")
                     .padding(.top, 8)
                 }
                 .padding(.horizontal, 24)
@@ -93,28 +126,65 @@ struct ContentView: View {
                         ForEach(filtered, id: \.id) { item in
                             SwipeToDeleteRow(
                                 itemID: item.id,
-                                swipingItemID: $swipingItemID
+                                swipingItemID: $swipingItemID,
+                                isEnabled: !isListEditing
                             ) {
                                 withAnimation(.easeIn(duration: 0.2)) {
                                     if selectedItem?.id == item.id { selectedItem = nil }
                                     modelContext.delete(item)
                                 }
                             } content: {
-                                Button {
-                                    selectedItem = item
-                                } label: {
-                                    ItemRowView(item: item)
+                                Group {
+                                    if isListEditing {
+                                        ItemRowView(
+                                            item: item,
+                                            showsDragHandle: true,
+                                            onHandleDragChanged: { translation in
+                                                handleReorderChanged(item: item, translation: translation)
+                                            },
+                                            onHandleDragEnded: {
+                                                handleReorderEnded(item: item)
+                                            }
+                                        )
+                                    } else {
+                                        Button {
+                                            selectedItem = item
+                                        } label: {
+                                            ItemRowView(item: item)
+                                        }
+                                        .buttonStyle(.plain)
+                                    }
                                 }
-                                .buttonStyle(.plain)
+                            }
+                            .offset(y: reorderOffset(for: item))
+                            .zIndex(reorderDrag?.id == item.id ? 1 : 0)
+                            .scaleEffect(reorderDrag?.id == item.id ? 1.02 : 1)
+                            .shadow(
+                                color: reorderDrag?.id == item.id ? Color.black.opacity(0.18) : .clear,
+                                radius: 12,
+                                y: 6
+                            )
+                            .animation(
+                                reorderDrag?.id == item.id
+                                    ? nil
+                                    : .interactiveSpring(response: 0.25, dampingFraction: 0.86),
+                                value: reorderOffset(for: item)
+                            )
+                            .background {
+                                GeometryReader { geo in
+                                    Color.clear.preference(
+                                        key: RowHeightPreferenceKey.self,
+                                        value: [item.id: geo.size.height]
+                                    )
+                                }
                             }
                         }
                     }
                     .padding(.horizontal, 24)
-                    .padding(.top, 8)
                     .padding(.bottom, 24)
+                    .onPreferenceChange(RowHeightPreferenceKey.self) { rowHeights = $0 }
                 }
-                .scrollContentBackground(.hidden)
-                .background(Palette.canvas(colorScheme))
+                .scrollDisabled(reorderDrag != nil)
             }
         }
         .background(WindowCanvas(color: Palette.uiCanvas(colorScheme)))
@@ -138,6 +208,79 @@ struct ContentView: View {
         .onChange(of: scenePhase) { _, phase in
             if phase == .active { importSharedDrafts() }
         }
+        .onChange(of: category) { _, _ in
+            reorderDrag = nil
+        }
+    }
+
+    private func normalizeSortOrders() {
+        for cat in ItemCategory.allCases {
+            let ordered = items
+                .filter { $0.category == cat }
+                .sorted { lhs, rhs in
+                    if lhs.sortOrder == rhs.sortOrder {
+                        return lhs.createdAt > rhs.createdAt
+                    }
+                    return lhs.sortOrder < rhs.sortOrder
+                }
+            for (index, item) in ordered.enumerated() {
+                item.sortOrder = index
+            }
+        }
+    }
+
+    private func nextSortOrder(for category: ItemCategory) -> Int {
+        (items.filter { $0.category == category }.map(\.sortOrder).min() ?? 0) - 1
+    }
+
+    private func reorderOffset(for item: TodoItem) -> CGFloat {
+        guard let drag = reorderDrag,
+              let from = filtered.firstIndex(where: { $0.id == drag.id }),
+              let index = filtered.firstIndex(where: { $0.id == item.id })
+        else { return 0 }
+
+        if item.id == drag.id { return drag.translation }
+
+        let to = targetIndex(from: from, translation: drag.translation)
+        if from < to, index > from, index <= to { return -reorderRowStride }
+        if from > to, index < from, index >= to { return reorderRowStride }
+        return 0
+    }
+
+    private func targetIndex(from: Int, translation: CGFloat) -> Int {
+        let last = max(filtered.count - 1, 0)
+        return min(max(from + Int((translation / reorderRowStride).rounded()), 0), last)
+    }
+
+    private func handleReorderChanged(item: TodoItem, translation: CGFloat) {
+        if reorderDrag == nil {
+            UIImpactFeedbackGenerator(style: .light).impactOccurred()
+        }
+        reorderDrag = ReorderDrag(id: item.id, translation: translation)
+    }
+
+    private func handleReorderEnded(item: TodoItem) {
+        guard let drag = reorderDrag, drag.id == item.id,
+              let from = filtered.firstIndex(where: { $0.id == item.id })
+        else {
+            reorderDrag = nil
+            return
+        }
+
+        let to = targetIndex(from: from, translation: drag.translation)
+        var ordered = filtered
+        if from != to {
+            ordered.move(fromOffsets: IndexSet(integer: from), toOffset: to > from ? to + 1 : to)
+            UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+        }
+        withAnimation(.spring(response: 0.32, dampingFraction: 0.86)) {
+            if from != to {
+                for (index, row) in ordered.enumerated() {
+                    row.sortOrder = index
+                }
+            }
+            reorderDrag = nil
+        }
     }
 
     private func seedIfNeeded() {
@@ -145,7 +288,11 @@ struct ContentView: View {
         guard !UserDefaults.standard.bool(forKey: key) else { return }
 
         if items.isEmpty {
-            SampleData.seeds.forEach { modelContext.insert(SampleData.makeItem($0)) }
+            for cat in ItemCategory.allCases {
+                for (index, seed) in SampleData.seeds.filter({ $0.category == cat }).enumerated() {
+                    modelContext.insert(SampleData.makeItem(seed, sortOrder: index))
+                }
+            }
         } else {
             for item in items {
                 guard let sample = SampleData.matching(title: item.title) else { continue }
@@ -165,19 +312,51 @@ struct ContentView: View {
     }
 
     private func importSharedDrafts() {
+        var nextOrders: [ItemCategory: Int] = [:]
         for (payload, imageData) in ShareInbox.consumeDrafts() {
             let title = payload.title.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !title.isEmpty else { continue }
             let link = payload.urlString.trimmingCharacters(in: .whitespacesAndNewlines)
+            let category = ItemCategory(rawValue: payload.category) ?? .places
+            let sortOrder = nextOrders[category] ?? nextSortOrder(for: category)
+            nextOrders[category] = sortOrder - 1
             modelContext.insert(
                 TodoItem(
                     title: title,
-                    category: ItemCategory(rawValue: payload.category) ?? .places,
+                    category: category,
                     urlString: link.isEmpty ? nil : link,
                     imageData: imageData,
-                    notes: payload.notes
+                    notes: payload.notes,
+                    sortOrder: sortOrder
                 )
             )
+        }
+    }
+}
+
+private struct ReorderDrag {
+    var id: UUID
+    var translation: CGFloat
+}
+
+private struct RowHeightPreferenceKey: PreferenceKey {
+    static var defaultValue: [UUID: CGFloat] = [:]
+
+    static func reduce(value: inout [UUID: CGFloat], nextValue: () -> [UUID: CGFloat]) {
+        value.merge(nextValue(), uniquingKeysWith: { $1 })
+    }
+}
+
+private struct OptionalSwipeGesture<G: Gesture>: ViewModifier {
+    var isEnabled: Bool
+    var gesture: G
+
+    @ViewBuilder
+    func body(content: Content) -> some View {
+        if isEnabled {
+            content.simultaneousGesture(gesture)
+        } else {
+            content
         }
     }
 }
@@ -187,43 +366,21 @@ private let deleteRevealWidth: CGFloat = 88
 struct SwipeToDeleteRow<Content: View>: View {
     let itemID: UUID
     @Binding var swipingItemID: UUID?
+    var isEnabled: Bool = true
     var onDelete: () -> Void
     @ViewBuilder var content: Content
     @State private var offset: CGFloat = 0
 
     var body: some View {
         content
-            .offset(x: offset)
-            .simultaneousGesture(
-                DragGesture(minimumDistance: 24)
-                    .onChanged { value in
-                        let horizontal = value.translation.width
-                        let vertical = value.translation.height
-                        guard abs(horizontal) > abs(vertical) else { return }
-                        if swipingItemID != itemID {
-                            swipingItemID = itemID
-                        }
-                        offset = min(0, horizontal)
-                    }
-                    .onEnded { value in
-                        let shouldDelete = value.translation.width < -120
-                            || value.predictedEndTranslation.width < -200
-                        if shouldDelete {
-                            withAnimation(.easeIn(duration: 0.18)) {
-                                offset = -UIScreen.main.bounds.width
-                            }
-                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.18) {
-                                onDelete()
-                                if swipingItemID == itemID { swipingItemID = nil }
-                            }
-                        } else {
-                            withAnimation(.spring(response: 0.32, dampingFraction: 0.86)) {
-                                offset = 0
-                            }
-                            if swipingItemID == itemID { swipingItemID = nil }
-                        }
-                    }
-            )
+            .offset(x: isEnabled ? offset : 0)
+            .modifier(OptionalSwipeGesture(isEnabled: isEnabled, gesture: swipeGesture))
+            .onChange(of: isEnabled) { _, enabled in
+                guard !enabled, offset != 0 else { return }
+                withAnimation(.spring(response: 0.32, dampingFraction: 0.86)) {
+                    offset = 0
+                }
+            }
             .onChange(of: swipingItemID) { _, newValue in
                 if newValue != itemID, offset != 0 {
                     withAnimation(.spring(response: 0.32, dampingFraction: 0.86)) {
@@ -232,11 +389,50 @@ struct SwipeToDeleteRow<Content: View>: View {
                 }
             }
     }
+
+    private var swipeGesture: some Gesture {
+        DragGesture(minimumDistance: 24)
+            .onChanged { value in
+                guard isEnabled else { return }
+                let horizontal = value.translation.width
+                let vertical = value.translation.height
+                guard abs(horizontal) > abs(vertical) else { return }
+                if swipingItemID != itemID {
+                    swipingItemID = itemID
+                }
+                offset = min(0, horizontal)
+            }
+            .onEnded { value in
+                guard isEnabled else {
+                    offset = 0
+                    return
+                }
+                let shouldDelete = value.translation.width < -120
+                    || value.predictedEndTranslation.width < -200
+                if shouldDelete {
+                    withAnimation(.easeIn(duration: 0.18)) {
+                        offset = -UIScreen.main.bounds.width
+                    }
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.18) {
+                        onDelete()
+                        if swipingItemID == itemID { swipingItemID = nil }
+                    }
+                } else {
+                    withAnimation(.spring(response: 0.32, dampingFraction: 0.86)) {
+                        offset = 0
+                    }
+                    if swipingItemID == itemID { swipingItemID = nil }
+                }
+            }
+    }
 }
 
 struct ItemRowView: View {
     @Environment(\.colorScheme) private var colorScheme
     let item: TodoItem
+    var showsDragHandle: Bool = false
+    var onHandleDragChanged: ((CGFloat) -> Void)?
+    var onHandleDragEnded: (() -> Void)?
 
     var body: some View {
         HStack(alignment: .center, spacing: 16) {
@@ -257,6 +453,24 @@ struct ItemRowView: View {
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
+
+            if showsDragHandle {
+                Image(systemName: "line.3.horizontal")
+                    .font(.body.weight(.semibold))
+                    .foregroundStyle(.secondary)
+                    .frame(width: 28, height: 44)
+                    .contentShape(Rectangle())
+                    .highPriorityGesture(
+                        DragGesture(minimumDistance: 4)
+                            .onChanged { value in
+                                onHandleDragChanged?(value.translation.height)
+                            }
+                            .onEnded { _ in
+                                onHandleDragEnded?()
+                            }
+                    )
+                    .accessibilityLabel("Reorder")
+            }
         }
         .padding(14)
         .appCard(cornerRadius: 18, scheme: colorScheme)
@@ -544,6 +758,7 @@ struct AddItemView: View {
     @Environment(\.modelContext) private var modelContext
     @Environment(\.dismiss) private var dismiss
     @Environment(\.colorScheme) private var colorScheme
+    @Query private var items: [TodoItem]
     var category: ItemCategory
 
     @State private var title = ""
@@ -588,12 +803,14 @@ struct AddItemView: View {
         let trimmedTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
         let trimmedLink = urlString.trimmingCharacters(in: .whitespacesAndNewlines)
         let trimmedNotes = notes.trimmingCharacters(in: .whitespacesAndNewlines)
+        let nextSortOrder = (items.filter { $0.category == selectedCategory }.map(\.sortOrder).min() ?? 0) - 1
         modelContext.insert(
             TodoItem(
                 title: trimmedTitle,
                 category: selectedCategory,
                 urlString: trimmedLink.isEmpty ? nil : trimmedLink,
-                notes: trimmedNotes
+                notes: trimmedNotes,
+                sortOrder: nextSortOrder
             )
         )
         dismiss()
