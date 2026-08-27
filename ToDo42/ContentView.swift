@@ -224,6 +224,11 @@ struct ItemRowView: View {
 
 struct ItemDetailView: View {
     @Bindable var item: TodoItem
+    @State private var isEditing = false
+    @State private var draftTitle = ""
+    @State private var draftLink = ""
+    @State private var draftNotes = ""
+    @State private var draftCategory: ItemCategory = .places
 
     var body: some View {
         ScrollView {
@@ -234,9 +239,18 @@ struct ItemDetailView: View {
                     .clipped()
 
                 VStack(alignment: .leading, spacing: 16) {
-                    Text(item.title)
-                        .font(.title.bold())
-                        .padding(.top, 4)
+                    if isEditing {
+                        labeledField("Title") {
+                            TextField("Title", text: $draftTitle)
+                                .font(.title.bold())
+                                .padding(12)
+                                .background(Color.white, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                        }
+                    } else {
+                        Text(item.title)
+                            .font(.title.bold())
+                            .padding(.top, 4)
+                    }
 
                     HStack(spacing: 28) {
                         PartnerHeartButton(name: "Chris", isOn: $item.chrisHearted)
@@ -246,29 +260,109 @@ struct ItemDetailView: View {
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 4)
 
-                    if let s = item.urlString?.trimmingCharacters(in: .whitespacesAndNewlines),
-                       let url = URL(string: s), !s.isEmpty {
-                        Link(destination: url) {
-                            Label("Open link", systemImage: "link")
-                                .font(.headline)
+                    if isEditing {
+                        labeledField("Link") {
+                            TextField("https://", text: $draftLink)
+                                .textInputAutocapitalization(.never)
+                                .keyboardType(.URL)
+                                .autocorrectionDisabled()
+                                .padding(12)
+                                .background(Color.white, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
                         }
-                    }
 
-                    VStack(alignment: .leading, spacing: 6) {
-                        Text("Notes")
-                            .font(.caption.weight(.semibold))
-                            .foregroundStyle(.secondary)
-                        TextField("Add a note", text: $item.notes, axis: .vertical)
-                            .lineLimit(3...6)
+                        labeledField("Notes") {
+                            TextField("Add a note", text: $draftNotes, axis: .vertical)
+                                .lineLimit(3...8)
+                                .padding(12)
+                                .background(Color.white, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                        }
+
+                        labeledField("Category") {
+                            Picker("Category", selection: $draftCategory) {
+                                ForEach(ItemCategory.allCases) { cat in
+                                    Text(cat.title).tag(cat)
+                                }
+                            }
+                            .pickerStyle(.segmented)
+                        }
+                    } else {
+                        if let s = item.urlString?.trimmingCharacters(in: .whitespacesAndNewlines),
+                           let url = URL(string: s), !s.isEmpty {
+                            Link(destination: url) {
+                                Label("Open link", systemImage: "link")
+                                    .font(.headline)
+                            }
+                        }
+
+                        if !item.notes.isEmpty {
+                            VStack(alignment: .leading, spacing: 6) {
+                                Text("Notes")
+                                    .font(.caption.weight(.semibold))
+                                    .foregroundStyle(.secondary)
+                                Text(item.notes)
+                            }
+                        }
                     }
                 }
                 .padding(20)
             }
         }
         .background(mist.ignoresSafeArea())
+        .scrollDismissesKeyboard(.interactively)
         .toolbar(.visible, for: .navigationBar)
         .navigationBarTitleDisplayMode(.inline)
         .navigationTitle(item.title)
+        .toolbar {
+            ToolbarItem(placement: .topBarLeading) {
+                Button(isEditing ? "Done" : "Edit") {
+                    if isEditing {
+                        commitEdits()
+                    } else {
+                        beginEditing()
+                    }
+                }
+                .fontWeight(.semibold)
+                .disabled(isEditing && draftTitle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                .accessibilityLabel(isEditing ? "Done editing" : "Edit item")
+            }
+        }
+        .onDisappear {
+            if isEditing { commitEdits() }
+        }
+    }
+
+    @ViewBuilder
+    private func labeledField<Content: View>(_ title: String, @ViewBuilder content: () -> Content) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(title)
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.secondary)
+            content()
+        }
+    }
+
+    private func beginEditing() {
+        draftTitle = item.title
+        draftLink = item.urlString ?? ""
+        draftNotes = item.notes
+        draftCategory = item.category
+        withAnimation(.easeInOut(duration: 0.2)) {
+            isEditing = true
+        }
+    }
+
+    private func commitEdits() {
+        let trimmedTitle = draftTitle.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !trimmedTitle.isEmpty {
+            item.title = trimmedTitle
+        }
+        let trimmedLink = draftLink.trimmingCharacters(in: .whitespacesAndNewlines)
+        item.urlString = trimmedLink.isEmpty ? nil : trimmedLink
+        item.notes = draftNotes.trimmingCharacters(in: .whitespacesAndNewlines)
+        item.category = draftCategory
+        withAnimation(.easeInOut(duration: 0.2)) {
+            isEditing = false
+        }
     }
 }
 
