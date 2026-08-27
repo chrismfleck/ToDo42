@@ -48,7 +48,7 @@ final class PairSession {
 
     func noteLocalEdit(_ item: TodoItem, kind: String) {
         guard !isApplyingRemote else { return }
-        item.updatedAt = Date.now
+        item.updatedAt = Date()
         item.lastEditor = role?.rawValue ?? ""
         Task { await CloudSync.shared.upload(item, notifyKind: kind) }
     }
@@ -128,8 +128,12 @@ final class CloudSync {
 
     func deleteRemote(_ id: UUID) async {
         guard PairSession.shared.isPaired else { return }
-        try? await database.deleteRecord(withID: CKRecord.ID(recordName: "item-\(id.uuidString)"))
-        try? await removeItemID(id.uuidString)
+        do {
+            try await database.deleteRecord(withID: CKRecord.ID(recordName: "item-\(id.uuidString)"))
+            try await removeItemID(id.uuidString)
+        } catch {
+            PairSession.shared.statusMessage = error.localizedDescription
+        }
     }
 
     func handleRemoteNotification(modelContext: ModelContext, items: [TodoItem]) async {
@@ -175,7 +179,7 @@ final class CloudSync {
             guard let itemID = record["itemID"] as? String, let uuid = UUID(uuidString: itemID) else { continue }
             let remoteUpdated = record["updatedAt"] as? Date ?? .distantPast
             if let local = localByID[itemID] {
-                if remoteUpdated > local.updatedAt {
+                if remoteUpdated > (local.updatedAt ?? local.createdAt) {
                     let heartChanged = local.chrisHearted != ((record["chrisHearted"] as? Int) == 1)
                         || local.deenaHearted != ((record["deenaHearted"] as? Int) == 1)
                     apply(record, to: local)
@@ -224,7 +228,7 @@ final class CloudSync {
         record["isDone"] = item.isDone ? 1 : 0
         record["sortOrder"] = item.sortOrder
         record["createdAt"] = item.createdAt
-        record["updatedAt"] = item.updatedAt
+        record["updatedAt"] = item.updatedAt ?? item.createdAt
         record["lastEditor"] = item.lastEditor
         if !notifyKind.isEmpty {
             record["notifyKind"] = notifyKind
@@ -279,17 +283,21 @@ final class CloudSync {
         let id = "todo42-items"
         let subscription = CKDatabaseSubscription(subscriptionID: id)
         subscription.recordType = "TDItem"
-        let info = CKNotificationInfo()
+        let info = CKSubscription.NotificationInfo()
         info.shouldSendContentAvailable = true
         info.shouldBadge = false
         subscription.notificationInfo = info
-        _ = try? await database.save(subscription)
+        do {
+            _ = try await database.save(subscription)
+        } catch {
+            // Already subscribed on this device.
+        }
     }
 
     private func requestNotifications() async throws {
         let center = UNUserNotificationCenter.current()
         _ = try await center.requestAuthorization(options: [.alert, .sound, .badge])
-        await UIApplication.shared.registerForRemoteNotifications()
+        UIApplication.shared.registerForRemoteNotifications()
     }
 
     private func ensureiCloud() async throws {
