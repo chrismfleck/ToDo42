@@ -156,16 +156,21 @@ struct ContentView: View {
 
     private func importSharedDrafts() {
         for (payload, imageData) in ShareInbox.consumeDrafts() {
-            let title = payload.title.trimmingCharacters(in: .whitespacesAndNewlines)
+            var title = payload.title.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !title.isEmpty else { continue }
             let link = payload.urlString.trimmingCharacters(in: .whitespacesAndNewlines)
+            var notes = payload.notes
+            if SharedCopy.isInstagramOrAirbnb(urlString: link, title: title) {
+                title = SharedCopy.clamped(title)
+                notes = SharedCopy.clamped(notes)
+            }
             modelContext.insert(
                 TodoItem(
                     title: title,
                     category: ItemCategory(rawValue: payload.category) ?? .places,
                     urlString: link.isEmpty ? nil : link,
                     imageData: imageData,
-                    notes: payload.notes
+                    notes: notes
                 )
             )
         }
@@ -234,17 +239,17 @@ struct ItemRowView: View {
                 .frame(width: 76, height: 76)
 
             VStack(alignment: .leading, spacing: 6) {
-                Text(item.title)
-                    .font(.headline)
-                    .lineLimit(2)
+                Text(item.displayTitle)
+                    .font(item.usesCompactSharedText ? .subheadline.weight(.semibold) : .headline)
+                    .lineLimit(item.usesCompactSharedText ? 4 : 2)
                     .foregroundStyle(.primary)
                 if let url = item.urlString, !url.isEmpty {
                     Text(url)
                         .font(.caption)
                         .foregroundStyle(.secondary)
                         .lineLimit(1)
-                } else if !item.notes.isEmpty {
-                    Text(item.notes)
+                } else if !item.displayNotes.isEmpty {
+                    Text(item.displayNotes)
                         .font(.caption)
                         .foregroundStyle(.secondary)
                         .lineLimit(1)
@@ -276,18 +281,18 @@ struct ItemDetailView: View {
                     .clipped()
 
                 VStack(alignment: .leading, spacing: 16) {
-                    if isEditing {
-                        labeledField("Title") {
-                            TextField("Title", text: $draftTitle)
-                                .font(.title.bold())
-                                .padding(12)
-                                .appCard(cornerRadius: 12, scheme: colorScheme)
+                        if isEditing {
+                            labeledField("Title") {
+                                TextField("Title", text: $draftTitle)
+                                    .font(item.usesCompactSharedText ? .body : .title.bold())
+                                    .padding(12)
+                                    .appCard(cornerRadius: 12, scheme: colorScheme)
+                            }
+                        } else {
+                            Text(item.displayTitle)
+                                .font(item.usesCompactSharedText ? .body : .title.bold())
+                                .padding(.top, 4)
                         }
-                    } else {
-                        Text(item.title)
-                            .font(.title.bold())
-                            .padding(.top, 4)
-                    }
 
                     HStack(spacing: 28) {
                         PartnerHeartButton(name: "Chris", isOn: $item.chrisHearted)
@@ -309,6 +314,7 @@ struct ItemDetailView: View {
 
                         labeledField("Notes") {
                             TextField("Add a note", text: $draftNotes, axis: .vertical)
+                                .font(.body)
                                 .lineLimit(3...8)
                                 .padding(12)
                                 .appCard(cornerRadius: 12, scheme: colorScheme)
@@ -331,12 +337,13 @@ struct ItemDetailView: View {
                             }
                         }
 
-                        if !item.notes.isEmpty {
+                        if !item.displayNotes.isEmpty {
                             VStack(alignment: .leading, spacing: 6) {
                                 Text("Notes")
                                     .font(.caption.weight(.semibold))
                                     .foregroundStyle(.secondary)
-                                Text(item.notes)
+                                Text(item.displayNotes)
+                                    .font(.body)
                             }
                         }
                     }
@@ -369,7 +376,7 @@ struct ItemDetailView: View {
         .toolbarBackground(.visible, for: .navigationBar)
         .toolbar(.visible, for: .navigationBar)
         .navigationBarTitleDisplayMode(.inline)
-        .navigationTitle(item.title)
+        .navigationTitle(item.usesCompactSharedText ? "Details" : item.displayTitle)
         .background(HideNavigationBar(hidden: false))
         .onDisappear {
             if isEditing { commitEdits() }
@@ -398,12 +405,14 @@ struct ItemDetailView: View {
 
     private func commitEdits() {
         let trimmedTitle = draftTitle.trimmingCharacters(in: .whitespacesAndNewlines)
-        if !trimmedTitle.isEmpty {
-            item.title = trimmedTitle
-        }
         let trimmedLink = draftLink.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmedNotes = draftNotes.trimmingCharacters(in: .whitespacesAndNewlines)
         item.urlString = trimmedLink.isEmpty ? nil : trimmedLink
-        item.notes = draftNotes.trimmingCharacters(in: .whitespacesAndNewlines)
+        let compact = SharedCopy.isInstagramOrAirbnb(urlString: item.urlString ?? "", title: trimmedTitle)
+        if !trimmedTitle.isEmpty {
+            item.title = compact ? SharedCopy.clamped(trimmedTitle) : trimmedTitle
+        }
+        item.notes = compact ? SharedCopy.clamped(trimmedNotes) : trimmedNotes
         item.category = draftCategory
         withAnimation(.easeInOut(duration: 0.2)) {
             isEditing = false
