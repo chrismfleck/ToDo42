@@ -248,16 +248,12 @@ struct ItemRowView: View {
                     .font(.headline)
                     .lineLimit(2)
                     .foregroundStyle(.primary)
-                if let url = item.urlString, !url.isEmpty {
-                    Text(url)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                } else if !item.notes.isEmpty {
+                if !item.notes.isEmpty {
                     Text(item.notes)
                         .font(.caption)
                         .foregroundStyle(.secondary)
                         .lineLimit(1)
+                        .truncationMode(.tail)
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
