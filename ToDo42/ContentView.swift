@@ -82,11 +82,14 @@ struct ContentView: View {
 
             VStack(alignment: .leading, spacing: 22) {
                 ZStack {
-                    VStack(spacing: 8) {
-                        Text("ToDo 4 2")
-                            .font(.system(size: 34, weight: .bold, design: .rounded))
-                            .italic()
+                    VStack(spacing: 6) {
+                        Image("TitleWordmark")
+                            .renderingMode(.template)
+                            .resizable()
+                            .scaledToFit()
+                            .frame(height: 44)
                             .foregroundStyle(Palette.brandBlue(colorScheme))
+                            .accessibilityLabel("ToDo 4 2")
                         Text("ToDo's for Two")
                             .font(.subheadline.weight(.medium))
                             .foregroundStyle(.secondary)
