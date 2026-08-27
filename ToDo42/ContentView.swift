@@ -469,18 +469,23 @@ struct ItemRowView: View {
                 .frame(width: 76, height: 76)
 
             VStack(alignment: .leading, spacing: 6) {
-                Text(SharedText.listTitle(item.title))
-                    .lineLimit(2)
-                    .foregroundStyle(.primary)
+                LockedText(
+                    text: item.title,
+                    font: UIFont.systemFont(ofSize: 16, weight: .semibold),
+                    color: .label,
+                    lines: 2
+                )
                 if !item.notes.isEmpty {
-                    Text(verbatim: SharedText.normalized(item.notes))
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                        .truncationMode(.tail)
+                    LockedText(
+                        text: item.notes,
+                        font: UIFont.systemFont(ofSize: 12, weight: .regular),
+                        color: .secondaryLabel,
+                        lines: 1
+                    )
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
+            .dynamicTypeSize(.large)
 
             if showsDragHandle {
                 Image(systemName: "line.3.horizontal")
@@ -503,6 +508,40 @@ struct ItemRowView: View {
         .padding(14)
         .appCard(cornerRadius: 18, scheme: colorScheme)
         .opacity(item.isDone ? 0.7 : 1)
+    }
+}
+
+private struct LockedText: UIViewRepresentable {
+    var text: String
+    var font: UIFont
+    var color: UIColor
+    var lines: Int
+
+    func makeUIView(context: Context) -> UILabel {
+        let label = UILabel()
+        label.numberOfLines = lines
+        label.lineBreakMode = .byTruncatingTail
+        label.adjustsFontForContentSizeCategory = false
+        label.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        label.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        return label
+    }
+
+    func updateUIView(_ label: UILabel, context: Context) {
+        label.text = SharedText.normalized(text)
+        label.font = font
+        label.textColor = color
+        label.numberOfLines = lines
+    }
+
+    func sizeThatFits(_ proposal: ProposedViewSize, uiView: UILabel, context: Context) -> CGSize? {
+        let width = proposal.width ?? uiView.preferredMaxLayoutWidth
+        guard width.isFinite, width > 0 else {
+            return uiView.intrinsicContentSize
+        }
+        uiView.preferredMaxLayoutWidth = width
+        let fitted = uiView.sizeThatFits(CGSize(width: width, height: .greatestFiniteMagnitude))
+        return CGSize(width: width, height: ceil(fitted.height))
     }
 }
 
