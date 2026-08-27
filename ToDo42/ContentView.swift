@@ -1,6 +1,7 @@
 import SwiftUI
 import SwiftData
 import UIKit
+import PhotosUI
 
 enum Palette {
     static func isDark(_ scheme: ColorScheme) -> Bool {
@@ -275,10 +276,24 @@ struct ItemDetailView: View {
     @State private var draftLink = ""
     @State private var draftNotes = ""
     @State private var draftCategory: ItemCategory = .places
+    @State private var photoItem: PhotosPickerItem?
 
     var body: some View {
         VStack(spacing: 0) {
             HStack(spacing: 12) {
+                Button {
+                    if isEditing { commitEdits() }
+                    dismiss()
+                } label: {
+                    Image(systemName: "chevron.left")
+                        .font(.body.weight(.semibold))
+                        .foregroundStyle(Palette.brandBlue(colorScheme))
+                        .frame(width: 32, height: 32, alignment: .leading)
+                }
+                .accessibilityLabel("Back")
+
+                Spacer()
+
                 Button(isEditing ? "Done" : "Edit") {
                     if isEditing {
                         commitEdits()
@@ -286,37 +301,18 @@ struct ItemDetailView: View {
                         beginEditing()
                     }
                 }
-                .font(.headline.weight(.semibold))
-                .foregroundStyle(.white)
-                .padding(.horizontal, 16)
-                .padding(.vertical, 8)
-                .background(Palette.brandBlue(colorScheme), in: Capsule())
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(Palette.brandBlue(colorScheme))
                 .disabled(isEditing && draftTitle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                 .accessibilityLabel(isEditing ? "Done editing" : "Edit item")
-
-                Spacer()
-
-                Button {
-                    if isEditing { commitEdits() }
-                    dismiss()
-                } label: {
-                    Image(systemName: "xmark.circle.fill")
-                        .font(.system(size: 28))
-                        .symbolRenderingMode(.hierarchical)
-                        .foregroundStyle(.secondary)
-                }
-                .accessibilityLabel("Close")
             }
             .padding(.horizontal, 20)
-            .padding(.vertical, 12)
+            .padding(.vertical, 8)
             .background(Palette.canvas(colorScheme))
 
             ScrollView {
                 VStack(alignment: .leading, spacing: 0) {
-                    ItemPhotoView(item: item, cornerRadius: 0, placeholderIconSize: 48)
-                        .frame(maxWidth: .infinity)
-                        .frame(height: 280)
-                        .clipped()
+                    photoSection
 
                     VStack(alignment: .leading, spacing: 16) {
                         if isEditing {
@@ -391,9 +387,62 @@ struct ItemDetailView: View {
             .scrollDismissesKeyboard(.interactively)
         }
         .background(Palette.canvas(colorScheme).ignoresSafeArea())
+        .onChange(of: photoItem) { _, newItem in
+            Task { await applyPickedPhoto(newItem) }
+        }
         .onDisappear {
             if isEditing { commitEdits() }
         }
+    }
+
+    @ViewBuilder
+    private var photoSection: some View {
+        if item.hasPhoto {
+            ItemPhotoView(item: item, cornerRadius: 0, placeholderIconSize: 48)
+                .frame(maxWidth: .infinity)
+                .frame(height: 280)
+                .clipped()
+        } else {
+            PhotosPicker(selection: $photoItem, matching: .images) {
+                VStack(spacing: 10) {
+                    Image(systemName: "photo.badge.plus")
+                        .font(.system(size: 36, weight: .medium))
+                    Text("Upload photo")
+                        .font(.subheadline.weight(.semibold))
+                }
+                .foregroundStyle(Palette.brandBlue(colorScheme))
+                .frame(maxWidth: .infinity)
+                .frame(height: 280)
+                .background(Palette.canvas(colorScheme))
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Upload photo")
+        }
+    }
+
+    private func applyPickedPhoto(_ picked: PhotosPickerItem?) async {
+        guard let picked else { return }
+        guard let data = try? await picked.loadTransferable(type: Data.self),
+              let image = UIImage(data: data),
+              let jpeg = compressedJPEG(image) else { return }
+        item.imageData = jpeg
+        item.imageAssetName = nil
+        item.imageURLString = nil
+    }
+
+    private func compressedJPEG(_ image: UIImage) -> Data? {
+        let maxSide: CGFloat = 1600
+        let longest = max(image.size.width, image.size.height)
+        let scaled: UIImage
+        if longest > maxSide {
+            let scale = maxSide / longest
+            let size = CGSize(width: image.size.width * scale, height: image.size.height * scale)
+            let renderer = UIGraphicsImageRenderer(size: size)
+            scaled = renderer.image { _ in image.draw(in: CGRect(origin: .zero, size: size)) }
+        } else {
+            scaled = image
+        }
+        return scaled.jpegData(compressionQuality: 0.82)
     }
 
     @ViewBuilder
