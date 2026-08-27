@@ -45,7 +45,7 @@ struct ContentView: View {
     @State private var category: ItemCategory = .places
     @State private var showAdd = false
     @State private var showPairing = false
-    @ObservedObject private var pairSession = PairSession.shared
+    @Environment(PairSession.self) private var pairSession
     @State private var swipingItemID: UUID?
     @State private var selectedItem: TodoItem?
     @State private var isListEditing = false
@@ -218,6 +218,7 @@ struct ContentView: View {
         }
         .sheet(isPresented: $showPairing) {
             PairingView()
+                .environment(PairSession.shared)
         }
         .onAppear {
             importSharedDrafts()
@@ -771,7 +772,6 @@ struct ItemDetailView: View {
         item.imageData = jpeg
         item.imageAssetName = nil
         item.imageURLString = nil
-        PairSession.shared.noteLocalEdit(item, kind: "edit")
         PairSession.shared.noteLocalEdit(item, kind: "edit")
     }
 

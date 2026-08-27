@@ -1,4 +1,5 @@
 import Foundation
+import Observation
 import SwiftData
 import CloudKit
 import UIKit
@@ -12,15 +13,16 @@ enum PairRole: String {
     var partnerName: String { self == .chris ? "Deena" : "Chris" }
 }
 
+@Observable
 @MainActor
-final class PairSession: ObservableObject {
+final class PairSession {
     static let shared = PairSession()
 
-    @Published var pairID: String?
-    @Published var role: PairRole?
-    @Published var inviteCode: String?
-    @Published var statusMessage = ""
-    @Published var isBusy = false
+    var pairID: String?
+    var role: PairRole?
+    var inviteCode: String?
+    var statusMessage = ""
+    var isBusy = false
 
     private let defaults = UserDefaults.standard
     private let pairKey = "todo42.pairID"

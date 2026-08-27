@@ -3,7 +3,7 @@ import SwiftUI
 struct PairingView: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.colorScheme) private var colorScheme
-    @ObservedObject private var session = PairSession.shared
+    @Environment(PairSession.self) private var session
     @State private var joinCode = ""
     @State private var errorText = ""
     @State private var showShare = false

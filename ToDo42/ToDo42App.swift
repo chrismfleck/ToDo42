@@ -11,7 +11,7 @@ struct ToDo42App: App {
         WindowGroup {
             ContentView()
                 .background(PaletteHost())
-                .environmentObject(PairSession.shared)
+                .environment(PairSession.shared)
         }
         .modelContainer(for: TodoItem.self)
     }
