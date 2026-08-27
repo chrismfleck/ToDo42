@@ -389,10 +389,20 @@ struct SwipeToDeleteRow<Content: View>: View {
     var onDelete: () -> Void
     @ViewBuilder var content: Content
     @State private var offset: CGFloat = 0
+    @State private var rowWidth: CGFloat = 0
 
     var body: some View {
         content
             .offset(x: isEnabled ? offset : 0)
+            .background {
+                GeometryReader { geo in
+                    Color.clear
+                        .onAppear { rowWidth = geo.size.width }
+                        .onChange(of: geo.size.width) { _, width in
+                            rowWidth = width
+                        }
+                }
+            }
             .modifier(OptionalSwipeGesture(isEnabled: isEnabled, gesture: swipeGesture))
             .onChange(of: isEnabled) { _, enabled in
                 guard !enabled, offset != 0 else { return }
@@ -430,7 +440,7 @@ struct SwipeToDeleteRow<Content: View>: View {
                     || value.predictedEndTranslation.width < -200
                 if shouldDelete {
                     withAnimation(.easeIn(duration: 0.18)) {
-                        offset = -UIScreen.main.bounds.width
+                        offset = -(rowWidth > 0 ? rowWidth : 400)
                     }
                     DispatchQueue.main.asyncAfter(deadline: .now() + 0.18) {
                         onDelete()
