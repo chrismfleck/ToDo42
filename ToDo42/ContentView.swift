@@ -61,6 +61,14 @@ struct ContentView: View {
             }
     }
 
+    private var pagerItems: [TodoItem] {
+        var list = filtered
+        if let selected = selectedItem, !list.contains(where: { $0.id == selected.id }) {
+            list.insert(selected, at: 0)
+        }
+        return list
+    }
+
     private var reorderRowStride: CGFloat {
         let heights = filtered.compactMap { rowHeights[$0.id] }
         let averageHeight = heights.isEmpty ? 104 : heights.reduce(0, +) / CGFloat(heights.count)
@@ -193,10 +201,8 @@ struct ContentView: View {
             get: { selectedItem != nil },
             set: { if !$0 { selectedItem = nil } }
         )) {
-            if let selectedItem {
-                ItemDetailView(item: selectedItem)
-                    .presentationBackground(Palette.canvas(colorScheme))
-            }
+            ItemPagerView(items: pagerItems, selectedItem: $selectedItem)
+                .presentationBackground(Palette.canvas(colorScheme))
         }
         .sheet(isPresented: $showAdd) {
             AddItemView(category: category)
@@ -478,10 +484,49 @@ struct ItemRowView: View {
     }
 }
 
+struct ItemPagerView: View {
+    let items: [TodoItem]
+    @Binding var selectedItem: TodoItem?
+    @Environment(\.colorScheme) private var colorScheme
+    @State private var selectedID: UUID
+    @State private var isEditing = false
+
+    init(items: [TodoItem], selectedItem: Binding<TodoItem?>) {
+        self.items = items
+        self._selectedItem = selectedItem
+        _selectedID = State(initialValue: selectedItem.wrappedValue?.id ?? items.first?.id ?? UUID())
+    }
+
+    var body: some View {
+        TabView(selection: $selectedID) {
+            ForEach(items, id: \.id) { item in
+                ItemDetailView(item: item, onEditingChange: { editing in
+                    if item.id == selectedID {
+                        isEditing = editing
+                    }
+                })
+                .tag(item.id)
+            }
+        }
+        .tabViewStyle(.page(indexDisplayMode: .never))
+        .scrollDisabled(isEditing)
+        .background(Palette.canvas(colorScheme).ignoresSafeArea())
+        .onChange(of: selectedID) { _, newID in
+            if let match = items.first(where: { $0.id == newID }) {
+                selectedItem = match
+            }
+            isEditing = false
+            UIImpactFeedbackGenerator(style: .light).impactOccurred()
+        }
+        .accessibilityHint(items.count > 1 ? "Swipe left or right to see other items" : "")
+    }
+}
+
 struct ItemDetailView: View {
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.dismiss) private var dismiss
     @Bindable var item: TodoItem
+    var onEditingChange: ((Bool) -> Void)? = nil
     @State private var isEditing = false
     @State private var draftTitle = ""
     @State private var draftLink = ""
@@ -596,6 +641,7 @@ struct ItemDetailView: View {
             }
             .scrollContentBackground(.hidden)
             .scrollDismissesKeyboard(.interactively)
+            .scrollDisabled(false)
         }
         .background(Palette.canvas(colorScheme).ignoresSafeArea())
         .onChange(of: photoItem) { _, newItem in
@@ -674,6 +720,7 @@ struct ItemDetailView: View {
         withAnimation(.easeInOut(duration: 0.2)) {
             isEditing = true
         }
+        onEditingChange?(true)
     }
 
     private func commitEdits() {
@@ -688,6 +735,7 @@ struct ItemDetailView: View {
         withAnimation(.easeInOut(duration: 0.2)) {
             isEditing = false
         }
+        onEditingChange?(false)
     }
 }
 
