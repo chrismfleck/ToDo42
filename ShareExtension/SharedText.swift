@@ -38,11 +38,11 @@ enum SharedText {
         ]
         for base in bases {
             guard value >= base else { continue }
-            let offset = value - base
-            if offset < 26, let scalar = Unicode.Scalar(0x41 + offset) {
+            let offset = Int(value - base)
+            if offset < 26, let scalar = Unicode.Scalar(0x41 + UInt32(offset)) {
                 return Character(scalar)
             }
-            if offset < 52, let scalar = Unicode.Scalar(0x61 + (offset - 26)) {
+            if offset < 52, let scalar = Unicode.Scalar(0x61 + UInt32(offset - 26)) {
                 return Character(scalar)
             }
         }
@@ -52,6 +52,7 @@ enum SharedText {
     private static func mathDigit(_ value: UInt32) -> Character? {
         let bases: [UInt32] = [0x1D7CE, 0x1D7D8, 0x1D7E2, 0x1D7EC, 0x1D7F6]
         for base in bases {
+            guard value >= base else { continue }
             let offset = value - base
             if offset < 10, let scalar = Unicode.Scalar(0x30 + offset) {
                 return Character(scalar)
