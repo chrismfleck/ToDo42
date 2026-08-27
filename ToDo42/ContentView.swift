@@ -681,25 +681,10 @@ struct ItemDetailView: View {
         guard let picked else { return }
         guard let data = try? await picked.loadTransferable(type: Data.self),
               let image = UIImage(data: data),
-              let jpeg = compressedJPEG(image) else { return }
+              let jpeg = PhotoJPEG.compressed(image) else { return }
         item.imageData = jpeg
         item.imageAssetName = nil
         item.imageURLString = nil
-    }
-
-    private func compressedJPEG(_ image: UIImage) -> Data? {
-        let maxSide: CGFloat = 1600
-        let longest = max(image.size.width, image.size.height)
-        let scaled: UIImage
-        if longest > maxSide {
-            let scale = maxSide / longest
-            let size = CGSize(width: image.size.width * scale, height: image.size.height * scale)
-            let renderer = UIGraphicsImageRenderer(size: size)
-            scaled = renderer.image { _ in image.draw(in: CGRect(origin: .zero, size: size)) }
-        } else {
-            scaled = image
-        }
-        return scaled.jpegData(compressionQuality: 0.82)
     }
 
     @ViewBuilder
@@ -736,6 +721,22 @@ struct ItemDetailView: View {
             isEditing = false
         }
         onEditingChange?(false)
+    }
+}
+
+private enum PhotoJPEG {
+    static func compressed(_ image: UIImage, maxSide: CGFloat = 1600, quality: CGFloat = 0.82) -> Data? {
+        let longest = max(image.size.width, image.size.height)
+        let scaled: UIImage
+        if longest > maxSide {
+            let scale = maxSide / longest
+            let size = CGSize(width: image.size.width * scale, height: image.size.height * scale)
+            let renderer = UIGraphicsImageRenderer(size: size)
+            scaled = renderer.image { _ in image.draw(in: CGRect(origin: .zero, size: size)) }
+        } else {
+            scaled = image
+        }
+        return scaled.jpegData(compressionQuality: quality)
     }
 }
 
@@ -813,11 +814,43 @@ struct AddItemView: View {
     @State private var urlString = ""
     @State private var notes = ""
     @State private var selectedCategory: ItemCategory = .places
+    @State private var photoItem: PhotosPickerItem?
+    @State private var photoData: Data?
 
     var body: some View {
         NavigationStack {
             Form {
                 Section("Details") {
+                    PhotosPicker(selection: $photoItem, matching: .images) {
+                        if let photoData, let uiImage = UIImage(data: photoData) {
+                            HStack(spacing: 12) {
+                                Image(uiImage: uiImage)
+                                    .resizable()
+                                    .scaledToFill()
+                                    .frame(width: 64, height: 64)
+                                    .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                                VStack(alignment: .leading, spacing: 4) {
+                                    Text("Photo added")
+                                        .foregroundStyle(.primary)
+                                    Text("Tap to change")
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                }
+                                Spacer()
+                            }
+                        } else {
+                            Label("Add photo", systemImage: "photo.badge.plus")
+                        }
+                    }
+                    .accessibilityLabel(photoData == nil ? "Add photo" : "Change photo")
+
+                    if photoData != nil {
+                        Button("Remove photo", role: .destructive) {
+                            photoItem = nil
+                            photoData = nil
+                        }
+                    }
+
                     TextField("Title", text: $title)
                     TextField("Link", text: $urlString)
                         .textInputAutocapitalization(.never)
@@ -843,8 +876,19 @@ struct AddItemView: View {
                 }
             }
             .onAppear { selectedCategory = category }
+            .onChange(of: photoItem) { _, newItem in
+                Task { await loadPickedPhoto(newItem) }
+            }
         }
         .tint(Palette.brandBlue(colorScheme))
+    }
+
+    private func loadPickedPhoto(_ picked: PhotosPickerItem?) async {
+        guard let picked else { return }
+        guard let data = try? await picked.loadTransferable(type: Data.self),
+              let image = UIImage(data: data),
+              let jpeg = PhotoJPEG.compressed(image) else { return }
+        photoData = jpeg
     }
 
     private func save() {
@@ -857,6 +901,7 @@ struct AddItemView: View {
                 title: trimmedTitle,
                 category: selectedCategory,
                 urlString: trimmedLink.isEmpty ? nil : trimmedLink,
+                imageData: photoData,
                 notes: trimmedNotes,
                 sortOrder: nextSortOrder
             )
