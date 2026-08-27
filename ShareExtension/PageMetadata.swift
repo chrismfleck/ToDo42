@@ -50,7 +50,12 @@ enum PageMetadata {
                 image = await downloadImage(imageURL)
             }
 
-            return Result(title: title, description: description, image: image)
+            let compact = SharedCopy.isInstagramOrAirbnb(urlString: urlString, title: title ?? "")
+            return Result(
+                title: compact ? title.map(SharedCopy.clamped) : title,
+                description: compact ? description.map(SharedCopy.clamped) : description,
+                image: image
+            )
         } catch {
             return Result()
         }

@@ -99,6 +99,10 @@ private enum SharedContent {
                 result.title = "Shared item"
             }
         }
+        if SharedCopy.isInstagramOrAirbnb(urlString: result.urlString, title: result.title) {
+            result.title = SharedCopy.clamped(result.title)
+            result.notes = SharedCopy.clamped(result.notes)
+        }
         return result
     }
 
@@ -262,12 +266,15 @@ struct ShareFormView: View {
 
                 Section("Details") {
                     TextField("Title", text: $title)
+                        .font(.body)
                     TextField("Link", text: $urlString)
+                        .font(.body)
                         .textInputAutocapitalization(.never)
                         .keyboardType(.URL)
                         .autocorrectionDisabled()
                     TextField("Notes", text: $notes, axis: .vertical)
-                        .lineLimit(3...6)
+                        .font(.body)
+                        .lineLimit(3...8)
                     Picker("Category", selection: $category) {
                         Text("Places").tag("places")
                         Text("Fun").tag("fun")
@@ -283,11 +290,16 @@ struct ShareFormView: View {
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Save") {
+                        let compact = SharedCopy.isInstagramOrAirbnb(urlString: urlString, title: title)
                         onSave(
                             SharePayload(
-                                title: title.trimmingCharacters(in: .whitespacesAndNewlines),
+                                title: compact
+                                    ? SharedCopy.clamped(title)
+                                    : title.trimmingCharacters(in: .whitespacesAndNewlines),
                                 urlString: urlString.trimmingCharacters(in: .whitespacesAndNewlines),
-                                notes: notes.trimmingCharacters(in: .whitespacesAndNewlines),
+                                notes: compact
+                                    ? SharedCopy.clamped(notes)
+                                    : notes.trimmingCharacters(in: .whitespacesAndNewlines),
                                 category: category
                             ),
                             previewImage
@@ -305,12 +317,17 @@ struct ShareFormView: View {
         guard link.hasPrefix("http") else { return }
         isLoadingMeta = previewImage == nil
         let meta = await PageMetadata.fetch(from: link)
+        let compactShared = SharedCopy.isInstagramOrAirbnb(urlString: link, title: title)
         if PageMetadata.isPlaceholderTitle(title), let pageTitle = meta.title, !pageTitle.isEmpty {
-            title = pageTitle
+            title = compactShared ? SharedCopy.clamped(pageTitle) : pageTitle
             category = ShareInbox.guessedCategory(urlString: link, title: pageTitle)
+        } else if compactShared {
+            title = SharedCopy.clamped(title)
         }
         if notes.isEmpty, let description = meta.description, !description.isEmpty {
-            notes = description
+            notes = compactShared ? SharedCopy.clamped(description) : description
+        } else if compactShared {
+            notes = SharedCopy.clamped(notes)
         }
         if previewImage == nil {
             previewImage = meta.image

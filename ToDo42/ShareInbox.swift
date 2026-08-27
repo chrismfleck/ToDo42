@@ -19,6 +19,27 @@ struct SharePayload: Codable {
     var imageFileName: String?
 }
 
+enum SharedCopy {
+    static let characterLimit = 300
+
+    static func isInstagramOrAirbnb(urlString: String, title: String = "") -> Bool {
+        let hay = "\(urlString) \(title)".lowercased()
+        return hay.contains("instagram") || hay.contains("airbnb")
+    }
+
+    static func clamped(_ text: String, limit: Int = characterLimit) -> String {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard trimmed.count > limit else { return trimmed }
+        let end = trimmed.index(trimmed.startIndex, offsetBy: limit)
+        var clipped = String(trimmed[..<end])
+        if let space = clipped.lastIndex(where: { $0.isWhitespace }),
+           clipped.distance(from: clipped.startIndex, to: space) >= limit / 2 {
+            clipped = String(clipped[..<space])
+        }
+        return clipped.trimmingCharacters(in: .whitespacesAndNewlines) + "…"
+    }
+}
+
 enum ShareInbox {
     static func consumeDrafts() -> [(SharePayload, Data?)] {
         guard let inbox = AppGroup.inboxURL else { return [] }

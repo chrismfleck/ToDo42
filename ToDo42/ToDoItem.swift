@@ -69,6 +69,18 @@ final class TodoItem {
         if let url = imageURLString, !url.isEmpty { return true }
         return false
     }
+
+    var usesCompactSharedText: Bool {
+        SharedCopy.isInstagramOrAirbnb(urlString: urlString ?? "", title: title)
+    }
+
+    var displayTitle: String {
+        usesCompactSharedText ? SharedCopy.clamped(title) : title
+    }
+
+    var displayNotes: String {
+        usesCompactSharedText ? SharedCopy.clamped(notes) : notes
+    }
 }
 
 enum SampleData {
