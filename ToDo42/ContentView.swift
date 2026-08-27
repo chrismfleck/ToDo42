@@ -44,6 +44,8 @@ struct ContentView: View {
     @Environment(\.scenePhase) private var scenePhase
     @State private var category: ItemCategory = .places
     @State private var showAdd = false
+    @State private var showPairing = false
+    @Environment(PairSession.self) private var pairSession
     @State private var swipingItemID: UUID?
     @State private var selectedItem: TodoItem?
     @State private var isListEditing = false
@@ -82,20 +84,15 @@ struct ContentView: View {
 
             VStack(alignment: .leading, spacing: 22) {
                 ZStack {
-                    VStack(spacing: 6) {
-                        Image("TitleWordmark")
-                            .renderingMode(.template)
-                            .resizable()
-                            .scaledToFit()
-                            .frame(height: 44)
-                            .foregroundStyle(Palette.brandBlue(colorScheme))
-                            .accessibilityLabel("ToDo 4 2")
-                        Text("ToDo's for Two")
-                            .font(.subheadline.weight(.medium))
-                            .foregroundStyle(.secondary)
-                    }
-                    .frame(maxWidth: .infinity)
-                    .padding(.top, 12)
+                    Image("TitleWordmark")
+                        .renderingMode(.template)
+                        .resizable()
+                        .scaledToFit()
+                        .frame(height: 44)
+                        .foregroundStyle(Palette.brandBlue(colorScheme))
+                        .accessibilityLabel("ToDo 4 2")
+                        .frame(maxWidth: .infinity)
+                        .padding(.top, 12)
 
                     HStack {
                         Button(isListEditing ? "Done" : "Edit") {
@@ -112,6 +109,13 @@ struct ContentView: View {
                         .accessibilityLabel(isListEditing ? "Done reordering" : "Reorder list")
 
                         Spacer()
+
+                        Button { showPairing = true } label: {
+                            Image(systemName: pairSession.isPaired ? "person.2.fill" : "person.2")
+                                .font(.system(size: 22, weight: .semibold))
+                                .foregroundStyle(Palette.brandBlue(colorScheme))
+                        }
+                        .accessibilityLabel("Pair phones")
 
                         Button { showAdd = true } label: {
                             Image(systemName: "plus.circle.fill")
@@ -142,7 +146,9 @@ struct ContentView: View {
                             ) {
                                 withAnimation(.easeIn(duration: 0.2)) {
                                     if selectedItem?.id == item.id { selectedItem = nil }
+                                    let id = item.id
                                     modelContext.delete(item)
+                                    Task { await CloudSync.shared.deleteRemote(id) }
                                 }
                             } content: {
                                 Group {
@@ -210,13 +216,24 @@ struct ContentView: View {
         .sheet(isPresented: $showAdd) {
             AddItemView(category: category)
         }
+        .sheet(isPresented: $showPairing) {
+            PairingView()
+                .environment(PairSession.shared)
+        }
         .onAppear {
             importSharedDrafts()
             seedIfNeeded()
             normalizeStoredText()
+            Task { await CloudSync.shared.sync(modelContext: modelContext, items: items) }
         }
         .onChange(of: scenePhase) { _, phase in
-            if phase == .active { importSharedDrafts() }
+            if phase == .active {
+                importSharedDrafts()
+                Task { await CloudSync.shared.sync(modelContext: modelContext, items: items) }
+            }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .todo42CloudPush)) { _ in
+            Task { await CloudSync.shared.sync(modelContext: modelContext, items: items) }
         }
         .onChange(of: category) { _, _ in
             reorderDrag = nil
@@ -652,6 +669,15 @@ struct ItemDetailView: View {
                         }
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 4)
+                        .onChange(of: item.chrisHearted) { _, _ in
+                            PairSession.shared.noteLocalEdit(item, kind: "heart")
+                        }
+                        .onChange(of: item.deenaHearted) { _, _ in
+                            PairSession.shared.noteLocalEdit(item, kind: "heart")
+                        }
+                        .onChange(of: item.isDone) { _, _ in
+                            PairSession.shared.noteLocalEdit(item, kind: "edit")
+                        }
 
                         if isEditing {
                             labeledField("Link") {
@@ -746,6 +772,7 @@ struct ItemDetailView: View {
         item.imageData = jpeg
         item.imageAssetName = nil
         item.imageURLString = nil
+        PairSession.shared.noteLocalEdit(item, kind: "edit")
     }
 
     @ViewBuilder
@@ -778,6 +805,7 @@ struct ItemDetailView: View {
         item.urlString = trimmedLink.isEmpty ? nil : trimmedLink
         item.notes = SharedText.normalized(draftNotes)
         item.category = draftCategory
+        PairSession.shared.noteLocalEdit(item, kind: "edit")
         withAnimation(.easeInOut(duration: 0.2)) {
             isEditing = false
         }
@@ -957,16 +985,16 @@ struct AddItemView: View {
         let trimmedLink = urlString.trimmingCharacters(in: .whitespacesAndNewlines)
         let trimmedNotes = SharedText.normalized(notes)
         let nextSortOrder = (items.filter { $0.category == selectedCategory }.map(\.sortOrder).min() ?? 0) - 1
-        modelContext.insert(
-            TodoItem(
-                title: trimmedTitle,
-                category: selectedCategory,
-                urlString: trimmedLink.isEmpty ? nil : trimmedLink,
-                imageData: photoData,
-                notes: trimmedNotes,
-                sortOrder: nextSortOrder
-            )
+        let item = TodoItem(
+            title: trimmedTitle,
+            category: selectedCategory,
+            urlString: trimmedLink.isEmpty ? nil : trimmedLink,
+            imageData: photoData,
+            notes: trimmedNotes,
+            sortOrder: nextSortOrder
         )
+        modelContext.insert(item)
+        PairSession.shared.noteLocalEdit(item, kind: "add")
         dismiss()
     }
 }

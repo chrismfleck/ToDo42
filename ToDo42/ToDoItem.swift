@@ -35,6 +35,8 @@ final class TodoItem {
     var isDone: Bool
     var createdAt: Date
     var sortOrder: Int = 0
+    var updatedAt: Date = .now
+    var lastEditor: String = ""
 
     init(
         title: String,
@@ -58,7 +60,9 @@ final class TodoItem {
         self.deenaHearted = false
         self.isDone = false
         self.createdAt = .now
+        self.updatedAt = .now
         self.sortOrder = sortOrder
+        self.lastEditor = ""
     }
 
     var category: ItemCategory {
