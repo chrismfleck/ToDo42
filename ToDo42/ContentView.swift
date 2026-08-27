@@ -36,6 +36,7 @@ struct ContentView: View {
     @State private var category: ItemCategory = .places
     @State private var showAdd = false
     @State private var swipingItemID: UUID?
+    @State private var selectedItemID: UUID?
 
     private var filtered: [TodoItem] {
         items.filter { $0.category == category }
@@ -86,11 +87,12 @@ struct ContentView: View {
                                     swipingItemID: $swipingItemID
                                 ) {
                                     withAnimation(.easeIn(duration: 0.2)) {
+                                        if selectedItemID == item.id { selectedItemID = nil }
                                         modelContext.delete(item)
                                     }
                                 } content: {
-                                    NavigationLink {
-                                        ItemDetailView(item: item)
+                                    Button {
+                                        selectedItemID = item.id
                                     } label: {
                                         ItemRowView(item: item)
                                     }
@@ -102,9 +104,17 @@ struct ContentView: View {
                         .padding(.top, 8)
                         .padding(.bottom, 24)
                     }
+                    .scrollContentBackground(.hidden)
+                    .background(Palette.canvas(colorScheme))
                 }
             }
-            .toolbar(.hidden, for: .navigationBar)
+            .background(HideNavigationBar(hidden: true))
+            .containerBackground(Palette.canvas(colorScheme), for: .navigation)
+            .navigationDestination(item: $selectedItemID) { id in
+                if let item = items.first(where: { $0.id == id }) {
+                    ItemDetailView(item: item)
+                }
+            }
             .sheet(isPresented: $showAdd) {
                 AddItemView(category: category)
             }
@@ -117,6 +127,7 @@ struct ContentView: View {
             }
         }
         .tint(Palette.brandBlue(colorScheme))
+        .containerBackground(Palette.canvas(colorScheme), for: .navigation)
     }
 
     private func seedIfNeeded() {
@@ -257,7 +268,86 @@ struct ItemDetailView: View {
     @State private var draftCategory: ItemCategory = .places
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 0) {
+                ItemPhotoView(item: item, cornerRadius: 0, placeholderIconSize: 48)
+                    .frame(maxWidth: .infinity)
+                    .frame(height: 280)
+                    .clipped()
+
+                VStack(alignment: .leading, spacing: 16) {
+                    if isEditing {
+                        labeledField("Title") {
+                            TextField("Title", text: $draftTitle)
+                                .font(.title.bold())
+                                .padding(12)
+                                .appCard(cornerRadius: 12, scheme: colorScheme)
+                        }
+                    } else {
+                        Text(item.title)
+                            .font(.title.bold())
+                            .padding(.top, 4)
+                    }
+
+                    HStack(spacing: 28) {
+                        PartnerHeartButton(name: "Chris", isOn: $item.chrisHearted)
+                        PartnerHeartButton(name: "Deena", isOn: $item.deenaHearted)
+                        DoneCheckButton(isDone: $item.isDone, size: 34, name: "Done")
+                    }
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 4)
+
+                    if isEditing {
+                        labeledField("Link") {
+                            TextField("https://", text: $draftLink)
+                                .textInputAutocapitalization(.never)
+                                .keyboardType(.URL)
+                                .autocorrectionDisabled()
+                                .padding(12)
+                                .appCard(cornerRadius: 12, scheme: colorScheme)
+                        }
+
+                        labeledField("Notes") {
+                            TextField("Add a note", text: $draftNotes, axis: .vertical)
+                                .lineLimit(3...8)
+                                .padding(12)
+                                .appCard(cornerRadius: 12, scheme: colorScheme)
+                        }
+
+                        labeledField("Category") {
+                            Picker("Category", selection: $draftCategory) {
+                                ForEach(ItemCategory.allCases) { cat in
+                                    Text(cat.title).tag(cat)
+                                }
+                            }
+                            .pickerStyle(.segmented)
+                        }
+                    } else {
+                        if let s = item.urlString?.trimmingCharacters(in: .whitespacesAndNewlines),
+                           let url = URL(string: s), !s.isEmpty {
+                            Link(destination: url) {
+                                Label("Open link", systemImage: "link")
+                                    .font(.headline)
+                            }
+                        }
+
+                        if !item.notes.isEmpty {
+                            VStack(alignment: .leading, spacing: 6) {
+                                Text("Notes")
+                                    .font(.caption.weight(.semibold))
+                                    .foregroundStyle(.secondary)
+                                Text(item.notes)
+                            }
+                        }
+                    }
+                }
+                .padding(20)
+            }
+        }
+        .scrollContentBackground(.hidden)
+        .scrollDismissesKeyboard(.interactively)
+        .background(Palette.canvas(colorScheme))
+        .safeAreaInset(edge: .top, alignment: .leading, spacing: 0) {
             Button(isEditing ? "Done" : "Edit") {
                 if isEditing {
                     commitEdits()
@@ -265,97 +355,22 @@ struct ItemDetailView: View {
                     beginEditing()
                 }
             }
-            .font(.body.weight(.semibold))
+            .font(.headline.weight(.semibold))
             .foregroundStyle(Palette.brandBlue(colorScheme))
             .disabled(isEditing && draftTitle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
             .accessibilityLabel(isEditing ? "Done editing" : "Edit item")
             .padding(.horizontal, 20)
-            .padding(.vertical, 10)
-
-            ScrollView {
-                VStack(alignment: .leading, spacing: 0) {
-                    ItemPhotoView(item: item, cornerRadius: 0, placeholderIconSize: 48)
-                        .frame(maxWidth: .infinity)
-                        .frame(height: 280)
-                        .clipped()
-
-                    VStack(alignment: .leading, spacing: 16) {
-                        if isEditing {
-                            labeledField("Title") {
-                                TextField("Title", text: $draftTitle)
-                                    .font(.title.bold())
-                                    .padding(12)
-                                    .appCard(cornerRadius: 12, scheme: colorScheme)
-                            }
-                        } else {
-                            Text(item.title)
-                                .font(.title.bold())
-                                .padding(.top, 4)
-                        }
-
-                        HStack(spacing: 28) {
-                            PartnerHeartButton(name: "Chris", isOn: $item.chrisHearted)
-                            PartnerHeartButton(name: "Deena", isOn: $item.deenaHearted)
-                            DoneCheckButton(isDone: $item.isDone, size: 34, name: "Done")
-                        }
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 4)
-
-                        if isEditing {
-                            labeledField("Link") {
-                                TextField("https://", text: $draftLink)
-                                    .textInputAutocapitalization(.never)
-                                    .keyboardType(.URL)
-                                    .autocorrectionDisabled()
-                                    .padding(12)
-                                    .appCard(cornerRadius: 12, scheme: colorScheme)
-                            }
-
-                            labeledField("Notes") {
-                                TextField("Add a note", text: $draftNotes, axis: .vertical)
-                                    .lineLimit(3...8)
-                                    .padding(12)
-                                    .appCard(cornerRadius: 12, scheme: colorScheme)
-                            }
-
-                            labeledField("Category") {
-                                Picker("Category", selection: $draftCategory) {
-                                    ForEach(ItemCategory.allCases) { cat in
-                                        Text(cat.title).tag(cat)
-                                    }
-                                }
-                                .pickerStyle(.segmented)
-                            }
-                        } else {
-                            if let s = item.urlString?.trimmingCharacters(in: .whitespacesAndNewlines),
-                               let url = URL(string: s), !s.isEmpty {
-                                Link(destination: url) {
-                                    Label("Open link", systemImage: "link")
-                                        .font(.headline)
-                                }
-                            }
-
-                            if !item.notes.isEmpty {
-                                VStack(alignment: .leading, spacing: 6) {
-                                    Text("Notes")
-                                        .font(.caption.weight(.semibold))
-                                        .foregroundStyle(.secondary)
-                                    Text(item.notes)
-                                }
-                            }
-                        }
-                    }
-                    .padding(20)
-                }
-            }
-            .scrollDismissesKeyboard(.interactively)
+            .padding(.vertical, 12)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(Palette.canvas(colorScheme))
         }
-        .background(Palette.canvas(colorScheme).ignoresSafeArea())
+        .containerBackground(Palette.canvas(colorScheme), for: .navigation)
         .toolbarBackground(Palette.canvas(colorScheme), for: .navigationBar)
         .toolbarBackground(.visible, for: .navigationBar)
         .toolbar(.visible, for: .navigationBar)
         .navigationBarTitleDisplayMode(.inline)
         .navigationTitle(item.title)
+        .background(HideNavigationBar(hidden: false))
         .onDisappear {
             if isEditing { commitEdits() }
         }
@@ -569,6 +584,55 @@ struct ItemPhotoView: View {
             Image(systemName: item.category.systemImage)
                 .font(.system(size: placeholderIconSize))
                 .foregroundStyle(Palette.brandBlue(colorScheme))
+        }
+    }
+}
+
+private struct HideNavigationBar: UIViewControllerRepresentable {
+    var hidden: Bool
+
+    func makeUIViewController(context: Context) -> Controller {
+        Controller(hidden: hidden)
+    }
+
+    func updateUIViewController(_ uiViewController: Controller, context: Context) {
+        uiViewController.hidden = hidden
+        uiViewController.apply()
+    }
+
+    final class Controller: UIViewController {
+        var hidden: Bool
+
+        init(hidden: Bool) {
+            self.hidden = hidden
+            super.init(nibName: nil, bundle: nil)
+        }
+
+        @available(*, unavailable)
+        required init?(coder: NSCoder) {
+            fatalError("init(coder:) has not been implemented")
+        }
+
+        override func viewDidLoad() {
+            super.viewDidLoad()
+            view.isUserInteractionEnabled = false
+            view.backgroundColor = .clear
+        }
+
+        override func viewWillAppear(_ animated: Bool) {
+            super.viewWillAppear(animated)
+            apply()
+        }
+
+        override func viewWillDisappear(_ animated: Bool) {
+            super.viewWillDisappear(animated)
+            if hidden {
+                navigationController?.setNavigationBarHidden(false, animated: animated)
+            }
+        }
+
+        func apply() {
+            navigationController?.setNavigationBarHidden(hidden, animated: false)
         }
     }
 }
