@@ -48,7 +48,7 @@ final class PairSession {
 
     func noteLocalEdit(_ item: TodoItem, kind: String) {
         guard !isApplyingRemote else { return }
-        item.updatedAt = .now
+        item.updatedAt = Date.now
         item.lastEditor = role?.rawValue ?? ""
         Task { await CloudSync.shared.upload(item, notifyKind: kind) }
     }

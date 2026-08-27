@@ -35,7 +35,7 @@ final class TodoItem {
     var isDone: Bool
     var createdAt: Date
     var sortOrder: Int = 0
-    var updatedAt: Date = .now
+    var updatedAt: Date = Date.now
     var lastEditor: String = ""
 
     init(
@@ -59,8 +59,8 @@ final class TodoItem {
         self.chrisHearted = false
         self.deenaHearted = false
         self.isDone = false
-        self.createdAt = .now
-        self.updatedAt = .now
+        self.createdAt = Date.now
+        self.updatedAt = Date.now
         self.sortOrder = sortOrder
         self.lastEditor = ""
     }
