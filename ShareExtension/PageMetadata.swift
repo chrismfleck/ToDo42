@@ -136,10 +136,8 @@ enum PageMetadata {
     }
 
     private static func clean(_ value: String) -> String {
-        let collapsed = value
-            .replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        return collapsed
+        let collapsed = SharedText.normalized(value)
+        return collapsed.isEmpty ? value.trimmingCharacters(in: .whitespacesAndNewlines) : collapsed
     }
 
     private static func decodeHTML(_ value: String) -> String {
