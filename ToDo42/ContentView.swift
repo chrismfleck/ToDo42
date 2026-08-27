@@ -82,20 +82,15 @@ struct ContentView: View {
 
             VStack(alignment: .leading, spacing: 22) {
                 ZStack {
-                    VStack(spacing: 6) {
-                        Image("TitleWordmark")
-                            .renderingMode(.template)
-                            .resizable()
-                            .scaledToFit()
-                            .frame(height: 44)
-                            .foregroundStyle(Palette.brandBlue(colorScheme))
-                            .accessibilityLabel("ToDo 4 2")
-                        Text("ToDo's for Two")
-                            .font(.subheadline.weight(.medium))
-                            .foregroundStyle(.secondary)
-                    }
-                    .frame(maxWidth: .infinity)
-                    .padding(.top, 12)
+                    Image("TitleWordmark")
+                        .renderingMode(.template)
+                        .resizable()
+                        .scaledToFit()
+                        .frame(height: 44)
+                        .foregroundStyle(Palette.brandBlue(colorScheme))
+                        .accessibilityLabel("ToDo 4 2")
+                        .frame(maxWidth: .infinity)
+                        .padding(.top, 12)
 
                     HStack {
                         Button(isListEditing ? "Done" : "Edit") {
