@@ -469,9 +469,7 @@ struct ItemRowView: View {
                 .frame(width: 76, height: 76)
 
             VStack(alignment: .leading, spacing: 6) {
-                Text(verbatim: SharedText.normalized(item.title))
-                    .font(.headline)
-                    .fontWeight(.semibold)
+                Text(SharedText.listTitle(item.title))
                     .lineLimit(2)
                     .foregroundStyle(.primary)
                 if !item.notes.isEmpty {
