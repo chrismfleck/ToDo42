@@ -7,13 +7,20 @@ import UserNotifications
 struct ToDo42App: App {
     @UIApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
 
+    private let modelContainer: ModelContainer = {
+        // Keep lists on the phone. Pairing uses CloudKit by itself; SwiftData
+        // must not switch to an empty iCloud store when that entitlement is on.
+        let config = ModelConfiguration(cloudKitDatabase: .none)
+        return try! ModelContainer(for: TodoItem.self, configurations: config)
+    }()
+
     var body: some Scene {
         WindowGroup {
             ContentView()
                 .background(PaletteHost())
                 .environment(PairSession.shared)
         }
-        .modelContainer(for: TodoItem.self)
+        .modelContainer(modelContainer)
     }
 }
 
