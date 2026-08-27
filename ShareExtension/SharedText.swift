@@ -14,6 +14,10 @@ enum SharedText {
 
     private static func plainCharacter(for scalar: Unicode.Scalar) -> String {
         let value = scalar.value
+        // Ordinary letters, digits, and punctuation never need mapping.
+        if value < 0x2100 {
+            return String(Character(scalar))
+        }
 
         if (0xFF01...0xFF5E).contains(value), let ascii = Unicode.Scalar(value - 0xFEE0) {
             return String(Character(ascii))
