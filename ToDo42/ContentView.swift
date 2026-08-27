@@ -2,8 +2,30 @@ import SwiftUI
 import SwiftData
 import UIKit
 
-private let brandBlue = Color(red: 0.14, green: 0.42, blue: 0.92)
-private let mist = Color(red: 0.93, green: 0.96, blue: 1.0)
+private let brandBlue = Color(uiColor: UIColor { traits in
+    if traits.userInterfaceStyle == .dark {
+        return UIColor(red: 0.42, green: 0.64, blue: 1.0, alpha: 1)
+    }
+    return UIColor(red: 0.14, green: 0.42, blue: 0.92, alpha: 1)
+})
+
+private let mist = Color(uiColor: UIColor { traits in
+    if traits.userInterfaceStyle == .dark {
+        return .black
+    }
+    return UIColor(red: 0.93, green: 0.96, blue: 1.0, alpha: 1)
+})
+
+private let pageBottom = Color(uiColor: UIColor { traits in
+    traits.userInterfaceStyle == .dark ? .black : .white
+})
+
+private let cardFill = Color(uiColor: UIColor { traits in
+    if traits.userInterfaceStyle == .dark {
+        return UIColor(red: 0.16, green: 0.17, blue: 0.20, alpha: 1)
+    }
+    return .white
+})
 
 struct ContentView: View {
     @Environment(\.modelContext) private var modelContext
@@ -20,7 +42,7 @@ struct ContentView: View {
     var body: some View {
         NavigationStack {
             ZStack {
-                LinearGradient(colors: [mist, .white], startPoint: .top, endPoint: .bottom)
+                LinearGradient(colors: [mist, pageBottom], startPoint: .top, endPoint: .bottom)
                     .ignoresSafeArea()
 
                 VStack(alignment: .leading, spacing: 22) {
@@ -217,7 +239,7 @@ struct ItemRowView: View {
             .frame(maxWidth: .infinity, alignment: .leading)
         }
         .padding(14)
-        .background(Color.white, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+        .background(cardFill, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
         .opacity(item.isDone ? 0.7 : 1)
     }
 }
@@ -231,101 +253,103 @@ struct ItemDetailView: View {
     @State private var draftCategory: ItemCategory = .places
 
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 0) {
-                ItemPhotoView(item: item, cornerRadius: 0, placeholderIconSize: 48)
-                    .frame(maxWidth: .infinity)
-                    .frame(height: 280)
-                    .clipped()
+        VStack(alignment: .leading, spacing: 0) {
+            Button(isEditing ? "Done" : "Edit") {
+                if isEditing {
+                    commitEdits()
+                } else {
+                    beginEditing()
+                }
+            }
+            .font(.body.weight(.semibold))
+            .foregroundStyle(brandBlue)
+            .disabled(isEditing && draftTitle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+            .accessibilityLabel(isEditing ? "Done editing" : "Edit item")
+            .padding(.horizontal, 20)
+            .padding(.vertical, 10)
 
-                VStack(alignment: .leading, spacing: 16) {
-                    if isEditing {
-                        labeledField("Title") {
-                            TextField("Title", text: $draftTitle)
+            ScrollView {
+                VStack(alignment: .leading, spacing: 0) {
+                    ItemPhotoView(item: item, cornerRadius: 0, placeholderIconSize: 48)
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 280)
+                        .clipped()
+
+                    VStack(alignment: .leading, spacing: 16) {
+                        if isEditing {
+                            labeledField("Title") {
+                                TextField("Title", text: $draftTitle)
+                                    .font(.title.bold())
+                                    .padding(12)
+                                    .background(cardFill, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                            }
+                        } else {
+                            Text(item.title)
                                 .font(.title.bold())
-                                .padding(12)
-                                .background(Color.white, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-                        }
-                    } else {
-                        Text(item.title)
-                            .font(.title.bold())
-                            .padding(.top, 4)
-                    }
-
-                    HStack(spacing: 28) {
-                        PartnerHeartButton(name: "Chris", isOn: $item.chrisHearted)
-                        PartnerHeartButton(name: "Deena", isOn: $item.deenaHearted)
-                        DoneCheckButton(isDone: $item.isDone, size: 34, name: "Done")
-                    }
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 4)
-
-                    if isEditing {
-                        labeledField("Link") {
-                            TextField("https://", text: $draftLink)
-                                .textInputAutocapitalization(.never)
-                                .keyboardType(.URL)
-                                .autocorrectionDisabled()
-                                .padding(12)
-                                .background(Color.white, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                                .padding(.top, 4)
                         }
 
-                        labeledField("Notes") {
-                            TextField("Add a note", text: $draftNotes, axis: .vertical)
-                                .lineLimit(3...8)
-                                .padding(12)
-                                .background(Color.white, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                        HStack(spacing: 28) {
+                            PartnerHeartButton(name: "Chris", isOn: $item.chrisHearted)
+                            PartnerHeartButton(name: "Deena", isOn: $item.deenaHearted)
+                            DoneCheckButton(isDone: $item.isDone, size: 34, name: "Done")
                         }
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 4)
 
-                        labeledField("Category") {
-                            Picker("Category", selection: $draftCategory) {
-                                ForEach(ItemCategory.allCases) { cat in
-                                    Text(cat.title).tag(cat)
+                        if isEditing {
+                            labeledField("Link") {
+                                TextField("https://", text: $draftLink)
+                                    .textInputAutocapitalization(.never)
+                                    .keyboardType(.URL)
+                                    .autocorrectionDisabled()
+                                    .padding(12)
+                                    .background(cardFill, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                            }
+
+                            labeledField("Notes") {
+                                TextField("Add a note", text: $draftNotes, axis: .vertical)
+                                    .lineLimit(3...8)
+                                    .padding(12)
+                                    .background(cardFill, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                            }
+
+                            labeledField("Category") {
+                                Picker("Category", selection: $draftCategory) {
+                                    ForEach(ItemCategory.allCases) { cat in
+                                        Text(cat.title).tag(cat)
+                                    }
+                                }
+                                .pickerStyle(.segmented)
+                            }
+                        } else {
+                            if let s = item.urlString?.trimmingCharacters(in: .whitespacesAndNewlines),
+                               let url = URL(string: s), !s.isEmpty {
+                                Link(destination: url) {
+                                    Label("Open link", systemImage: "link")
+                                        .font(.headline)
                                 }
                             }
-                            .pickerStyle(.segmented)
-                        }
-                    } else {
-                        if let s = item.urlString?.trimmingCharacters(in: .whitespacesAndNewlines),
-                           let url = URL(string: s), !s.isEmpty {
-                            Link(destination: url) {
-                                Label("Open link", systemImage: "link")
-                                    .font(.headline)
-                            }
-                        }
 
-                        if !item.notes.isEmpty {
-                            VStack(alignment: .leading, spacing: 6) {
-                                Text("Notes")
-                                    .font(.caption.weight(.semibold))
-                                    .foregroundStyle(.secondary)
-                                Text(item.notes)
+                            if !item.notes.isEmpty {
+                                VStack(alignment: .leading, spacing: 6) {
+                                    Text("Notes")
+                                        .font(.caption.weight(.semibold))
+                                        .foregroundStyle(.secondary)
+                                    Text(item.notes)
+                                }
                             }
                         }
                     }
+                    .padding(20)
                 }
-                .padding(20)
             }
+            .scrollDismissesKeyboard(.interactively)
         }
         .background(mist.ignoresSafeArea())
-        .scrollDismissesKeyboard(.interactively)
         .toolbar(.visible, for: .navigationBar)
         .navigationBarTitleDisplayMode(.inline)
         .navigationTitle(item.title)
-        .toolbar {
-            ToolbarItem(placement: .topBarLeading) {
-                Button(isEditing ? "Done" : "Edit") {
-                    if isEditing {
-                        commitEdits()
-                    } else {
-                        beginEditing()
-                    }
-                }
-                .fontWeight(.semibold)
-                .disabled(isEditing && draftTitle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                .accessibilityLabel(isEditing ? "Done editing" : "Edit item")
-            }
-        }
         .onDisappear {
             if isEditing { commitEdits() }
         }
@@ -540,7 +564,13 @@ struct ItemPhotoView: View {
     }
 }
 
-#Preview {
+#Preview("Light") {
     ContentView()
         .modelContainer(for: TodoItem.self, inMemory: true)
+}
+
+#Preview("Dark") {
+    ContentView()
+        .modelContainer(for: TodoItem.self, inMemory: true)
+        .preferredColorScheme(.dark)
 }
