@@ -142,7 +142,7 @@ final class CloudSync {
 
     func inviteText(code: String) -> String {
         """
-        Join me on ToDo 4 2.
+        Join me on Save4Two.
 
         1. I’ll send you the TestFlight install link from App Store Connect.
         2. After the app is on your iPhone, open it and tap the two-person icon.

@@ -3,9 +3,9 @@
 <plist version="1.0">
 <dict>
 	<key>CFBundleDisplayName</key>
-	<string>ToDo42</string>
+	<string>Save4Two</string>
 	<key>CFBundleName</key>
-	<string>ToDo42</string>
+	<string>Save4Two</string>
 	<key>NSExtension</key>
 	<dict>
 		<key>NSExtensionAttributes</key>
