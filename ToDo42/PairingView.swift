@@ -138,7 +138,15 @@ struct PairingView: View {
                 Text("Invite code: \(code)")
                     .font(.headline)
                 Button("Send the code again") { showShare = true }
+                Button("New invite code") {
+                    Task { await createInvite() }
+                }
+                .disabled(session.isBusy || !session.hasNames)
             }
+            Button("Unpair phones") {
+                session.unpair()
+            }
+            .foregroundStyle(.secondary)
         }
     }
 
@@ -160,6 +168,7 @@ struct PairingView: View {
         errorText = ""
         session.isBusy = true
         defer { session.isBusy = false }
+        session.persistLocal()
         do {
             try await CloudSync.shared.join(code: joinCode)
             await CloudSync.shared.sync(modelContext: modelContext, items: items)

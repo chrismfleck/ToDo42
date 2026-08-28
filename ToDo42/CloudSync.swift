@@ -61,6 +61,14 @@ final class PairSession {
         partnerName = defaults.string(forKey: partnerNameKey) ?? ""
     }
 
+    func unpair() {
+        pairID = nil
+        role = nil
+        inviteCode = nil
+        statusMessage = ""
+        persistLocal()
+    }
+
     func persist() {
         persistLocal()
         if isPaired {
@@ -191,7 +199,15 @@ final class CloudSync {
         try await ensureiCloud()
         let trimmed = code.trimmingCharacters(in: .whitespacesAndNewlines)
         guard trimmed.count == 6 else { throw SyncError.message("Enter the 6-digit code.") }
-        let record = try await database.record(for: CKRecord.ID(recordName: "code-\(trimmed)"))
+        let record: CKRecord
+        do {
+            record = try await database.record(for: CKRecord.ID(recordName: "code-\(trimmed)"))
+        } catch {
+            if let ck = error as? CKError, ck.code == .unknownItem {
+                throw SyncError.message("That code was not found. Chris must tap “New invite code” in the TestFlight app (not the copy installed from Xcode), then send you the new 6-digit code.")
+            }
+            throw SyncError.message(Self.friendlyMessage(error))
+        }
         guard let pairID = record["pairID"] as? String, !pairID.isEmpty else {
             throw SyncError.message("That code was not found.")
         }
@@ -278,8 +294,8 @@ final class CloudSync {
         """
         Join \(PairSession.shared.trimmedMyName.isEmpty ? "me" : PairSession.shared.trimmedMyName) on Save4Two.
 
-        1. I’ll send you the TestFlight install link from App Store Connect.
-        2. After the app is on your iPhone, open it and tap the two-person icon.
+        1. Both of us install Save4Two from TestFlight (not from Xcode).
+        2. Open the app and tap the two-person icon.
         3. Choose “I have a code” and enter: \(code)
 
         Stay signed in to iCloud on your iPhone so our lists can sync.
