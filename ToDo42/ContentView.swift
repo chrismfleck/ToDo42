@@ -108,7 +108,7 @@ struct ContentView: View {
                         }
                         .font(.subheadline.weight(.semibold))
                         .foregroundStyle(Palette.brandBlue(colorScheme))
-                        .accessibilityLabel(isListEditing ? "Done reordering" : "Reorder list")
+                        .accessibilityLabel(isListEditing ? "Done editing" : "Edit list")
 
                         Spacer()
 
@@ -144,20 +144,16 @@ struct ContentView: View {
                             SwipeToDeleteRow(
                                 itemID: item.id,
                                 swipingItemID: $swipingItemID,
-                                isEnabled: !isListEditing
+                                isEnabled: false
                             ) {
-                                withAnimation(.easeIn(duration: 0.2)) {
-                                    if selectedItem?.id == item.id { selectedItem = nil }
-                                    let id = item.id
-                                    modelContext.delete(item)
-                                    Task { await CloudSync.shared.deleteRemote(id) }
-                                }
+                                deleteItem(item)
                             } content: {
                                 Group {
                                     if isListEditing {
                                         ItemRowView(
                                             item: item,
                                             showsDragHandle: true,
+                                            onDelete: { deleteItem(item) },
                                             onHandleDragChanged: { translation in
                                                 handleReorderChanged(item: item, translation: translation)
                                             },
@@ -224,7 +220,6 @@ struct ContentView: View {
         }
         .onAppear {
             importSharedDrafts()
-            seedIfNeeded()
             normalizeStoredText()
             Task { await refreshFromCloud() }
         }
@@ -239,6 +234,15 @@ struct ContentView: View {
         }
         .onChange(of: category) { _, _ in
             reorderDrag = nil
+        }
+    }
+
+    private func deleteItem(_ item: TodoItem) {
+        withAnimation(.easeIn(duration: 0.2)) {
+            if selectedItem?.id == item.id { selectedItem = nil }
+            let id = item.id
+            modelContext.delete(item)
+            Task { await CloudSync.shared.deleteRemote(id) }
         }
     }
 
@@ -326,34 +330,6 @@ struct ContentView: View {
             }
             reorderDrag = nil
         }
-    }
-
-    private func seedIfNeeded() {
-        let key = "todo42.seeded.v2"
-        guard !UserDefaults.standard.bool(forKey: key) else { return }
-
-        if items.isEmpty {
-            for cat in ItemCategory.allCases {
-                for (index, seed) in SampleData.seeds.filter({ $0.category == cat }).enumerated() {
-                    modelContext.insert(SampleData.makeItem(seed, sortOrder: index))
-                }
-            }
-        } else {
-            for item in items {
-                guard let sample = SampleData.matching(title: item.title) else { continue }
-                if item.imageAssetName == nil {
-                    item.imageAssetName = sample.imageAssetName
-                }
-                if item.urlString == nil {
-                    item.urlString = sample.urlString
-                }
-                if item.notes.isEmpty {
-                    item.notes = sample.notes
-                }
-            }
-        }
-
-        UserDefaults.standard.set(true, forKey: key)
     }
 
     private func importSharedDrafts() {
@@ -486,11 +462,22 @@ struct ItemRowView: View {
     @Environment(\.colorScheme) private var colorScheme
     let item: TodoItem
     var showsDragHandle: Bool = false
+    var onDelete: (() -> Void)? = nil
     var onHandleDragChanged: ((CGFloat) -> Void)?
     var onHandleDragEnded: (() -> Void)?
 
     var body: some View {
         HStack(alignment: .center, spacing: 16) {
+            if let onDelete {
+                Button(action: onDelete) {
+                    Image(systemName: "minus.circle.fill")
+                        .font(.system(size: 22, weight: .semibold))
+                        .foregroundStyle(.red)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Delete \(item.title)")
+            }
+
             ItemPhotoView(item: item, cornerRadius: 14)
                 .frame(width: 76, height: 76)
 

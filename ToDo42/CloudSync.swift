@@ -254,14 +254,14 @@ final class CloudSync {
         }
     }
 
-    func sync(modelContext: ModelContext) async {
+    func sync(modelContext: ModelContext, allowCreate: Bool = false) async {
         guard PairSession.shared.isPaired else { return }
         await enqueue {
             do {
                 try await self.ensureiCloud()
                 ItemStore.deduplicate(in: modelContext)
                 try await self.pull(modelContext: modelContext)
-                try await self.pushAll(ItemStore.allItems(in: modelContext))
+                try await self.pushAll(ItemStore.allItems(in: modelContext), allowCreate: allowCreate)
                 PairSession.shared.statusMessage = ""
             } catch {
                 PairSession.shared.statusMessage = Self.friendlyMessage(error)
@@ -322,8 +322,8 @@ final class CloudSync {
             .split(separator: ",")
             .map(String.init)
             .filter { !$0.isEmpty }
-        let remote = await fetchRemoteItemRecords(pairID: pairID, listedIDs: listedIDs)
-        guard !remote.isEmpty else { return }
+        let fetched = await fetchRemoteItemRecords(pairID: pairID, listedIDs: listedIDs)
+        let remote = fetched.records
 
         let session = PairSession.shared
         session.isApplyingRemote = true
@@ -378,32 +378,43 @@ final class CloudSync {
                 notifyNew(record)
             }
         }
+        if fetched.catalogComplete {
+            let remoteIDs = Set(remote.compactMap { $0["itemID"] as? String })
+            for local in ItemStore.allItems(in: modelContext) {
+                if remoteIDs.contains(local.id.uuidString) { continue }
+                if Date().timeIntervalSince(local.createdAt) < 180 { continue }
+                modelContext.delete(local)
+            }
+        }
         try? modelContext.save()
     }
 
-    private func pushAll(_ items: [TodoItem]) async throws {
+    private func pushAll(_ items: [TodoItem], allowCreate: Bool) async throws {
         for item in items {
-            try await saveItem(item, notifyKind: "")
+            try await saveItem(item, notifyKind: "", allowCreate: allowCreate)
         }
         try? await registerItemIDs(items.map(\.id.uuidString))
     }
 
-    private func fetchRemoteItemRecords(pairID: String, listedIDs: [String]) async -> [CKRecord] {
+    private func fetchRemoteItemRecords(pairID: String, listedIDs: [String]) async -> (records: [CKRecord], catalogComplete: Bool) {
         var found: [String: CKRecord] = [:]
+        var catalogComplete = false
 
         let pairQuery = CKQuery(
             recordType: "TDItem",
             predicate: NSPredicate(format: "pairID == %@", pairID)
         )
         if let queried = try? await queryAll(pairQuery) {
+            catalogComplete = true
             for record in queried {
                 found[record.recordID.recordName] = record
             }
         }
 
-        if found.isEmpty {
+        if !catalogComplete {
             let anyQuery = CKQuery(recordType: "TDItem", predicate: NSPredicate(value: true))
             if let queried = try? await queryAll(anyQuery) {
+                catalogComplete = true
                 for record in queried where (record["pairID"] as? String) == pairID {
                     found[record.recordID.recordName] = record
                 }
@@ -416,7 +427,7 @@ final class CloudSync {
                 found[record.recordID.recordName] = record
             }
         }
-        return Array(found.values)
+        return (Array(found.values), catalogComplete)
     }
 
     private func queryAll(_ query: CKQuery) async throws -> [CKRecord] {
@@ -459,7 +470,7 @@ final class CloudSync {
         return records
     }
 
-    private func saveItem(_ item: TodoItem, notifyKind: String) async throws {
+    private func saveItem(_ item: TodoItem, notifyKind: String, allowCreate: Bool = true) async throws {
         guard let pairID = PairSession.shared.pairID else { return }
         let recordID = CKRecord.ID(recordName: "item-\(item.id.uuidString)")
         let record: CKRecord
@@ -469,6 +480,7 @@ final class CloudSync {
             }
             record = existing
         } else {
+            guard allowCreate || !notifyKind.isEmpty else { return }
             record = CKRecord(recordType: "TDItem", recordID: recordID)
             record["chrisHearted"] = item.chrisHearted ? 1 : 0
             record["deenaHearted"] = item.deenaHearted ? 1 : 0

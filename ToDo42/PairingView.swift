@@ -156,7 +156,7 @@ struct PairingView: View {
         session.persistLocal()
         do {
             _ = try await CloudSync.shared.createInvite()
-            await CloudSync.shared.sync(modelContext: modelContext)
+            await CloudSync.shared.sync(modelContext: modelContext, allowCreate: true)
             showShare = true
         } catch {
             errorText = error.localizedDescription
@@ -170,7 +170,7 @@ struct PairingView: View {
         session.persistLocal()
         do {
             try await CloudSync.shared.join(code: joinCode)
-            await CloudSync.shared.sync(modelContext: modelContext)
+            await CloudSync.shared.sync(modelContext: modelContext, allowCreate: true)
         } catch {
             errorText = error.localizedDescription
         }
