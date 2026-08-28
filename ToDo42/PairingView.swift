@@ -50,7 +50,7 @@ struct PairingView: View {
         VStack(alignment: .leading, spacing: 16) {
             Text("Share one list")
                 .font(.title2.bold())
-            Text("Invite Deena with a code. She installs ToDo 4 2 from TestFlight, then enters the code. Both phones must be signed in to iCloud.")
+            Text("Invite Deena with a code. She installs Save4Two from TestFlight, then enters the code. Both phones must be signed in to iCloud.")
                 .foregroundStyle(.secondary)
 
             Button {

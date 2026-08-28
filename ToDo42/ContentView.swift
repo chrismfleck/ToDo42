@@ -90,7 +90,7 @@ struct ContentView: View {
                         .scaledToFit()
                         .frame(height: 44)
                         .foregroundStyle(Palette.brandBlue(colorScheme))
-                        .accessibilityLabel("ToDo 4 2")
+                        .accessibilityLabel("Save 4 Two")
                         .frame(maxWidth: .infinity)
                         .padding(.top, 12)
 
