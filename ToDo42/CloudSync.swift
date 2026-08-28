@@ -63,6 +63,50 @@ final class CloudSync {
     private var container: CKContainer { CKContainer(identifier: Self.containerID) }
     private var database: CKDatabase { container.publicCloudDatabase }
 
+    private var operationTail: Task<Void, Never> = Task {}
+
+    private func enqueue(_ work: @escaping () async -> Void) async {
+        let previous = operationTail
+        let current = Task {
+            await previous.value
+            await work()
+        }
+        operationTail = current
+        await current.value
+    }
+
+    private static func friendlyMessage(_ error: Error) -> String {
+        if let ck = error as? CKError {
+            switch ck.code {
+            case .networkUnavailable, .networkFailure, .serviceUnavailable, .requestRateLimited:
+                return "Couldn't reach iCloud. Try again in a moment."
+            case .notAuthenticated:
+                return "Sign in to iCloud on this iPhone so the lists can sync."
+            case .quotaExceeded:
+                return "iCloud storage is full on this Apple Account."
+            default:
+                break
+            }
+        }
+        return "Couldn't sync the list. Try again in a moment."
+    }
+
+    private func saveOverwriting(_ record: CKRecord) async throws {
+        let outcome = try await database.modifyRecords(
+            saving: [record],
+            deleting: [],
+            savePolicy: .allKeys
+        )
+        if let result = outcome.saveResults[record.recordID] {
+            switch result {
+            case .success:
+                break
+            case .failure(let error):
+                throw error
+            }
+        }
+    }
+
     func createInvite() async throws -> String {
         try await ensureiCloud()
         let pairID = UUID().uuidString
@@ -76,7 +120,7 @@ final class CloudSync {
         pairRecord["itemIDs"] = ""
         pairRecord["createdAt"] = Date()
 
-        _ = try await database.modifyRecords(saving: [codeRecord, pairRecord], deleting: [])
+        _ = try await database.modifyRecords(saving: [codeRecord, pairRecord], deleting: [], savePolicy: .allKeys)
 
         let session = PairSession.shared
         session.pairID = pairID
@@ -107,32 +151,41 @@ final class CloudSync {
 
     func sync(modelContext: ModelContext, items: [TodoItem]) async {
         guard PairSession.shared.isPaired else { return }
-        do {
-            try await ensureiCloud()
-            try await pull(modelContext: modelContext, items: items)
-            try await pushAll(items)
-        } catch {
-            PairSession.shared.statusMessage = error.localizedDescription
+        await enqueue {
+            do {
+                try await self.ensureiCloud()
+                try await self.pull(modelContext: modelContext, items: items)
+                try await self.pushAll(items)
+                PairSession.shared.statusMessage = ""
+            } catch {
+                PairSession.shared.statusMessage = Self.friendlyMessage(error)
+            }
         }
     }
 
     func upload(_ item: TodoItem, notifyKind: String) async {
         guard PairSession.shared.isPaired else { return }
-        do {
-            try await saveItem(item, notifyKind: notifyKind)
-            try await registerItemID(item.id.uuidString)
-        } catch {
-            PairSession.shared.statusMessage = error.localizedDescription
+        await enqueue {
+            do {
+                try await self.saveItem(item, notifyKind: notifyKind)
+                try await self.registerItemIDs([item.id.uuidString])
+                PairSession.shared.statusMessage = ""
+            } catch {
+                PairSession.shared.statusMessage = Self.friendlyMessage(error)
+            }
         }
     }
 
     func deleteRemote(_ id: UUID) async {
         guard PairSession.shared.isPaired else { return }
-        do {
-            try await database.deleteRecord(withID: CKRecord.ID(recordName: "item-\(id.uuidString)"))
-            try await removeItemID(id.uuidString)
-        } catch {
-            PairSession.shared.statusMessage = error.localizedDescription
+        await enqueue {
+            do {
+                try await self.database.deleteRecord(withID: CKRecord.ID(recordName: "item-\(id.uuidString)"))
+                try await self.removeItemID(id.uuidString)
+                PairSession.shared.statusMessage = ""
+            } catch {
+                PairSession.shared.statusMessage = Self.friendlyMessage(error)
+            }
         }
     }
 
@@ -204,8 +257,8 @@ final class CloudSync {
     private func pushAll(_ items: [TodoItem]) async throws {
         for item in items {
             try await saveItem(item, notifyKind: "")
-            try await registerItemID(item.id.uuidString)
         }
+        try await registerItemIDs(items.map(\.id.uuidString))
     }
 
     private func saveItem(_ item: TodoItem, notifyKind: String) async throws {
@@ -238,7 +291,7 @@ final class CloudSync {
             try data.write(to: url)
             record["image"] = CKAsset(fileURL: url)
         }
-        _ = try await database.save(record)
+        try await saveOverwriting(record)
     }
 
     private func apply(_ record: CKRecord, to item: TodoItem) {
@@ -260,23 +313,24 @@ final class CloudSync {
         }
     }
 
-    private func registerItemID(_ itemID: String) async throws {
+    private func registerItemIDs(_ itemIDs: [String]) async throws {
         guard let pairID = PairSession.shared.pairID else { return }
+        guard !itemIDs.isEmpty else { return }
         let record = try await database.record(for: CKRecord.ID(recordName: "pair-\(pairID)"))
-        var ids = (record["itemIDs"] as? String ?? "").split(separator: ",").map(String.init)
-        if !ids.contains(itemID) {
-            ids.append(itemID)
-            record["itemIDs"] = ids.joined(separator: ",")
-            _ = try await database.save(record)
-        }
+        var ids = Set((record["itemIDs"] as? String ?? "").split(separator: ",").map(String.init).filter { !$0.isEmpty })
+        let before = ids.count
+        itemIDs.forEach { ids.insert($0) }
+        guard ids.count != before else { return }
+        record["itemIDs"] = ids.sorted().joined(separator: ",")
+        try await saveOverwriting(record)
     }
 
     private func removeItemID(_ itemID: String) async throws {
         guard let pairID = PairSession.shared.pairID else { return }
         let record = try await database.record(for: CKRecord.ID(recordName: "pair-\(pairID)"))
-        let ids = (record["itemIDs"] as? String ?? "").split(separator: ",").map(String.init).filter { $0 != itemID }
+        let ids = (record["itemIDs"] as? String ?? "").split(separator: ",").map(String.init).filter { $0 != itemID && !$0.isEmpty }
         record["itemIDs"] = ids.joined(separator: ",")
-        _ = try await database.save(record)
+        try await saveOverwriting(record)
     }
 
     private func subscribe() async throws {
