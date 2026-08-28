@@ -603,6 +603,7 @@ struct ItemPagerView: View {
 struct ItemDetailView: View {
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.dismiss) private var dismiss
+    @Environment(PairSession.self) private var pairSession
     @Bindable var item: TodoItem
     var onEditingChange: ((Bool) -> Void)? = nil
     @State private var isEditing = false
@@ -611,6 +612,22 @@ struct ItemDetailView: View {
     @State private var draftNotes = ""
     @State private var draftCategory: ItemCategory = .places
     @State private var photoItem: PhotosPickerItem?
+
+    private var isGuest: Bool { pairSession.role == .deena }
+
+    private var myHeart: Binding<Bool> {
+        Binding(
+            get: { isGuest ? item.deenaHearted : item.chrisHearted },
+            set: { if isGuest { item.deenaHearted = $0 } else { item.chrisHearted = $0 } }
+        )
+    }
+
+    private var partnerHeart: Binding<Bool> {
+        Binding(
+            get: { isGuest ? item.chrisHearted : item.deenaHearted },
+            set: { if isGuest { item.chrisHearted = $0 } else { item.deenaHearted = $0 } }
+        )
+    }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -663,8 +680,8 @@ struct ItemDetailView: View {
                         }
 
                         HStack(spacing: 28) {
-                            PartnerHeartButton(name: "Chris", isOn: $item.chrisHearted)
-                            PartnerHeartButton(name: "Deena", isOn: $item.deenaHearted)
+                            PartnerHeartButton(name: pairSession.myHeartLabel, isOn: myHeart)
+                            PartnerHeartButton(name: pairSession.partnerHeartLabel, isOn: partnerHeart)
                             DoneCheckButton(isDone: $item.isDone, size: 34, name: "Done")
                         }
                         .frame(maxWidth: .infinity)
