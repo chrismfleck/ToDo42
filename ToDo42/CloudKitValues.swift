@@ -57,3 +57,18 @@ enum PartnerHeartMerge {
         myRole == .deena ? localDeena : remoteDeena
     }
 }
+
+enum ItemDuplicatePick {
+    static func keepFirst(
+        firstUpdated: Date,
+        firstHasPhoto: Bool,
+        firstNoteCount: Int,
+        secondUpdated: Date,
+        secondHasPhoto: Bool,
+        secondNoteCount: Int
+    ) -> Bool {
+        if firstUpdated != secondUpdated { return firstUpdated > secondUpdated }
+        if firstHasPhoto != secondHasPhoto { return firstHasPhoto }
+        return firstNoteCount >= secondNoteCount
+    }
+}

@@ -140,7 +140,7 @@ struct ContentView: View {
 
                 ScrollView {
                     LazyVStack(spacing: 14) {
-                        ForEach(filtered, id: \.id) { item in
+                        ForEach(filtered, id: \.persistentModelID) { item in
                             SwipeToDeleteRow(
                                 itemID: item.id,
                                 swipingItemID: $swipingItemID,
@@ -226,19 +226,26 @@ struct ContentView: View {
             importSharedDrafts()
             seedIfNeeded()
             normalizeStoredText()
-            Task { await CloudSync.shared.sync(modelContext: modelContext, items: items) }
+            Task { await refreshFromCloud() }
         }
         .onChange(of: scenePhase) { _, phase in
             if phase == .active {
                 importSharedDrafts()
-                Task { await CloudSync.shared.sync(modelContext: modelContext, items: items) }
+                Task { await refreshFromCloud() }
             }
         }
         .onReceive(NotificationCenter.default.publisher(for: .todo42CloudPush)) { _ in
-            Task { await CloudSync.shared.sync(modelContext: modelContext, items: items) }
+            Task { await refreshFromCloud() }
         }
         .onChange(of: category) { _, _ in
             reorderDrag = nil
+        }
+    }
+
+    private func refreshFromCloud() async {
+        await CloudSync.shared.sync(modelContext: modelContext)
+        if let cat = PairSession.shared.takeRevealCategory() {
+            category = cat
         }
     }
 
@@ -593,7 +600,7 @@ struct ItemPagerView: View {
 
     var body: some View {
         TabView(selection: $selectedID) {
-            ForEach(items, id: \.id) { item in
+            ForEach(items, id: \.persistentModelID) { item in
                 ItemDetailView(item: item, onEditingChange: { editing in
                     if item.id == selectedID {
                         isEditing = editing

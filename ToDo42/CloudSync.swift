@@ -47,6 +47,13 @@ final class PairSession {
 
     var myHeartLabel: String { trimmedMyName.isEmpty ? "Me" : trimmedMyName }
     var partnerHeartLabel: String { trimmedPartnerName.isEmpty ? "Partner" : trimmedPartnerName }
+    var revealCategoryRaw: String?
+
+    func takeRevealCategory() -> ItemCategory? {
+        guard let raw = revealCategoryRaw else { return nil }
+        revealCategoryRaw = nil
+        return ItemCategory(rawValue: raw)
+    }
 
     var hostName: String { role == .deena ? trimmedPartnerName : trimmedMyName }
     var guestName: String { role == .deena ? trimmedMyName : trimmedPartnerName }
@@ -115,6 +122,7 @@ final class PairSession {
     }
 }
 
+@MainActor
 final class CloudSync {
     static let shared = CloudSync()
     static let containerID = "iCloud.com.chrisfleck.ToDo42"
@@ -246,13 +254,14 @@ final class CloudSync {
         }
     }
 
-    func sync(modelContext: ModelContext, items: [TodoItem]) async {
+    func sync(modelContext: ModelContext) async {
         guard PairSession.shared.isPaired else { return }
         await enqueue {
             do {
                 try await self.ensureiCloud()
-                try await self.pull(modelContext: modelContext, items: items)
-                try await self.pushAll(items)
+                ItemStore.deduplicate(in: modelContext)
+                try await self.pull(modelContext: modelContext)
+                try await self.pushAll(ItemStore.allItems(in: modelContext))
                 PairSession.shared.statusMessage = ""
             } catch {
                 PairSession.shared.statusMessage = Self.friendlyMessage(error)
@@ -265,7 +274,7 @@ final class CloudSync {
         await enqueue {
             do {
                 try await self.saveItem(item, notifyKind: notifyKind)
-                try await self.registerItemIDs([item.id.uuidString])
+                try? await self.registerItemIDs([item.id.uuidString])
                 PairSession.shared.statusMessage = ""
             } catch {
                 PairSession.shared.statusMessage = Self.friendlyMessage(error)
@@ -286,8 +295,8 @@ final class CloudSync {
         }
     }
 
-    func handleRemoteNotification(modelContext: ModelContext, items: [TodoItem]) async {
-        await sync(modelContext: modelContext, items: items)
+    func handleRemoteNotification(modelContext: ModelContext) async {
+        await sync(modelContext: modelContext)
     }
 
     func inviteText(code: String) -> String {
@@ -302,37 +311,30 @@ final class CloudSync {
         """
     }
 
-    private func pull(modelContext: ModelContext, items: [TodoItem]) async throws {
+    private func pull(modelContext: ModelContext) async throws {
         guard let pairID = PairSession.shared.pairID else { return }
         let pair = try await database.record(for: CKRecord.ID(recordName: "pair-\(pairID)"))
         PairSession.shared.applyRemoteNames(
             host: pair["hostName"] as? String,
             guest: pair["guestName"] as? String
         )
-        let idList = (pair["itemIDs"] as? String ?? "")
+        let listedIDs = (pair["itemIDs"] as? String ?? "")
             .split(separator: ",")
             .map(String.init)
             .filter { !$0.isEmpty }
-        guard !idList.isEmpty else { return }
-
-        let recordIDs = idList.map { CKRecord.ID(recordName: "item-\($0)") }
-        let result = try await database.records(for: recordIDs)
-        var remote: [CKRecord] = []
-        for id in recordIDs {
-            if let record = try? result[id]?.get() {
-                remote.append(record)
-            }
-        }
+        let remote = await fetchRemoteItemRecords(pairID: pairID, listedIDs: listedIDs)
+        guard !remote.isEmpty else { return }
 
         let session = PairSession.shared
         session.isApplyingRemote = true
         defer { session.isApplyingRemote = false }
 
-        let localByID = Dictionary(uniqueKeysWithValues: items.map { ($0.id.uuidString, $0) })
+        var localByID = ItemStore.keyedByID(ItemStore.allItems(in: modelContext))
         for record in remote {
             guard let itemID = record["itemID"] as? String, let uuid = UUID(uuidString: itemID) else { continue }
             let remoteUpdated = record["updatedAt"] as? Date ?? .distantPast
-            if let local = localByID[itemID] {
+            let local = localByID[itemID] ?? ItemStore.item(id: uuid, in: modelContext)
+            if let local {
                 let remoteChris = CloudKitValues.flag(record["chrisHearted"])
                 let remoteDeena = CloudKitValues.flag(record["deenaHearted"])
                 let justHearted = PartnerHeartMerge.partnerJustHearted(
@@ -369,6 +371,10 @@ final class CloudSync {
                 item.id = uuid
                 apply(record, to: item)
                 modelContext.insert(item)
+                localByID[itemID] = item
+                if (record["lastEditor"] as? String ?? "") != (session.role?.rawValue ?? "") {
+                    session.revealCategoryRaw = item.categoryRaw
+                }
                 notifyNew(record)
             }
         }
@@ -379,7 +385,78 @@ final class CloudSync {
         for item in items {
             try await saveItem(item, notifyKind: "")
         }
-        try await registerItemIDs(items.map(\.id.uuidString))
+        try? await registerItemIDs(items.map(\.id.uuidString))
+    }
+
+    private func fetchRemoteItemRecords(pairID: String, listedIDs: [String]) async -> [CKRecord] {
+        var found: [String: CKRecord] = [:]
+
+        let pairQuery = CKQuery(
+            recordType: "TDItem",
+            predicate: NSPredicate(format: "pairID == %@", pairID)
+        )
+        if let queried = try? await queryAll(pairQuery) {
+            for record in queried {
+                found[record.recordID.recordName] = record
+            }
+        }
+
+        if found.isEmpty {
+            let anyQuery = CKQuery(recordType: "TDItem", predicate: NSPredicate(value: true))
+            if let queried = try? await queryAll(anyQuery) {
+                for record in queried where (record["pairID"] as? String) == pairID {
+                    found[record.recordID.recordName] = record
+                }
+            }
+        }
+
+        let missing = listedIDs.filter { found["item-\($0)"] == nil }
+        if !missing.isEmpty {
+            for record in await fetchNamedRecords(missing.map { "item-\($0)" }) {
+                found[record.recordID.recordName] = record
+            }
+        }
+        return Array(found.values)
+    }
+
+    private func queryAll(_ query: CKQuery) async throws -> [CKRecord] {
+        var records: [CKRecord] = []
+        var cursor: CKQueryOperation.Cursor?
+        repeat {
+            let matchResults: [(CKRecord.ID, Result<CKRecord, Error>)]
+            let next: CKQueryOperation.Cursor?
+            if let cursor {
+                (matchResults, next) = try await database.records(continuingMatchFrom: cursor)
+            } else {
+                (matchResults, next) = try await database.records(matching: query, inZoneWith: nil)
+            }
+            for (_, result) in matchResults {
+                if let record = try? result.get() {
+                    records.append(record)
+                }
+            }
+            cursor = next
+        } while cursor != nil
+        return records
+    }
+
+    private func fetchNamedRecords(_ names: [String]) async -> [CKRecord] {
+        var records: [CKRecord] = []
+        let ids = names.map { CKRecord.ID(recordName: $0) }
+        var start = 0
+        while start < ids.count {
+            let end = min(start + 100, ids.count)
+            let batch = Array(ids[start..<end])
+            if let result = try? await database.records(for: batch) {
+                for id in batch {
+                    if let record = try? result[id]?.get() {
+                        records.append(record)
+                    }
+                }
+            }
+            start = end
+        }
+        return records
     }
 
     private func saveItem(_ item: TodoItem, notifyKind: String) async throws {
@@ -443,7 +520,7 @@ final class CloudSync {
         item.updatedAt = record["updatedAt"] as? Date ?? item.updatedAt
         item.lastEditor = record["lastEditor"] as? String ?? item.lastEditor
         if let asset = record["image"] as? CKAsset, let url = asset.fileURL,
-           let data = try? Data(contentsOf: url) {
+           let data = try? Data(contentsOf: url), data.count < 8_000_000 {
             item.imageData = data
         }
     }
@@ -471,7 +548,11 @@ final class CloudSync {
         itemIDs.forEach { ids.insert($0) }
         guard ids.count != before else { return }
         record["itemIDs"] = ids.sorted().joined(separator: ",")
-        try await saveOverwriting(record)
+        do {
+            try await saveOverwriting(record)
+        } catch {
+            // The ID list can be too long for iCloud; items still sync by pairID.
+        }
     }
 
     private func removeItemID(_ itemID: String) async throws {
@@ -483,17 +564,29 @@ final class CloudSync {
     }
 
     private func subscribe() async throws {
-        let id = "todo42-items"
-        let subscription = CKDatabaseSubscription(subscriptionID: id)
-        subscription.recordType = "TDItem"
+        guard let pairID = PairSession.shared.pairID else { return }
         let info = CKSubscription.NotificationInfo()
         info.shouldSendContentAvailable = true
         info.shouldBadge = false
+
+        let subscription = CKQuerySubscription(
+            recordType: "TDItem",
+            predicate: NSPredicate(format: "pairID == %@", pairID),
+            subscriptionID: "todo42-tditem-\(pairID.prefix(8))",
+            options: [.firesOnRecordCreation, .firesOnRecordUpdate, .firesOnRecordDeletion]
+        )
         subscription.notificationInfo = info
         do {
             _ = try await database.save(subscription)
         } catch {
-            // Already subscribed on this device.
+            let fallback = CKQuerySubscription(
+                recordType: "TDItem",
+                predicate: NSPredicate(value: true),
+                subscriptionID: "todo42-tditem-all",
+                options: [.firesOnRecordCreation, .firesOnRecordUpdate, .firesOnRecordDeletion]
+            )
+            fallback.notificationInfo = info
+            _ = try? await database.save(fallback)
         }
     }
 

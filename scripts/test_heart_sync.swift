@@ -110,6 +110,50 @@ expect(
     "Unheart does not send a hearted notification"
 )
 
+enum ItemDuplicatePick {
+    static func keepFirst(
+        firstUpdated: Date,
+        firstHasPhoto: Bool,
+        firstNoteCount: Int,
+        secondUpdated: Date,
+        secondHasPhoto: Bool,
+        secondNoteCount: Int
+    ) -> Bool {
+        if firstUpdated != secondUpdated { return firstUpdated > secondUpdated }
+        if firstHasPhoto != secondHasPhoto { return firstHasPhoto }
+        return firstNoteCount >= secondNoteCount
+    }
+}
+
+let older = Date(timeIntervalSince1970: 1)
+let newer = Date(timeIntervalSince1970: 2)
+expect(
+    ItemDuplicatePick.keepFirst(
+        firstUpdated: newer,
+        firstHasPhoto: false,
+        firstNoteCount: 0,
+        secondUpdated: older,
+        secondHasPhoto: true,
+        secondNoteCount: 10
+    ),
+    "Keep the newer duplicate even if the older one has a photo"
+)
+expect(
+    ItemDuplicatePick.keepFirst(
+        firstUpdated: older,
+        firstHasPhoto: true,
+        firstNoteCount: 0,
+        secondUpdated: older,
+        secondHasPhoto: false,
+        secondNoteCount: 40
+    ),
+    "If timestamps match, keep the copy with a photo"
+)
+expect(
+    Dictionary([("same", 1), ("same", 2)], uniquingKeysWith: { first, _ in first })["same"] == 1,
+    "Duplicate sync keys keep the first item instead of crashing"
+)
+
 if failed > 0 {
     fputs("\(failed) test(s) failed\n", stderr)
     exit(1)

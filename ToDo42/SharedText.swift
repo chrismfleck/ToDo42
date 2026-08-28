@@ -2,7 +2,8 @@ import Foundation
 
 enum SharedText {
     static func normalized(_ string: String) -> String {
-        let mutable = NSMutableString(string: string)
+        let limited = string.count > 8000 ? String(string.prefix(8000)) : string
+        let mutable = NSMutableString(string: limited)
         CFStringTransform(mutable, nil, kCFStringTransformFullwidthHalfwidth, false)
         CFStringTransform(mutable, nil, kCFStringTransformToLatin, false)
         CFStringTransform(mutable, nil, kCFStringTransformStripCombiningMarks, false)
