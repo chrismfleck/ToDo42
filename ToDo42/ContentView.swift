@@ -37,6 +37,8 @@ private extension View {
     }
 }
 
+private let heartPink = Color(red: 0.92, green: 0.28, blue: 0.45)
+
 struct ContentView: View {
     @Environment(\.modelContext) private var modelContext
     @Environment(\.colorScheme) private var colorScheme
@@ -504,6 +506,20 @@ struct ItemRowView: View {
             .frame(maxWidth: .infinity, alignment: .leading)
             .dynamicTypeSize(.large)
 
+            if item.chrisHearted || item.deenaHearted {
+                HStack(spacing: 4) {
+                    if item.chrisHearted {
+                        Image(systemName: "heart.fill")
+                    }
+                    if item.deenaHearted {
+                        Image(systemName: "heart.fill")
+                    }
+                }
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(heartPink)
+                .accessibilityLabel("Hearted")
+            }
+
             if showsDragHandle {
                 Image(systemName: "line.3.horizontal")
                     .font(.body.weight(.semibold))
@@ -681,7 +697,11 @@ struct ItemDetailView: View {
 
                         HStack(spacing: 28) {
                             PartnerHeartButton(name: pairSession.myHeartLabel, isOn: myHeart)
-                            PartnerHeartButton(name: pairSession.partnerHeartLabel, isOn: partnerHeart)
+                            PartnerHeartButton(
+                                name: pairSession.partnerHeartLabel,
+                                isOn: partnerHeart,
+                                interactive: false
+                            )
                             DoneCheckButton(isDone: $item.isDone, size: 34, name: "Done")
                         }
                         .frame(maxWidth: .infinity)
@@ -846,8 +866,6 @@ private enum PhotoJPEG {
     }
 }
 
-private let heartPink = Color(red: 0.92, green: 0.28, blue: 0.45)
-
 struct DoneCheckButton: View {
     @Environment(\.colorScheme) private var colorScheme
     @Binding var isDone: Bool
@@ -884,28 +902,39 @@ struct DoneCheckButton: View {
 struct PartnerHeartButton: View {
     let name: String
     @Binding var isOn: Bool
+    var interactive: Bool = true
 
     var body: some View {
-        Button {
-            withAnimation(.spring(duration: 0.28)) {
-                isOn.toggle()
+        Group {
+            if interactive {
+                Button {
+                    withAnimation(.spring(duration: 0.28)) {
+                        isOn.toggle()
+                    }
+                } label: {
+                    heartMark
+                }
+                .buttonStyle(.plain)
+            } else {
+                heartMark
             }
-        } label: {
-            VStack(spacing: 6) {
-                Image(systemName: isOn ? "heart.fill" : "heart")
-                    .font(.system(size: 34, weight: .semibold))
-                    .foregroundStyle(isOn ? heartPink : Color.secondary.opacity(0.55))
-                    .scaleEffect(isOn ? 1.08 : 1)
-                Text(name)
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(.secondary)
-            }
-            .frame(minWidth: 72)
-            .padding(.vertical, 8)
         }
-        .buttonStyle(.plain)
         .accessibilityLabel("\(name) heart")
         .accessibilityAddTraits(isOn ? .isSelected : [])
+    }
+
+    private var heartMark: some View {
+        VStack(spacing: 6) {
+            Image(systemName: isOn ? "heart.fill" : "heart")
+                .font(.system(size: 34, weight: .semibold))
+                .foregroundStyle(isOn ? heartPink : Color.secondary.opacity(0.55))
+                .scaleEffect(isOn ? 1.08 : 1)
+            Text(name)
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.secondary)
+        }
+        .frame(minWidth: 72)
+        .padding(.vertical, 8)
     }
 }
 

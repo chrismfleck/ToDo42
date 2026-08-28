@@ -333,11 +333,30 @@ final class CloudSync {
             guard let itemID = record["itemID"] as? String, let uuid = UUID(uuidString: itemID) else { continue }
             let remoteUpdated = record["updatedAt"] as? Date ?? .distantPast
             if let local = localByID[itemID] {
+                let remoteChris = CloudKitValues.flag(record["chrisHearted"])
+                let remoteDeena = CloudKitValues.flag(record["deenaHearted"])
+                let justHearted = PartnerHeartMerge.partnerJustHearted(
+                    myRole: session.role,
+                    localChris: local.chrisHearted,
+                    localDeena: local.deenaHearted,
+                    remoteChris: remoteChris,
+                    remoteDeena: remoteDeena
+                )
+                local.chrisHearted = PartnerHeartMerge.mergedChris(
+                    myRole: session.role,
+                    localChris: local.chrisHearted,
+                    remoteChris: remoteChris
+                )
+                local.deenaHearted = PartnerHeartMerge.mergedDeena(
+                    myRole: session.role,
+                    localDeena: local.deenaHearted,
+                    remoteDeena: remoteDeena
+                )
                 if remoteUpdated > (local.updatedAt ?? local.createdAt) {
-                    let heartChanged = local.chrisHearted != ((record["chrisHearted"] as? Int) == 1)
-                        || local.deenaHearted != ((record["deenaHearted"] as? Int) == 1)
-                    apply(record, to: local)
-                    notifyUpdate(record, heartChanged: heartChanged)
+                    apply(record, to: local, hearts: false)
+                    notifyUpdate(record, heartChanged: justHearted)
+                } else if justHearted {
+                    notifyUpdate(record, heartChanged: true)
                 }
             } else {
                 let item = TodoItem(
@@ -345,7 +364,7 @@ final class CloudSync {
                     category: ItemCategory(rawValue: record["categoryRaw"] as? String ?? "places") ?? .places,
                     urlString: record["urlString"] as? String,
                     notes: record["notes"] as? String ?? "",
-                    sortOrder: record["sortOrder"] as? Int ?? 0
+                    sortOrder: CloudKitValues.intValue(record["sortOrder"]) ?? 0
                 )
                 item.id = uuid
                 apply(record, to: item)
@@ -353,6 +372,7 @@ final class CloudSync {
                 notifyNew(record)
             }
         }
+        try? modelContext.save()
     }
 
     private func pushAll(_ items: [TodoItem]) async throws {
@@ -367,9 +387,14 @@ final class CloudSync {
         let recordID = CKRecord.ID(recordName: "item-\(item.id.uuidString)")
         let record: CKRecord
         if let existing = try? await database.record(for: recordID) {
+            if notifyKind.isEmpty, shouldSkipCatchupPush(item, existing: existing) {
+                return
+            }
             record = existing
         } else {
             record = CKRecord(recordType: "TDItem", recordID: recordID)
+            record["chrisHearted"] = item.chrisHearted ? 1 : 0
+            record["deenaHearted"] = item.deenaHearted ? 1 : 0
         }
         record["itemID"] = item.id.uuidString
         record["pairID"] = pairID
@@ -377,8 +402,15 @@ final class CloudSync {
         record["urlString"] = item.urlString ?? ""
         record["notes"] = item.notes
         record["categoryRaw"] = item.categoryRaw
-        record["chrisHearted"] = item.chrisHearted ? 1 : 0
-        record["deenaHearted"] = item.deenaHearted ? 1 : 0
+        switch PairSession.shared.role {
+        case .chris:
+            record["chrisHearted"] = item.chrisHearted ? 1 : 0
+        case .deena:
+            record["deenaHearted"] = item.deenaHearted ? 1 : 0
+        case nil:
+            record["chrisHearted"] = item.chrisHearted ? 1 : 0
+            record["deenaHearted"] = item.deenaHearted ? 1 : 0
+        }
         record["isDone"] = item.isDone ? 1 : 0
         record["sortOrder"] = item.sortOrder
         record["createdAt"] = item.createdAt
@@ -395,22 +427,38 @@ final class CloudSync {
         try await saveOverwriting(record)
     }
 
-    private func apply(_ record: CKRecord, to item: TodoItem) {
+    private func apply(_ record: CKRecord, to item: TodoItem, hearts: Bool = true) {
         item.title = record["title"] as? String ?? item.title
         let url = record["urlString"] as? String ?? ""
         item.urlString = url.isEmpty ? nil : url
         item.notes = record["notes"] as? String ?? item.notes
         item.categoryRaw = record["categoryRaw"] as? String ?? item.categoryRaw
-        item.chrisHearted = (record["chrisHearted"] as? Int) == 1
-        item.deenaHearted = (record["deenaHearted"] as? Int) == 1
-        item.isDone = (record["isDone"] as? Int) == 1
-        item.sortOrder = record["sortOrder"] as? Int ?? item.sortOrder
+        if hearts {
+            item.chrisHearted = CloudKitValues.flag(record["chrisHearted"])
+            item.deenaHearted = CloudKitValues.flag(record["deenaHearted"])
+        }
+        item.isDone = CloudKitValues.flag(record["isDone"])
+        item.sortOrder = CloudKitValues.intValue(record["sortOrder"]) ?? item.sortOrder
         item.createdAt = record["createdAt"] as? Date ?? item.createdAt
         item.updatedAt = record["updatedAt"] as? Date ?? item.updatedAt
         item.lastEditor = record["lastEditor"] as? String ?? item.lastEditor
         if let asset = record["image"] as? CKAsset, let url = asset.fileURL,
            let data = try? Data(contentsOf: url) {
             item.imageData = data
+        }
+    }
+
+    private func shouldSkipCatchupPush(_ item: TodoItem, existing: CKRecord) -> Bool {
+        let remoteUpdated = existing["updatedAt"] as? Date ?? .distantPast
+        let localUpdated = item.updatedAt ?? item.createdAt
+        guard remoteUpdated >= localUpdated else { return false }
+        switch PairSession.shared.role {
+        case .chris:
+            return CloudKitValues.flag(existing["chrisHearted"]) == item.chrisHearted
+        case .deena:
+            return CloudKitValues.flag(existing["deenaHearted"]) == item.deenaHearted
+        case nil:
+            return true
         }
     }
 
@@ -471,15 +519,16 @@ final class CloudSync {
     }
 
     private func notifyUpdate(_ record: CKRecord, heartChanged: Bool) {
+        let title = record["title"] as? String ?? "an item"
+        if heartChanged {
+            let who = PairSession.shared.partnerHeartLabel
+            postNotice(title: "\(who) hearted an item", body: title)
+            return
+        }
         let editor = record["lastEditor"] as? String ?? ""
         guard editor != PairSession.shared.role?.rawValue else { return }
         let who = PairSession.shared.displayName(forEditor: editor)
-        let title = record["title"] as? String ?? "an item"
-        if heartChanged {
-            postNotice(title: "\(who) hearted an item", body: title)
-        } else {
-            postNotice(title: "\(who) updated an item", body: title)
-        }
+        postNotice(title: "\(who) updated an item", body: title)
     }
 
     private func postNotice(title: String, body: String) {
