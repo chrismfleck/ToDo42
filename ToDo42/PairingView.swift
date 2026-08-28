@@ -1,9 +1,12 @@
 import SwiftUI
+import SwiftData
 
 struct PairingView: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.modelContext) private var modelContext
     @Environment(PairSession.self) private var session
+    @Query private var items: [TodoItem]
     @State private var joinCode = ""
     @State private var errorText = ""
     @State private var showShare = false
@@ -108,6 +111,7 @@ struct PairingView: View {
         defer { session.isBusy = false }
         do {
             _ = try await CloudSync.shared.createInvite()
+            await CloudSync.shared.sync(modelContext: modelContext, items: items)
             showShare = true
         } catch {
             errorText = error.localizedDescription
@@ -120,6 +124,7 @@ struct PairingView: View {
         defer { session.isBusy = false }
         do {
             try await CloudSync.shared.join(code: joinCode)
+            await CloudSync.shared.sync(modelContext: modelContext, items: items)
         } catch {
             errorText = error.localizedDescription
         }
