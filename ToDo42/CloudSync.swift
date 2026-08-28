@@ -8,9 +8,6 @@ import UserNotifications
 enum PairRole: String {
     case chris
     case deena
-
-    var displayName: String { rawValue.capitalized }
-    var partnerName: String { self == .chris ? "Deena" : "Chris" }
 }
 
 @Observable
@@ -21,6 +18,8 @@ final class PairSession {
     var pairID: String?
     var role: PairRole?
     var inviteCode: String?
+    var myName = ""
+    var partnerName = ""
     var statusMessage = ""
     var isBusy = false
 
@@ -28,9 +27,29 @@ final class PairSession {
     private let pairKey = "todo42.pairID"
     private let roleKey = "todo42.pairRole"
     private let codeKey = "todo42.inviteCode"
+    private let myNameKey = "todo42.myName"
+    private let partnerNameKey = "todo42.partnerName"
 
     var isPaired: Bool { pairID != nil && role != nil }
     var isApplyingRemote = false
+
+    var trimmedMyName: String {
+        myName.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    var trimmedPartnerName: String {
+        partnerName.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    var hasNames: Bool {
+        !trimmedMyName.isEmpty && !trimmedPartnerName.isEmpty
+    }
+
+    var myHeartLabel: String { trimmedMyName.isEmpty ? "Me" : trimmedMyName }
+    var partnerHeartLabel: String { trimmedPartnerName.isEmpty ? "Partner" : trimmedPartnerName }
+
+    var hostName: String { role == .deena ? trimmedPartnerName : trimmedMyName }
+    var guestName: String { role == .deena ? trimmedMyName : trimmedPartnerName }
 
     private init() {
         pairID = defaults.string(forKey: pairKey)
@@ -38,12 +57,46 @@ final class PairSession {
             role = PairRole(rawValue: raw)
         }
         inviteCode = defaults.string(forKey: codeKey)
+        myName = defaults.string(forKey: myNameKey) ?? ""
+        partnerName = defaults.string(forKey: partnerNameKey) ?? ""
     }
 
     func persist() {
+        persistLocal()
+        if isPaired {
+            Task { await CloudSync.shared.uploadPairNames() }
+        }
+    }
+
+    func persistLocal() {
         defaults.set(pairID, forKey: pairKey)
         defaults.set(role?.rawValue, forKey: roleKey)
         defaults.set(inviteCode, forKey: codeKey)
+        defaults.set(myName, forKey: myNameKey)
+        defaults.set(partnerName, forKey: partnerNameKey)
+    }
+
+    func applyRemoteNames(host: String?, guest: String?) {
+        let hostName = host?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let guestName = guest?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        if role == .deena {
+            if !guestName.isEmpty { myName = guestName }
+            if !hostName.isEmpty { partnerName = hostName }
+        } else {
+            if !hostName.isEmpty { myName = hostName }
+            if !guestName.isEmpty { partnerName = guestName }
+        }
+        persistLocal()
+    }
+
+    func displayName(forEditor editor: String) -> String {
+        if editor == PairRole.chris.rawValue {
+            return hostName.isEmpty ? "Partner" : hostName
+        }
+        if editor == PairRole.deena.rawValue {
+            return guestName.isEmpty ? "Partner" : guestName
+        }
+        return editor.capitalized
     }
 
     func noteLocalEdit(_ item: TodoItem, kind: String) {
@@ -119,6 +172,8 @@ final class CloudSync {
         let pairRecord = CKRecord(recordType: "TDPair", recordID: CKRecord.ID(recordName: "pair-\(pairID)"))
         pairRecord["itemIDs"] = ""
         pairRecord["createdAt"] = Date()
+        pairRecord["hostName"] = PairSession.shared.trimmedMyName
+        pairRecord["guestName"] = PairSession.shared.trimmedPartnerName
 
         _ = try await database.modifyRecords(saving: [codeRecord, pairRecord], deleting: [], savePolicy: .allKeys)
 
@@ -126,7 +181,7 @@ final class CloudSync {
         session.pairID = pairID
         session.role = .chris
         session.inviteCode = code
-        session.persist()
+        session.persistLocal()
         try await subscribe()
         try await requestNotifications()
         return code
@@ -144,9 +199,35 @@ final class CloudSync {
         session.pairID = pairID
         session.role = .deena
         session.inviteCode = trimmed
-        session.persist()
+        session.persistLocal()
+        if let pair = try? await database.record(for: CKRecord.ID(recordName: "pair-\(pairID)")) {
+            let host = pair["hostName"] as? String ?? ""
+            if !host.isEmpty {
+                session.partnerName = host
+            }
+            pair["guestName"] = session.trimmedMyName
+            if session.trimmedPartnerName.isEmpty == false, host.isEmpty {
+                pair["hostName"] = session.trimmedPartnerName
+            }
+            try await saveOverwriting(pair)
+        }
+        session.persistLocal()
         try await subscribe()
         try await requestNotifications()
+    }
+
+    func uploadPairNames() async {
+        guard PairSession.shared.isPaired, let pairID = PairSession.shared.pairID else { return }
+        await enqueue {
+            do {
+                let record = try await self.database.record(for: CKRecord.ID(recordName: "pair-\(pairID)"))
+                record["hostName"] = PairSession.shared.hostName
+                record["guestName"] = PairSession.shared.guestName
+                try await self.saveOverwriting(record)
+            } catch {
+                PairSession.shared.statusMessage = Self.friendlyMessage(error)
+            }
+        }
     }
 
     func sync(modelContext: ModelContext, items: [TodoItem]) async {
@@ -195,7 +276,7 @@ final class CloudSync {
 
     func inviteText(code: String) -> String {
         """
-        Join me on Save4Two.
+        Join \(PairSession.shared.trimmedMyName.isEmpty ? "me" : PairSession.shared.trimmedMyName) on Save4Two.
 
         1. I’ll send you the TestFlight install link from App Store Connect.
         2. After the app is on your iPhone, open it and tap the two-person icon.
@@ -208,6 +289,10 @@ final class CloudSync {
     private func pull(modelContext: ModelContext, items: [TodoItem]) async throws {
         guard let pairID = PairSession.shared.pairID else { return }
         let pair = try await database.record(for: CKRecord.ID(recordName: "pair-\(pairID)"))
+        PairSession.shared.applyRemoteNames(
+            host: pair["hostName"] as? String,
+            guest: pair["guestName"] as? String
+        )
         let idList = (pair["itemIDs"] as? String ?? "")
             .split(separator: ",")
             .map(String.init)
@@ -364,7 +449,7 @@ final class CloudSync {
     private func notifyNew(_ record: CKRecord) {
         let editor = record["lastEditor"] as? String ?? ""
         guard editor != PairSession.shared.role?.rawValue else { return }
-        let who = editor.capitalized
+        let who = PairSession.shared.displayName(forEditor: editor)
         let title = record["title"] as? String ?? "an item"
         postNotice(title: "\(who) added an item", body: title)
     }
@@ -372,7 +457,7 @@ final class CloudSync {
     private func notifyUpdate(_ record: CKRecord, heartChanged: Bool) {
         let editor = record["lastEditor"] as? String ?? ""
         guard editor != PairSession.shared.role?.rawValue else { return }
-        let who = editor.capitalized
+        let who = PairSession.shared.displayName(forEditor: editor)
         let title = record["title"] as? String ?? "an item"
         if heartChanged {
             postNotice(title: "\(who) hearted an item", body: title)

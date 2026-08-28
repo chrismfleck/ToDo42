@@ -13,25 +13,28 @@ struct PairingView: View {
 
     var body: some View {
         NavigationStack {
-            VStack(alignment: .leading, spacing: 20) {
-                if session.isPaired {
-                    connected
-                } else {
-                    unpaired
+            ScrollView {
+                VStack(alignment: .leading, spacing: 20) {
+                    nameFields
+                    if session.isPaired {
+                        connected
+                    } else {
+                        unpaired
+                    }
+                    if !errorText.isEmpty {
+                        Text(errorText)
+                            .font(.footnote)
+                            .foregroundStyle(.red)
+                    }
+                    if !session.statusMessage.isEmpty {
+                        Text(session.statusMessage)
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                    }
                 }
-                if !errorText.isEmpty {
-                    Text(errorText)
-                        .font(.footnote)
-                        .foregroundStyle(.red)
-                }
-                if !session.statusMessage.isEmpty {
-                    Text(session.statusMessage)
-                        .font(.footnote)
-                        .foregroundStyle(.secondary)
-                }
-                Spacer()
+                .padding(24)
             }
-            .padding(24)
+            .scrollDismissesKeyboard(.interactively)
             .background(Palette.canvas(colorScheme).ignoresSafeArea())
             .navigationTitle("Pair phones")
             .navigationBarTitleDisplayMode(.inline)
@@ -45,31 +48,67 @@ struct PairingView: View {
                     ShareSheet(text: CloudSync.shared.inviteText(code: code))
                 }
             }
+            .onDisappear {
+                session.persist()
+            }
         }
         .tint(Palette.brandBlue(colorScheme))
+    }
+
+    private var nameFields: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Names")
+                .font(.title2.bold())
+            Text("These show on hearts and in notifications.")
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+            TextField("Your name", text: myNameBinding)
+                .textInputAutocapitalization(.words)
+                .textFieldStyle(.roundedBorder)
+            TextField("Partner’s name", text: partnerNameBinding)
+                .textInputAutocapitalization(.words)
+                .textFieldStyle(.roundedBorder)
+        }
+    }
+
+    private var myNameBinding: Binding<String> {
+        Binding(
+            get: { session.myName },
+            set: { session.myName = $0 }
+        )
+    }
+
+    private var partnerNameBinding: Binding<String> {
+        Binding(
+            get: { session.partnerName },
+            set: { session.partnerName = $0 }
+        )
     }
 
     private var unpaired: some View {
         VStack(alignment: .leading, spacing: 16) {
             Text("Share one list")
                 .font(.title2.bold())
-            Text("Invite Deena with a code. She installs Save4Two from TestFlight, then enters the code. Both phones must be signed in to iCloud.")
+            Text("Invite \(session.partnerHeartLabel) with a code. They install Save4Two from TestFlight, then enter the code. Both phones must be signed in to iCloud.")
                 .foregroundStyle(.secondary)
 
             Button {
                 Task { await createInvite() }
             } label: {
-                Label(session.inviteCode == nil ? "Invite Deena" : "Show my code", systemImage: "person.badge.plus")
-                    .frame(maxWidth: .infinity)
+                Label(
+                    session.inviteCode == nil ? "Invite \(session.partnerHeartLabel)" : "Show my code",
+                    systemImage: "person.badge.plus"
+                )
+                .frame(maxWidth: .infinity)
             }
             .buttonStyle(.borderedProminent)
-            .disabled(session.isBusy)
+            .disabled(session.isBusy || !session.hasNames)
 
             if let code = session.inviteCode {
                 Text(code)
                     .font(.system(size: 36, weight: .bold, design: .rounded))
                     .frame(maxWidth: .infinity)
-                Button("Send Deena the code") { showShare = true }
+                Button("Send \(session.partnerHeartLabel) the code") { showShare = true }
                     .frame(maxWidth: .infinity)
             }
 
@@ -80,11 +119,11 @@ struct PairingView: View {
             TextField("6-digit code", text: $joinCode)
                 .keyboardType(.numberPad)
                 .textFieldStyle(.roundedBorder)
-            Button("Join Chris") {
+            Button("Join \(session.partnerHeartLabel)") {
                 Task { await join() }
             }
             .buttonStyle(.bordered)
-            .disabled(session.isBusy || joinCode.trimmingCharacters(in: .whitespaces).count != 6)
+            .disabled(session.isBusy || !session.hasNames || joinCode.trimmingCharacters(in: .whitespaces).count != 6)
         }
     }
 
@@ -93,10 +132,8 @@ struct PairingView: View {
             Label("Phones are paired", systemImage: "checkmark.circle.fill")
                 .font(.title3.bold())
                 .foregroundStyle(Palette.brandBlue(colorScheme))
-            if let role = session.role {
-                Text("This phone is \(role.displayName). Hearts and new items sync to \(role.partnerName).")
-                    .foregroundStyle(.secondary)
-            }
+            Text("This phone is \(session.myHeartLabel). Hearts and new items sync to \(session.partnerHeartLabel).")
+                .foregroundStyle(.secondary)
             if let code = session.inviteCode, session.role == .chris {
                 Text("Invite code: \(code)")
                     .font(.headline)
@@ -109,6 +146,7 @@ struct PairingView: View {
         errorText = ""
         session.isBusy = true
         defer { session.isBusy = false }
+        session.persistLocal()
         do {
             _ = try await CloudSync.shared.createInvite()
             await CloudSync.shared.sync(modelContext: modelContext, items: items)
