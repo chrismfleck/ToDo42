@@ -726,8 +726,10 @@ struct ItemDetailView: View {
                     VStack(alignment: .leading, spacing: 16) {
                         if isEditing {
                             labeledField("Title") {
-                                TextField("Title", text: $draftTitle)
+                                TextField("Title", text: $draftTitle, axis: .vertical)
                                     .font(.title.bold())
+                                    .lineLimit(1...6)
+                                    .multilineTextAlignment(.leading)
                                     .padding(12)
                                     .appCard(cornerRadius: 12, scheme: colorScheme)
                             }
@@ -1057,7 +1059,8 @@ struct AddItemView: View {
                         }
                     }
 
-                    TextField("Title", text: $title)
+                    TextField("Title", text: $title, axis: .vertical)
+                        .lineLimit(1...4)
                     TextField("Link", text: $urlString)
                         .textInputAutocapitalization(.never)
                         .keyboardType(.URL)
