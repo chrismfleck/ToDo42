@@ -727,7 +727,7 @@ struct ItemDetailView: View {
                         if isEditing {
                             labeledField("Title") {
                                 TextField("Title", text: $draftTitle, axis: .vertical)
-                                    .font(.title.bold())
+                                    .font(.body)
                                     .lineLimit(1...6)
                                     .multilineTextAlignment(.leading)
                                     .padding(12)
@@ -735,7 +735,7 @@ struct ItemDetailView: View {
                             }
                         } else {
                             Text(verbatim: SharedText.normalized(item.title))
-                                .font(.title.bold())
+                                .font(.body)
                                 .padding(.top, 4)
                         }
 
@@ -780,6 +780,7 @@ struct ItemDetailView: View {
 
                             labeledField("Notes") {
                                 TextField("Add a note", text: $draftNotes, axis: .vertical)
+                                    .font(.system(size: 16, weight: .semibold))
                                     .lineLimit(3...8)
                                     .padding(12)
                                     .appCard(cornerRadius: 12, scheme: colorScheme)
@@ -798,7 +799,12 @@ struct ItemDetailView: View {
                                     Text("Notes")
                                         .font(.caption.weight(.semibold))
                                         .foregroundStyle(.secondary)
-                                    Text(verbatim: SharedText.normalized(item.notes))
+                                    LockedText(
+                                        text: item.notes,
+                                        font: UIFont.systemFont(ofSize: 16, weight: .semibold),
+                                        color: .label,
+                                        lines: 0
+                                    )
                                 }
                             }
                         }
