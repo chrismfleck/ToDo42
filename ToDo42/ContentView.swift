@@ -602,7 +602,8 @@ struct ItemPagerView: View {
             }
         }
         .tabViewStyle(.page(indexDisplayMode: .never))
-        .scrollDisabled(isEditing)
+        // Lock only the pager swipe. `.scrollDisabled` also freezes the item page itself.
+        .background { PagingScrollLock(locked: isEditing) }
         .background(Palette.canvas(colorScheme).ignoresSafeArea())
         .onChange(of: selectedID) { _, newID in
             if let match = items.first(where: { $0.id == newID }) {
@@ -612,6 +613,46 @@ struct ItemPagerView: View {
             UIImpactFeedbackGenerator(style: .light).impactOccurred()
         }
         .accessibilityHint(items.count > 1 ? "Swipe left or right to see other items" : "")
+    }
+}
+
+/// Disables a `TabView` page swipe without turning off nested `ScrollView`s.
+private struct PagingScrollLock: UIViewRepresentable {
+    var locked: Bool
+
+    func makeUIView(context: Context) -> UIView {
+        let view = UIView()
+        view.isUserInteractionEnabled = false
+        view.backgroundColor = .clear
+        return view
+    }
+
+    func updateUIView(_ uiView: UIView, context: Context) {
+        let locked = locked
+        DispatchQueue.main.async {
+            var node: UIView? = uiView.superview
+            while let view = node {
+                let pagers = Self.pagingScrollViews(in: view)
+                if !pagers.isEmpty {
+                    for pager in pagers {
+                        pager.isScrollEnabled = !locked
+                    }
+                    return
+                }
+                node = view.superview
+            }
+        }
+    }
+
+    private static func pagingScrollViews(in view: UIView) -> [UIScrollView] {
+        var found: [UIScrollView] = []
+        if let scroll = view as? UIScrollView, scroll.isPagingEnabled {
+            found.append(scroll)
+        }
+        for child in view.subviews {
+            found.append(contentsOf: pagingScrollViews(in: child))
+        }
+        return found
     }
 }
 
@@ -761,11 +802,11 @@ struct ItemDetailView: View {
                         }
                     }
                     .padding(20)
+                    .padding(.bottom, isEditing ? 180 : 0)
                 }
             }
             .scrollContentBackground(.hidden)
             .scrollDismissesKeyboard(.interactively)
-            .scrollDisabled(false)
         }
         .background(Palette.canvas(colorScheme).ignoresSafeArea())
         .onChange(of: photoItem) { _, newItem in
