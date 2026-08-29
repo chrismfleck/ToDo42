@@ -790,7 +790,7 @@ struct ItemDetailView: View {
                                let url = URL(string: s), !s.isEmpty {
                                 Link(destination: url) {
                                     Label("Open link", systemImage: "link")
-                                        .font(.headline)
+                                        .font(.subheadline.weight(.semibold))
                                 }
                             }
 
@@ -839,7 +839,7 @@ struct ItemDetailView: View {
     private var photoSection: some View {
         if item.hasPhoto {
             ZStack(alignment: .topTrailing) {
-                ItemPhotoView(item: item, cornerRadius: 0, placeholderIconSize: 48)
+                ItemPhotoView(item: item, cornerRadius: 18, placeholderIconSize: 48)
                     .frame(maxWidth: .infinity)
                     .frame(height: 280)
                     .clipped()
@@ -856,6 +856,9 @@ struct ItemDetailView: View {
                     .accessibilityLabel("Delete photo")
                 }
             }
+            .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+            .padding(.horizontal, 20)
+            .padding(.top, 8)
         } else {
             PhotosPicker(selection: $photoItem, matching: .images) {
                 VStack(spacing: 10) {
@@ -868,8 +871,11 @@ struct ItemDetailView: View {
                 .frame(maxWidth: .infinity)
                 .frame(height: 280)
                 .background(Palette.canvas(colorScheme))
+                .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
             }
             .buttonStyle(.plain)
+            .padding(.horizontal, 20)
+            .padding(.top, 8)
             .accessibilityLabel("Upload photo")
         }
     }
