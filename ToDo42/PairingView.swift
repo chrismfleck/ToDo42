@@ -12,28 +12,41 @@ struct PairingView: View {
 
     var body: some View {
         NavigationStack {
-            ScrollView {
-                VStack(alignment: .leading, spacing: 20) {
-                    nameFields
-                    if session.isPaired {
-                        connected
-                    } else {
-                        unpaired
+            GeometryReader { geo in
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 20) {
+                        nameFields
+                        if session.isPaired {
+                            connected
+                        } else {
+                            unpaired
+                        }
+                        if !errorText.isEmpty {
+                            Text(errorText)
+                                .font(.footnote)
+                                .foregroundStyle(.red)
+                        }
+                        if !session.statusMessage.isEmpty {
+                            Text(session.statusMessage)
+                                .font(.footnote)
+                                .foregroundStyle(.secondary)
+                        }
+
+                        Spacer(minLength: 32)
+
+                        Link(destination: URL(string: "https://save4two.com")!) {
+                            Text("save4two.com")
+                                .font(.subheadline.weight(.semibold))
+                                .frame(maxWidth: .infinity)
+                        }
+                        .padding(.bottom, 8)
+                        .accessibilityLabel("Open save4two.com")
                     }
-                    if !errorText.isEmpty {
-                        Text(errorText)
-                            .font(.footnote)
-                            .foregroundStyle(.red)
-                    }
-                    if !session.statusMessage.isEmpty {
-                        Text(session.statusMessage)
-                            .font(.footnote)
-                            .foregroundStyle(.secondary)
-                    }
+                    .frame(maxWidth: .infinity, minHeight: geo.size.height, alignment: .topLeading)
+                    .padding(24)
                 }
-                .padding(24)
+                .scrollDismissesKeyboard(.interactively)
             }
-            .scrollDismissesKeyboard(.interactively)
             .background(Palette.canvas(colorScheme).ignoresSafeArea())
             .navigationTitle("Pair phones")
             .navigationBarTitleDisplayMode(.inline)

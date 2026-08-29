@@ -97,7 +97,7 @@ struct ContentView: View {
                         .padding(.top, 12)
 
                     HStack {
-                        Button(isListEditing ? "Done" : "Edit") {
+                        Button {
                             if isListEditing {
                                 reorderDrag = nil
                                 isListEditing = false
@@ -105,19 +105,24 @@ struct ContentView: View {
                                 normalizeSortOrders()
                                 isListEditing = true
                             }
+                        } label: {
+                            Image(systemName: isListEditing ? "checkmark" : "gearshape")
+                                .font(.system(size: 22, weight: .semibold))
+                                .foregroundStyle(Palette.brandBlue(colorScheme))
+                                .frame(width: 32, height: 32)
                         }
-                        .font(.subheadline.weight(.semibold))
-                        .foregroundStyle(Palette.brandBlue(colorScheme))
                         .accessibilityLabel(isListEditing ? "Done editing" : "Edit list")
 
                         Spacer()
 
-                        Button { showPairing = true } label: {
-                            Image(systemName: pairSession.isPaired ? "person.2.fill" : "person.2")
-                                .font(.system(size: 22, weight: .semibold))
-                                .foregroundStyle(Palette.brandBlue(colorScheme))
+                        if isListEditing {
+                            Button { showPairing = true } label: {
+                                Image(systemName: pairSession.isPaired ? "person.2.fill" : "person.2")
+                                    .font(.system(size: 22, weight: .semibold))
+                                    .foregroundStyle(Palette.brandBlue(colorScheme))
+                            }
+                            .accessibilityLabel("Pair phones")
                         }
-                        .accessibilityLabel("Pair phones")
 
                         Button { showAdd = true } label: {
                             Image(systemName: "plus.circle.fill")
@@ -620,7 +625,6 @@ struct ItemDetailView: View {
     @State private var draftTitle = ""
     @State private var draftLink = ""
     @State private var draftNotes = ""
-    @State private var draftCategory: ItemCategory = .places
     @State private var photoItem: PhotosPickerItem?
 
     private var isGuest: Bool { pairSession.role == .deena }
@@ -655,15 +659,18 @@ struct ItemDetailView: View {
 
                 Spacer()
 
-                Button(isEditing ? "Done" : "Edit") {
+                Button {
                     if isEditing {
                         commitEdits()
                     } else {
                         beginEditing()
                     }
+                } label: {
+                    Image(systemName: isEditing ? "checkmark" : "gearshape")
+                        .font(.system(size: 22, weight: .semibold))
+                        .foregroundStyle(Palette.brandBlue(colorScheme))
+                        .frame(width: 32, height: 32)
                 }
-                .font(.subheadline.weight(.semibold))
-                .foregroundStyle(Palette.brandBlue(colorScheme))
                 .disabled(isEditing && draftTitle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                 .accessibilityLabel(isEditing ? "Done editing" : "Edit item")
             }
@@ -710,6 +717,14 @@ struct ItemDetailView: View {
                             PairSession.shared.noteLocalEdit(item, kind: "edit")
                         }
 
+                        Picker("Category", selection: categoryBinding) {
+                            ForEach(ItemCategory.allCases) { cat in
+                                Text(cat.title).tag(cat)
+                            }
+                        }
+                        .pickerStyle(.segmented)
+                        .accessibilityLabel("Category")
+
                         if isEditing {
                             labeledField("Link") {
                                 TextField("https://", text: $draftLink)
@@ -725,15 +740,6 @@ struct ItemDetailView: View {
                                     .lineLimit(3...8)
                                     .padding(12)
                                     .appCard(cornerRadius: 12, scheme: colorScheme)
-                            }
-
-                            labeledField("Category") {
-                                Picker("Category", selection: $draftCategory) {
-                                    ForEach(ItemCategory.allCases) { cat in
-                                        Text(cat.title).tag(cat)
-                                    }
-                                }
-                                .pickerStyle(.segmented)
                             }
                         } else {
                             if let s = item.urlString?.trimmingCharacters(in: .whitespacesAndNewlines),
@@ -770,13 +776,37 @@ struct ItemDetailView: View {
         }
     }
 
+    private var categoryBinding: Binding<ItemCategory> {
+        Binding(
+            get: { item.category },
+            set: {
+                item.category = $0
+                PairSession.shared.noteLocalEdit(item, kind: "edit")
+            }
+        )
+    }
+
     @ViewBuilder
     private var photoSection: some View {
         if item.hasPhoto {
-            ItemPhotoView(item: item, cornerRadius: 0, placeholderIconSize: 48)
-                .frame(maxWidth: .infinity)
-                .frame(height: 280)
-                .clipped()
+            ZStack(alignment: .topTrailing) {
+                ItemPhotoView(item: item, cornerRadius: 0, placeholderIconSize: 48)
+                    .frame(maxWidth: .infinity)
+                    .frame(height: 280)
+                    .clipped()
+
+                if isEditing {
+                    Button(action: clearPhoto) {
+                        Image(systemName: "xmark.circle.fill")
+                            .symbolRenderingMode(.palette)
+                            .foregroundStyle(.white, Color.black.opacity(0.55))
+                            .font(.system(size: 28, weight: .semibold))
+                    }
+                    .buttonStyle(.plain)
+                    .padding(14)
+                    .accessibilityLabel("Delete photo")
+                }
+            }
         } else {
             PhotosPicker(selection: $photoItem, matching: .images) {
                 VStack(spacing: 10) {
@@ -793,6 +823,14 @@ struct ItemDetailView: View {
             .buttonStyle(.plain)
             .accessibilityLabel("Upload photo")
         }
+    }
+
+    private func clearPhoto() {
+        item.imageData = nil
+        item.imageAssetName = nil
+        item.imageURLString = nil
+        photoItem = nil
+        PairSession.shared.noteLocalEdit(item, kind: "edit")
     }
 
     private func applyPickedPhoto(_ picked: PhotosPickerItem?) async {
@@ -820,7 +858,6 @@ struct ItemDetailView: View {
         draftTitle = item.title
         draftLink = item.urlString ?? ""
         draftNotes = item.notes
-        draftCategory = item.category
         withAnimation(.easeInOut(duration: 0.2)) {
             isEditing = true
         }
@@ -835,7 +872,6 @@ struct ItemDetailView: View {
         let trimmedLink = draftLink.trimmingCharacters(in: .whitespacesAndNewlines)
         item.urlString = trimmedLink.isEmpty ? nil : trimmedLink
         item.notes = SharedText.normalized(draftNotes)
-        item.category = draftCategory
         PairSession.shared.noteLocalEdit(item, kind: "edit")
         withAnimation(.easeInOut(duration: 0.2)) {
             isEditing = false
