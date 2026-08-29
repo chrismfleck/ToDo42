@@ -760,15 +760,15 @@ struct ItemDetailView: View {
                             PairSession.shared.noteLocalEdit(item, kind: "edit")
                         }
 
-                        Picker("Category", selection: categoryBinding) {
-                            ForEach(ItemCategory.allCases) { cat in
-                                Text(cat.title).tag(cat)
-                            }
-                        }
-                        .pickerStyle(.segmented)
-                        .accessibilityLabel("Category")
-
                         if isEditing {
+                            Picker("Category", selection: categoryBinding) {
+                                ForEach(ItemCategory.allCases) { cat in
+                                    Text(cat.title).tag(cat)
+                                }
+                            }
+                            .pickerStyle(.segmented)
+                            .accessibilityLabel("Category")
+
                             labeledField("Link") {
                                 TextField("https://", text: $draftLink)
                                     .textInputAutocapitalization(.never)
