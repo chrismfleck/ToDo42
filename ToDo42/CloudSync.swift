@@ -514,6 +514,12 @@ final class CloudSync {
             record["image"] = CKAsset(fileURL: url)
         }
         try await saveOverwriting(record)
+        if let extra = item.extraImageData, !extra.isEmpty {
+            let extraURL = FileManager.default.temporaryDirectory.appendingPathComponent("\(item.id.uuidString)-extra.jpg")
+            try extra.write(to: extraURL)
+            record["image2"] = CKAsset(fileURL: extraURL)
+            try? await saveOverwriting(record)
+        }
     }
 
     private func apply(_ record: CKRecord, to item: TodoItem, hearts: Bool = true) {
@@ -534,6 +540,10 @@ final class CloudSync {
         if let asset = record["image"] as? CKAsset, let url = asset.fileURL,
            let data = try? Data(contentsOf: url), data.count < 8_000_000 {
             item.imageData = data
+        }
+        if let asset = record["image2"] as? CKAsset, let url = asset.fileURL,
+           let data = try? Data(contentsOf: url), data.count < 8_000_000 {
+            item.extraImageData = data
         }
     }
 

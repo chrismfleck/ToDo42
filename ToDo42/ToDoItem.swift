@@ -28,6 +28,7 @@ final class TodoItem {
     var imageAssetName: String?
     var imageURLString: String?
     var imageData: Data?
+    var extraImageData: Data?
     var notes: String = ""
     var chrisHearted: Bool = false
     var deenaHearted: Bool = false
@@ -45,6 +46,7 @@ final class TodoItem {
         imageAssetName: String? = nil,
         imageURLString: String? = nil,
         imageData: Data? = nil,
+        extraImageData: Data? = nil,
         notes: String = "",
         sortOrder: Int = 0
     ) {
@@ -55,6 +57,7 @@ final class TodoItem {
         self.imageAssetName = imageAssetName
         self.imageURLString = imageURLString
         self.imageData = imageData
+        self.extraImageData = extraImageData
         self.notes = notes
         self.chrisHearted = false
         self.deenaHearted = false
@@ -74,6 +77,11 @@ final class TodoItem {
         if let data = imageData, !data.isEmpty { return true }
         if let name = imageAssetName, !name.isEmpty { return true }
         if let url = imageURLString, !url.isEmpty { return true }
+        return false
+    }
+
+    var hasExtraPhoto: Bool {
+        if let data = extraImageData, !data.isEmpty { return true }
         return false
     }
 }
@@ -125,6 +133,9 @@ enum ItemStore {
             }
             if keep.imageData == nil, let data = extra.imageData, data.isEmpty == false {
                 keep.imageData = data
+            }
+            if keep.extraImageData == nil, let data = extra.extraImageData, data.isEmpty == false {
+                keep.extraImageData = data
             }
             context.delete(extra)
         }

@@ -667,6 +667,7 @@ struct ItemDetailView: View {
     @State private var draftLink = ""
     @State private var draftNotes = ""
     @State private var photoItem: PhotosPickerItem?
+    @State private var extraPhotoItem: PhotosPickerItem?
 
     private var isGuest: Bool { pairSession.role == .deena }
 
@@ -734,19 +735,18 @@ struct ItemDetailView: View {
                                     .appCard(cornerRadius: 12, scheme: colorScheme)
                             }
                         } else {
-                            Text(verbatim: SharedText.normalized(item.title))
-                                .font(.body)
-                                .padding(.top, 4)
+                            titleView
                         }
 
-                        HStack(spacing: 28) {
-                            PartnerHeartButton(name: pairSession.myHeartLabel, isOn: myHeart)
+                        HStack(spacing: 20) {
+                            PartnerHeartButton(name: pairSession.myHeartLabel, isOn: myHeart, size: 24)
                             PartnerHeartButton(
                                 name: pairSession.partnerHeartLabel,
                                 isOn: partnerHeart,
-                                interactive: false
+                                interactive: false,
+                                size: 24
                             )
-                            DoneCheckButton(isDone: $item.isDone, size: 34, name: "Done")
+                            DoneCheckButton(isDone: $item.isDone, size: 24, name: "Done")
                         }
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 4)
@@ -778,34 +778,25 @@ struct ItemDetailView: View {
                                     .appCard(cornerRadius: 12, scheme: colorScheme)
                             }
 
-                            labeledField("Notes") {
-                                TextField("Add a note", text: $draftNotes, axis: .vertical)
-                                    .font(.system(size: 16, weight: .semibold))
-                                    .lineLimit(3...8)
-                                    .padding(12)
-                                    .appCard(cornerRadius: 12, scheme: colorScheme)
-                            }
+                            TextField("Add a note", text: $draftNotes, axis: .vertical)
+                                .font(.system(size: 16, weight: .semibold))
+                                .lineLimit(3...8)
+                                .padding(12)
+                                .appCard(cornerRadius: 12, scheme: colorScheme)
+
+                            extraPhotoSection
                         } else {
-                            if let s = item.urlString?.trimmingCharacters(in: .whitespacesAndNewlines),
-                               let url = URL(string: s), !s.isEmpty {
-                                Link(destination: url) {
-                                    Label("Open link", systemImage: "link")
-                                        .font(.subheadline.weight(.semibold))
-                                }
+                            if !item.notes.isEmpty {
+                                LockedText(
+                                    text: item.notes,
+                                    font: UIFont.systemFont(ofSize: 16, weight: .semibold),
+                                    color: .label,
+                                    lines: 0
+                                )
                             }
 
-                            if !item.notes.isEmpty {
-                                VStack(alignment: .leading, spacing: 6) {
-                                    Text("Notes")
-                                        .font(.caption.weight(.semibold))
-                                        .foregroundStyle(.secondary)
-                                    LockedText(
-                                        text: item.notes,
-                                        font: UIFont.systemFont(ofSize: 16, weight: .semibold),
-                                        color: .label,
-                                        lines: 0
-                                    )
-                                }
+                            if item.hasExtraPhoto {
+                                extraPhotoSection
                             }
                         }
                     }
@@ -820,8 +811,39 @@ struct ItemDetailView: View {
         .onChange(of: photoItem) { _, newItem in
             Task { await applyPickedPhoto(newItem) }
         }
+        .onChange(of: extraPhotoItem) { _, newItem in
+            Task { await applyExtraPhoto(newItem) }
+        }
         .onDisappear {
             if isEditing { commitEdits() }
+        }
+    }
+
+    private var savedURL: URL? {
+        guard let s = item.urlString?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !s.isEmpty,
+              let url = URL(string: s)
+        else { return nil }
+        return url
+    }
+
+    @ViewBuilder
+    private var titleView: some View {
+        let titleText = Text(verbatim: SharedText.normalized(item.title))
+            .font(.body)
+            .underline(savedURL != nil)
+            .multilineTextAlignment(.leading)
+            .padding(.top, 4)
+
+        if let url = savedURL {
+            Link(destination: url) {
+                titleText
+                    .foregroundStyle(Palette.brandBlue(colorScheme))
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .accessibilityLabel("Open \(SharedText.normalized(item.title))")
+        } else {
+            titleText
         }
     }
 
@@ -900,6 +922,64 @@ struct ItemDetailView: View {
     }
 
     @ViewBuilder
+    private var extraPhotoSection: some View {
+        if item.hasExtraPhoto, let data = item.extraImageData, let image = UIImage(data: data) {
+            ZStack(alignment: .topTrailing) {
+                Image(uiImage: image)
+                    .resizable()
+                    .scaledToFill()
+                    .frame(maxWidth: .infinity)
+                    .frame(height: 200)
+                    .clipped()
+                    .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+
+                if isEditing {
+                    Button(action: clearExtraPhoto) {
+                        Image(systemName: "xmark.circle.fill")
+                            .symbolRenderingMode(.palette)
+                            .foregroundStyle(.white, Color.black.opacity(0.55))
+                            .font(.system(size: 28, weight: .semibold))
+                    }
+                    .buttonStyle(.plain)
+                    .padding(14)
+                    .accessibilityLabel("Delete extra photo")
+                }
+            }
+        } else if isEditing {
+            PhotosPicker(selection: $extraPhotoItem, matching: .images) {
+                VStack(spacing: 10) {
+                    Image(systemName: "photo.badge.plus")
+                        .font(.system(size: 28, weight: .medium))
+                    Text("Add photo")
+                        .font(.subheadline.weight(.semibold))
+                }
+                .foregroundStyle(Palette.brandBlue(colorScheme))
+                .frame(maxWidth: .infinity)
+                .frame(height: 160)
+                .background(Palette.canvas(colorScheme))
+                .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Add extra photo")
+        }
+    }
+
+    private func clearExtraPhoto() {
+        item.extraImageData = nil
+        extraPhotoItem = nil
+        PairSession.shared.noteLocalEdit(item, kind: "edit")
+    }
+
+    private func applyExtraPhoto(_ picked: PhotosPickerItem?) async {
+        guard let picked else { return }
+        guard let data = try? await picked.loadTransferable(type: Data.self),
+              let image = UIImage(data: data),
+              let jpeg = PhotoJPEG.compressed(image) else { return }
+        item.extraImageData = jpeg
+        PairSession.shared.noteLocalEdit(item, kind: "edit")
+    }
+
+    @ViewBuilder
     private func labeledField<Content: View>(_ title: String, @ViewBuilder content: () -> Content) -> some View {
         VStack(alignment: .leading, spacing: 6) {
             Text(title)
@@ -970,12 +1050,12 @@ struct DoneCheckButton: View {
                     .scaleEffect(isDone ? 1.08 : 1)
                 if let name {
                     Text(name)
-                        .font(.caption.weight(.semibold))
+                        .font(.caption2.weight(.semibold))
                         .foregroundStyle(.secondary)
                 }
             }
-            .frame(minWidth: name == nil ? size + 8 : 72)
-            .padding(.vertical, name == nil ? 4 : 8)
+            .frame(minWidth: name == nil ? size + 8 : 56)
+            .padding(.vertical, name == nil ? 4 : 4)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -988,6 +1068,7 @@ struct PartnerHeartButton: View {
     let name: String
     @Binding var isOn: Bool
     var interactive: Bool = true
+    var size: CGFloat = 34
 
     var body: some View {
         Group {
@@ -1009,17 +1090,17 @@ struct PartnerHeartButton: View {
     }
 
     private var heartMark: some View {
-        VStack(spacing: 6) {
+        VStack(spacing: 4) {
             Image(systemName: isOn ? "heart.fill" : "heart")
-                .font(.system(size: 34, weight: .semibold))
+                .font(.system(size: size, weight: .semibold))
                 .foregroundStyle(isOn ? heartPink : Color.secondary.opacity(0.55))
                 .scaleEffect(isOn ? 1.08 : 1)
             Text(name)
-                .font(.caption.weight(.semibold))
+                .font(.caption2.weight(.semibold))
                 .foregroundStyle(.secondary)
         }
-        .frame(minWidth: 72)
-        .padding(.vertical, 8)
+        .frame(minWidth: 56)
+        .padding(.vertical, 4)
     }
 }
 
