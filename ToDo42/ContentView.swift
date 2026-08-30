@@ -929,7 +929,7 @@ struct ItemDetailView: View {
                     .resizable()
                     .scaledToFill()
                     .frame(maxWidth: .infinity)
-                    .frame(height: 200)
+                    .frame(height: 280)
                     .clipped()
                     .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
 
@@ -955,7 +955,7 @@ struct ItemDetailView: View {
                 }
                 .foregroundStyle(Palette.brandBlue(colorScheme))
                 .frame(maxWidth: .infinity)
-                .frame(height: 160)
+                .frame(height: 280)
                 .background(Palette.canvas(colorScheme))
                 .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
             }
