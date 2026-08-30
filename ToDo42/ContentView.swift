@@ -280,6 +280,15 @@ struct ContentView: View {
 
     private func normalizeStoredText() {
         for item in items {
+            if InstagramShareText.isInstagramURL(item.urlString ?? ""),
+               InstagramShareText.needsCleanup(title: item.title, notes: item.notes) {
+                let split = InstagramShareText.split(from: [item.title, item.notes])
+                if !split.title.isEmpty {
+                    item.title = SharedText.normalized(split.title)
+                    item.notes = SharedText.normalized(split.notes)
+                    continue
+                }
+            }
             let title = SharedText.normalized(item.title)
             if item.title != title { item.title = title }
             let notes = SharedText.normalized(item.notes)

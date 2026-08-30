@@ -31,6 +31,13 @@ enum InstagramShareText {
         return mentions >= 3
     }
 
+    static func needsCleanup(title: String, notes: String) -> Bool {
+        let lowerTitle = title.lowercased()
+        return lowerTitle.contains("on instagram")
+            || lowerTitle.contains("ingredients")
+            || looksLikeComments(notes)
+    }
+
     private static func bestCaption(from pieces: [String]) -> String {
         let cleaned = pieces
             .map(unwrap)
@@ -64,7 +71,10 @@ enum InstagramShareText {
             .filter { !$0.isEmpty && !looksLikeComments($0) }
 
         if lines.count >= 2 {
-            return (lines[0], lines.dropFirst().joined(separator: "\n"))
+            let first = lines[0]
+            if first.count <= 140 {
+                return (first, lines.dropFirst().joined(separator: "\n"))
+            }
         }
 
         let text = lines.first ?? unwrapped
@@ -92,17 +102,5 @@ enum InstagramShareText {
         }
 
         return (text, "")
-    }
-
-    private static func firstMatch(_ pattern: String, in text: String) -> String? {
-        guard let regex = try? NSRegularExpression(pattern: pattern, options: [.dotMatchesLineSeparators]) else {
-            return nil
-        }
-        let range = NSRange(text.startIndex..<text.endIndex, in: text)
-        guard let match = regex.firstMatch(in: text, options: [], range: range),
-              match.numberOfRanges > 1,
-              let swiftRange = Range(match.range(at: 1), in: text)
-        else { return nil }
-        return String(text[swiftRange])
     }
 }
