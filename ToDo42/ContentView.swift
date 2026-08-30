@@ -280,15 +280,12 @@ struct ContentView: View {
 
     private func normalizeStoredText() {
         for item in items {
-            if InstagramShareText.needsCleanup(title: item.title, notes: item.notes)
-                || (InstagramShareText.isInstagramURL(item.urlString ?? "")
-                    && item.title.lowercased().contains("on instagram")) {
+            let link = item.urlString ?? ""
+            if InstagramShareText.isInstagramURL(link) || InstagramShareText.needsCleanup(title: item.title, notes: item.notes) {
                 let split = InstagramShareText.refine(title: item.title, notes: item.notes)
                 if !split.title.isEmpty {
                     item.title = SharedText.normalized(split.title)
-                    if !split.notes.isEmpty {
-                        item.notes = SharedText.reflowNotes(split.notes)
-                    }
+                    item.notes = SharedText.reflowNotes(split.notes.isEmpty ? item.notes : split.notes)
                     continue
                 }
             }
@@ -352,9 +349,16 @@ struct ContentView: View {
     private func importSharedDrafts() {
         var nextOrders: [ItemCategory: Int] = [:]
         for (payload, imageData) in ShareInbox.consumeDrafts() {
-            let title = SharedText.normalized(payload.title)
-            guard !title.isEmpty else { continue }
             let link = payload.urlString.trimmingCharacters(in: .whitespacesAndNewlines)
+            var rawTitle = payload.title
+            var rawNotes = payload.notes
+            if InstagramShareText.isInstagramURL(link) || InstagramShareText.needsCleanup(title: rawTitle, notes: rawNotes) {
+                let split = InstagramShareText.refine(title: rawTitle, notes: rawNotes)
+                if !split.title.isEmpty { rawTitle = split.title }
+                rawNotes = split.notes
+            }
+            let title = SharedText.normalized(rawTitle)
+            guard !title.isEmpty else { continue }
             let category = ItemCategory(rawValue: payload.category) ?? .places
             let sortOrder = nextOrders[category] ?? nextSortOrder(for: category)
             nextOrders[category] = sortOrder - 1
@@ -364,7 +368,7 @@ struct ContentView: View {
                     category: category,
                     urlString: link.isEmpty ? nil : link,
                     imageData: imageData,
-                    notes: SharedText.reflowNotes(payload.notes),
+                    notes: SharedText.reflowNotes(rawNotes),
                     sortOrder: sortOrder
                 )
             )

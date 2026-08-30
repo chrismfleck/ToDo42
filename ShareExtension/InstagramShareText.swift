@@ -3,40 +3,54 @@ import Foundation
 enum InstagramShareText {
     static func isInstagramURL(_ string: String) -> Bool {
         let lower = string.lowercased()
-        return lower.contains("instagram.com") || lower.contains("instagr.am") || lower.contains("instagram")
+        return lower.contains("instagram.com") || lower.contains("instagr.am")
     }
 
     static func needsCleanup(title: String, notes: String) -> Bool {
-        title.lowercased().contains("on instagram") || looksLikeComments(notes)
+        let t = title.lowercased()
+        if t.contains("on instagram") { return true }
+        if looksLikeComments(notes) { return true }
+        if t.contains("ingredient") || t.contains("for the ") || t.contains("tbsp") { return true }
+        return title.count > 90
     }
 
     static func refine(title: String, notes: String) -> (title: String, notes: String) {
-        var nextTitle = unwrap(title)
+        let peeled = peelInstagramWrapper(title)
+        var nextTitle = peeled.headline
+        var leftover = peeled.rest
         var nextNotes = looksLikeComments(notes) ? "" : notes.trimmingCharacters(in: .whitespacesAndNewlines)
 
         let cut = splitByMarkers(nextTitle)
-        if !cut.notes.isEmpty {
-            nextTitle = cut.title
-            if nextNotes.isEmpty { nextNotes = cut.notes }
-        }
+        nextTitle = cut.title
+        leftover = [cut.notes, leftover].filter { !$0.isEmpty }.joined(separator: "\n")
 
         let titleLines = lines(in: nextTitle)
         if titleLines.count >= 2 {
-            nextTitle = unwrap(titleLines[0])
-            let rest = titleLines.dropFirst().joined(separator: "\n")
-            if nextNotes.isEmpty { nextNotes = rest }
+            nextTitle = titleLines[0]
+            leftover = [titleLines.dropFirst().joined(separator: "\n"), leftover]
+                .filter { !$0.isEmpty }
+                .joined(separator: "\n")
         }
 
-        nextTitle = unwrap(nextTitle)
-        if nextTitle.isEmpty { nextTitle = unwrap(title) }
+        if nextNotes.isEmpty {
+            nextNotes = leftover
+        } else if !leftover.isEmpty, leftover.count > nextNotes.count {
+            nextNotes = leftover
+        }
+
+        if nextTitle.isEmpty { nextTitle = peeled.headline }
         if !nextNotes.isEmpty {
             nextNotes = SharedText.reflowNotes(nextNotes)
         }
-        return (nextTitle, nextNotes)
+        return (nextTitle.trimmingCharacters(in: .whitespacesAndNewlines), nextNotes)
     }
 
     static func split(from pieces: [String]) -> (title: String, notes: String) {
-        refine(title: pieces.first ?? "", notes: pieces.dropFirst().joined(separator: "\n"))
+        let useful = pieces
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty && !looksLikeComments($0) }
+        let longest = useful.max(by: { $0.count < $1.count }) ?? pieces.first ?? ""
+        return refine(title: longest, notes: "")
     }
 
     static func looksLikeComments(_ text: String) -> Bool {
@@ -54,24 +68,28 @@ enum InstagramShareText {
         return mentions >= 3
     }
 
-    static func unwrap(_ raw: String) -> String {
+    private static func peelInstagramWrapper(_ raw: String) -> (headline: String, rest: String) {
         var text = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         if let marker = text.range(of: "on Instagram:", options: .caseInsensitive) {
-            text = String(text[marker.upperBound...])
+            text = String(text[marker.upperBound...]).trimmingCharacters(in: .whitespacesAndNewlines)
         } else if let marker = text.range(of: "on Instagram", options: .caseInsensitive) {
             var rest = String(text[marker.upperBound...])
             if rest.hasPrefix(":") { rest.removeFirst() }
-            text = rest
+            text = rest.trimmingCharacters(in: .whitespacesAndNewlines)
         }
-        let quotes = CharacterSet(charactersIn: "\"“”'‘’")
-        text = text.trimmingCharacters(in: quotes.union(.whitespacesAndNewlines))
-        if let endQuote = text.firstIndex(of: "\""), endQuote < text.endIndex {
-            let before = text[..<endQuote].trimmingCharacters(in: quotes.union(.whitespacesAndNewlines))
-            if (8...140).contains(before.count) {
-                return String(before)
+
+        let quotePairs: [(Character, Character)] = [("\"", "\""), ("“", "”"), ("'", "'"), ("‘", "’")]
+        for (open, close) in quotePairs {
+            guard text.first == open, let end = text.dropFirst().firstIndex(of: close) else { continue }
+            let inside = String(text[text.index(after: text.startIndex)..<end])
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            let after = String(text[text.index(after: end)...])
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            if inside.count >= 8 {
+                return (inside, after)
             }
         }
-        return text
+        return (text, "")
     }
 
     private static func lines(in text: String) -> [String] {
@@ -100,12 +118,12 @@ enum InstagramShareText {
             guard let range = text.range(of: marker, options: .caseInsensitive),
                   range.lowerBound > text.startIndex
             else { continue }
-            let title = unwrap(String(text[..<range.lowerBound]))
+            let title = String(text[..<range.lowerBound]).trimmingCharacters(in: .whitespacesAndNewlines)
             let notes = text[range.lowerBound...].trimmingCharacters(in: .whitespacesAndNewlines)
             if (8...140).contains(title.count) {
                 return (title, notes)
             }
         }
-        return (unwrap(text), "")
+        return (text.trimmingCharacters(in: .whitespacesAndNewlines), "")
     }
 }
