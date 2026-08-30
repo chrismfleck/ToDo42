@@ -10,9 +10,6 @@ enum SharedText {
     }
 
     static func reflowNotes(_ string: String) -> String {
-        if string.contains(where: \.isNewline) {
-            return normalizedMultiline(string)
-        }
         let looksLikeRecipe = string.range(of: "ingredient", options: .caseInsensitive) != nil
             || string.range(of: "tbsp", options: .caseInsensitive) != nil
             || string.range(of: "for the ", options: .caseInsensitive) != nil
@@ -20,7 +17,7 @@ enum SharedText {
             return normalizedMultiline(string)
         }
 
-        var text = string
+        var text = string.replacingOccurrences(of: "\r\n", with: "\n")
         let headers = [
             "Ingredients",
             "For the ",
@@ -33,7 +30,7 @@ enum SharedText {
             "Serves ",
         ]
         for header in headers {
-            let pattern = " (?=\(NSRegularExpression.escapedPattern(for: header)))"
+            let pattern = "(?:^|[ \\n])(?=\(NSRegularExpression.escapedPattern(for: header)))"
             text = text.replacingOccurrences(
                 of: pattern,
                 with: "\n",
@@ -41,12 +38,17 @@ enum SharedText {
             )
         }
         text = text.replacingOccurrences(
-            of: #" (?=\d+(?:/\d+)?\s+(?:tbsp|tsp|cup|cups|oz|lb|g|kg|ml|fillets?|cloves?))\b"#,
+            of: #"\)\s+(?=[A-Z])"#,
+            with: ")\n",
+            options: .regularExpression
+        )
+        text = text.replacingOccurrences(
+            of: #"[ \n]+(?=\d+(?:/\d+)?\s+(?:tbsp|tsp|cup|cups|oz|lb|g|kg|ml|fillets?|cloves?))\b"#,
             with: "\n",
             options: [.regularExpression, .caseInsensitive]
         )
         text = text.replacingOccurrences(
-            of: #" (?=Salt and\b)"#,
+            of: #"[ \n]+(?=Salt and\b)"#,
             with: "\n",
             options: .regularExpression
         )
