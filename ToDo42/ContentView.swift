@@ -927,10 +927,8 @@ struct ItemDetailView: View {
             ZStack(alignment: .topTrailing) {
                 Image(uiImage: image)
                     .resizable()
-                    .scaledToFill()
+                    .aspectRatio(image.size, contentMode: .fit)
                     .frame(maxWidth: .infinity)
-                    .frame(height: 280)
-                    .clipped()
                     .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
 
                 if isEditing {
