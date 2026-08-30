@@ -2,6 +2,58 @@ import Foundation
 
 enum SharedText {
     static func normalized(_ string: String) -> String {
+        normalized(string, preserveNewlines: false)
+    }
+
+    static func normalizedMultiline(_ string: String) -> String {
+        normalized(string, preserveNewlines: true)
+    }
+
+    static func reflowNotes(_ string: String) -> String {
+        if string.contains(where: \.isNewline) {
+            return normalizedMultiline(string)
+        }
+        let looksLikeRecipe = string.range(of: "ingredient", options: .caseInsensitive) != nil
+            || string.range(of: "tbsp", options: .caseInsensitive) != nil
+            || string.range(of: "for the ", options: .caseInsensitive) != nil
+        guard looksLikeRecipe else {
+            return normalizedMultiline(string)
+        }
+
+        var text = string
+        let headers = [
+            "Ingredients",
+            "For the ",
+            "Pistachio Herb",
+            "Keto Base",
+            "Garnish",
+            "Instructions",
+            "Directions",
+            "Method",
+            "Serves ",
+        ]
+        for header in headers {
+            let pattern = " (?=\(NSRegularExpression.escapedPattern(for: header)))"
+            text = text.replacingOccurrences(
+                of: pattern,
+                with: "\n",
+                options: [.regularExpression, .caseInsensitive]
+            )
+        }
+        text = text.replacingOccurrences(
+            of: #" (?=\d+(?:/\d+)?\s+(?:tbsp|tsp|cup|cups|oz|lb|g|kg|ml|fillets?|cloves?))\b"#,
+            with: "\n",
+            options: [.regularExpression, .caseInsensitive]
+        )
+        text = text.replacingOccurrences(
+            of: #" (?=Salt and\b)"#,
+            with: "\n",
+            options: .regularExpression
+        )
+        return normalizedMultiline(text)
+    }
+
+    private static func normalized(_ string: String, preserveNewlines: Bool) -> String {
         let limited = string.count > 8000 ? String(string.prefix(8000)) : string
         let mutable = NSMutableString(string: limited)
         CFStringTransform(mutable, nil, kCFStringTransformFullwidthHalfwidth, false)
@@ -17,7 +69,11 @@ enum SharedText {
             if scalar.properties.isDefaultIgnorableCodePoint { continue }
             if scalar.properties.generalCategory == .format { continue }
             if scalar.properties.isWhitespace {
-                output.append(" ")
+                if preserveNewlines, scalar == "\n" || scalar == "\r" {
+                    if output.last != "\n" { output.append("\n") }
+                } else {
+                    output.append(" ")
+                }
                 continue
             }
             if scalar.properties.isEmoji, scalar.value > 0x7F { continue }
@@ -33,6 +89,13 @@ enum SharedText {
             if allowed.contains(scalar) {
                 output.append(Character(scalar))
             }
+        }
+        if preserveNewlines {
+            return output
+                .replacingOccurrences(of: "[^\\S\\n]+", with: " ", options: .regularExpression)
+                .replacingOccurrences(of: " *\\n *", with: "\n", options: .regularExpression)
+                .replacingOccurrences(of: "\\n{3,}", with: "\n\n", options: .regularExpression)
+                .trimmingCharacters(in: .whitespacesAndNewlines)
         }
         return output
             .replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)

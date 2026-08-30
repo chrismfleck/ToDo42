@@ -292,7 +292,7 @@ struct ShareFormView: View {
                             SharePayload(
                                 title: SharedText.normalized(title),
                                 urlString: urlString.trimmingCharacters(in: .whitespacesAndNewlines),
-                                notes: SharedText.normalized(notes),
+                                notes: SharedText.reflowNotes(notes),
                                 category: category
                             ),
                             previewImage

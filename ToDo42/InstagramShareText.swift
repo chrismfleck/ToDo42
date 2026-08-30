@@ -29,6 +29,9 @@ enum InstagramShareText {
 
         nextTitle = unwrap(nextTitle)
         if nextTitle.isEmpty { nextTitle = unwrap(title) }
+        if !nextNotes.isEmpty {
+            nextNotes = SharedText.reflowNotes(nextNotes)
+        }
         return (nextTitle, nextNotes)
     }
 

@@ -287,14 +287,14 @@ struct ContentView: View {
                 if !split.title.isEmpty {
                     item.title = SharedText.normalized(split.title)
                     if !split.notes.isEmpty {
-                        item.notes = SharedText.normalized(split.notes)
+                        item.notes = SharedText.reflowNotes(split.notes)
                     }
                     continue
                 }
             }
             let title = SharedText.normalized(item.title)
             if item.title != title { item.title = title }
-            let notes = SharedText.normalized(item.notes)
+            let notes = SharedText.reflowNotes(item.notes)
             if item.notes != notes { item.notes = notes }
         }
     }
@@ -364,7 +364,7 @@ struct ContentView: View {
                     category: category,
                     urlString: link.isEmpty ? nil : link,
                     imageData: imageData,
-                    notes: SharedText.normalized(payload.notes),
+                    notes: SharedText.reflowNotes(payload.notes),
                     sortOrder: sortOrder
                 )
             )
@@ -560,6 +560,7 @@ private struct LockedText: UIViewRepresentable {
     var font: UIFont
     var color: UIColor
     var lines: Int
+    var preserveNewlines: Bool = false
 
     func makeUIView(context: Context) -> UILabel {
         let label = UILabel()
@@ -572,7 +573,7 @@ private struct LockedText: UIViewRepresentable {
     }
 
     func updateUIView(_ label: UILabel, context: Context) {
-        label.text = SharedText.normalized(text)
+        label.text = preserveNewlines ? SharedText.normalizedMultiline(text) : SharedText.normalized(text)
         label.font = font
         label.textColor = color
         label.numberOfLines = lines
@@ -792,7 +793,7 @@ struct ItemDetailView: View {
 
                             TextField("Add a note", text: $draftNotes, axis: .vertical)
                                 .font(.system(size: 16, weight: .semibold))
-                                .lineLimit(3...8)
+                                .lineLimit(3...20)
                                 .padding(12)
                                 .appCard(cornerRadius: 12, scheme: colorScheme)
 
@@ -803,7 +804,8 @@ struct ItemDetailView: View {
                                     text: item.notes,
                                     font: UIFont.systemFont(ofSize: 16, weight: .semibold),
                                     color: .label,
-                                    lines: 0
+                                    lines: 0,
+                                    preserveNewlines: true
                                 )
                             }
 
@@ -1016,7 +1018,7 @@ struct ItemDetailView: View {
         }
         let trimmedLink = draftLink.trimmingCharacters(in: .whitespacesAndNewlines)
         item.urlString = trimmedLink.isEmpty ? nil : trimmedLink
-        item.notes = SharedText.normalized(draftNotes)
+        item.notes = SharedText.normalizedMultiline(draftNotes)
         PairSession.shared.noteLocalEdit(item, kind: "edit")
         withAnimation(.easeInOut(duration: 0.2)) {
             isEditing = false
@@ -1206,7 +1208,7 @@ struct AddItemView: View {
     private func save() {
         let trimmedTitle = SharedText.normalized(title)
         let trimmedLink = urlString.trimmingCharacters(in: .whitespacesAndNewlines)
-        let trimmedNotes = SharedText.normalized(notes)
+        let trimmedNotes = SharedText.reflowNotes(notes)
         let nextSortOrder = (items.filter { $0.category == selectedCategory }.map(\.sortOrder).min() ?? 0) - 1
         let item = TodoItem(
             title: trimmedTitle,
