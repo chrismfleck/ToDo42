@@ -29,6 +29,7 @@ final class PairSession {
     private let codeKey = "todo42.inviteCode"
     private let myNameKey = "todo42.myName"
     private let partnerNameKey = "todo42.partnerName"
+    private let pairHistoryKey = "todo42.pairIDHistory"
 
     var isPaired: Bool { pairID != nil && role != nil }
     var isApplyingRemote = false
@@ -68,7 +69,12 @@ final class PairSession {
         partnerName = defaults.string(forKey: partnerNameKey) ?? ""
     }
 
+    var rememberedPairIDs: [String] {
+        defaults.stringArray(forKey: pairHistoryKey) ?? []
+    }
+
     func unpair() {
+        rememberPairID(pairID)
         pairID = nil
         role = nil
         inviteCode = nil
@@ -84,11 +90,20 @@ final class PairSession {
     }
 
     func persistLocal() {
+        rememberPairID(pairID)
         defaults.set(pairID, forKey: pairKey)
         defaults.set(role?.rawValue, forKey: roleKey)
         defaults.set(inviteCode, forKey: codeKey)
         defaults.set(myName, forKey: myNameKey)
         defaults.set(partnerName, forKey: partnerNameKey)
+    }
+
+    private func rememberPairID(_ id: String?) {
+        guard let id, !id.isEmpty else { return }
+        var history = defaults.stringArray(forKey: pairHistoryKey) ?? []
+        history.removeAll { $0 == id }
+        history.insert(id, at: 0)
+        defaults.set(Array(history.prefix(20)), forKey: pairHistoryKey)
     }
 
     func applyRemoteNames(host: String?, guest: String?) {
@@ -287,17 +302,17 @@ final class CloudSync {
         }
     }
 
-    func restoreFromCloud(modelContext: ModelContext) async {
+    func restoreFromCloud(modelContext: ModelContext, oldCode: String = "") async {
         await enqueue {
             do {
                 try await self.ensureiCloud()
-                let records = try await self.fetchAllItemRecords()
+                let result = await self.fetchRecoverableItemRecords(oldCode: oldCode)
+                let records = result.records
                 let session = PairSession.shared
                 session.isApplyingRemote = true
                 defer { session.isApplyingRemote = false }
 
                 var localByID = ItemStore.keyedByID(ItemStore.allItems(in: modelContext))
-                var added = 0
                 for record in records {
                     guard let itemID = record["itemID"] as? String, let uuid = UUID(uuidString: itemID) else { continue }
                     if let local = localByID[itemID] {
@@ -315,7 +330,6 @@ final class CloudSync {
                     self.apply(record, to: item)
                     modelContext.insert(item)
                     localByID[itemID] = item
-                    added += 1
                 }
                 try? modelContext.save()
                 if session.isPaired {
@@ -323,7 +337,7 @@ final class CloudSync {
                 }
                 let total = ItemStore.allItems(in: modelContext).count
                 if records.isEmpty {
-                    session.statusMessage = "iCloud has no saved items to restore."
+                    session.statusMessage = result.emptyMessage
                 } else {
                     session.statusMessage = "Restored \(total) item\(total == 1 ? "" : "s") from iCloud."
                 }
@@ -481,31 +495,97 @@ final class CloudSync {
         return (Array(found.values), catalogComplete)
     }
 
-    private func fetchAllItemRecords() async throws -> [CKRecord] {
+    private func fetchRecoverableItemRecords(oldCode: String) async -> (records: [CKRecord], emptyMessage: String) {
         var found: [String: CKRecord] = [:]
-        let anyQuery = CKQuery(recordType: "TDItem", predicate: NSPredicate(value: true))
-        if let queried = try? await queryAll(anyQuery) {
-            for record in queried {
+        var lastError: String?
+
+        func add(_ records: [CKRecord]) {
+            for record in records {
                 found[record.recordID.recordName] = record
             }
         }
-        if let pairs = try? await queryAll(CKQuery(recordType: "TDPair", predicate: NSPredicate(value: true))) {
-            var listed: [String] = []
-            for pair in pairs {
+
+        func queryItems(_ predicate: NSPredicate) async {
+            do {
+                add(try await queryAll(CKQuery(recordType: "TDItem", predicate: predicate)))
+            } catch {
+                lastError = Self.friendlyMessage(error)
+            }
+        }
+
+        func addItems(forPair pairID: String) async {
+            await queryItems(NSPredicate(format: "pairID == %@", pairID))
+            if let pair = try? await database.record(for: CKRecord.ID(recordName: "pair-\(pairID)")) {
                 let ids = (pair["itemIDs"] as? String ?? "")
                     .split(separator: ",")
                     .map(String.init)
                     .filter { !$0.isEmpty }
-                listed.append(contentsOf: ids)
+                add(await fetchNamedRecords(ids.map { "item-\($0)" }))
             }
-            let missing = listed.filter { found["item-\($0)"] == nil }
-            if !missing.isEmpty {
-                for record in await fetchNamedRecords(missing.map { "item-\($0)" }) {
-                    found[record.recordID.recordName] = record
+        }
+
+        let session = PairSession.shared
+        var pairIDs = Set(session.rememberedPairIDs)
+        if let current = session.pairID { pairIDs.insert(current) }
+
+        let trimmedCode = oldCode.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmedCode.count == 6 {
+            do {
+                let codeRecord = try await database.record(for: CKRecord.ID(recordName: "code-\(trimmedCode)"))
+                if let pairID = codeRecord["pairID"] as? String, !pairID.isEmpty {
+                    pairIDs.insert(pairID)
+                }
+            } catch {
+                if found.isEmpty {
+                    return ([], "That older code was not found in iCloud. Check Messages for a previous 6-digit code.")
                 }
             }
         }
-        return Array(found.values)
+
+        let names = [session.trimmedMyName, session.trimmedPartnerName].filter { !$0.isEmpty }
+        for name in names {
+            for key in ["hostName", "guestName"] {
+                do {
+                    let pairs = try await queryAll(
+                        CKQuery(recordType: "TDPair", predicate: NSPredicate(format: "%K == %@", key, name))
+                    )
+                    for pair in pairs {
+                        let pairID = pair.recordID.recordName.replacingOccurrences(of: "pair-", with: "")
+                        if !pairID.isEmpty { pairIDs.insert(pairID) }
+                    }
+                } catch {
+                    lastError = Self.friendlyMessage(error)
+                }
+            }
+        }
+
+        for pairID in pairIDs {
+            await addItems(forPair: pairID)
+        }
+
+        for category in ItemCategory.allCases {
+            await queryItems(NSPredicate(format: "categoryRaw == %@", category.rawValue))
+        }
+        for editor in ["chris", "deena"] {
+            await queryItems(NSPredicate(format: "lastEditor == %@", editor))
+        }
+
+        if found.isEmpty {
+            do {
+                add(try await queryAll(CKQuery(recordType: "TDItem", predicate: NSPredicate(value: true))))
+            } catch {
+                lastError = Self.friendlyMessage(error)
+            }
+        }
+
+        if found.isEmpty {
+            let hint = "Enter an older 6-digit invite code from Messages, then tap Restore again."
+            if let lastError {
+                return ([], "iCloud search failed. \(lastError) \(hint)")
+            }
+            return ([], "Could not find the old list in iCloud. \(hint)")
+        }
+        return (Array(found.values), "")
     }
 
     private func queryAll(_ query: CKQuery) async throws -> [CKRecord] {

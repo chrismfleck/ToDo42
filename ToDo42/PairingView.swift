@@ -7,6 +7,7 @@ struct PairingView: View {
     @Environment(\.modelContext) private var modelContext
     @Environment(PairSession.self) private var session
     @State private var joinCode = ""
+    @State private var restoreCode = ""
     @State private var errorText = ""
     @State private var showShare = false
 
@@ -16,12 +17,12 @@ struct PairingView: View {
                 ScrollView {
                     VStack(alignment: .leading, spacing: 20) {
                         nameFields
-                    if session.isPaired {
-                        connected
-                    } else {
-                        unpaired
-                    }
-                    restoreButton
+                        if session.isPaired {
+                            connected
+                        } else {
+                            unpaired
+                        }
+                        restoreButton
                         if !errorText.isEmpty {
                             Text(errorText)
                                 .font(.footnote)
@@ -164,14 +165,22 @@ struct PairingView: View {
     }
 
     private var restoreButton: some View {
-        Button {
-            Task { await restore() }
-        } label: {
-            Label("Restore my list from iCloud", systemImage: "arrow.clockwise")
-                .frame(maxWidth: .infinity)
+        VStack(alignment: .leading, spacing: 10) {
+            Text("Lost the list after a new invite? Enter an older 6-digit code from Messages, then restore.")
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+            TextField("Older 6-digit code", text: $restoreCode)
+                .keyboardType(.numberPad)
+                .textFieldStyle(.roundedBorder)
+            Button {
+                Task { await restore() }
+            } label: {
+                Label("Restore my list from iCloud", systemImage: "arrow.clockwise")
+                    .frame(maxWidth: .infinity)
+            }
+            .buttonStyle(.bordered)
+            .disabled(session.isBusy)
         }
-        .buttonStyle(.bordered)
-        .disabled(session.isBusy)
     }
 
     private func createInvite() async {
@@ -192,7 +201,7 @@ struct PairingView: View {
         errorText = ""
         session.isBusy = true
         defer { session.isBusy = false }
-        await CloudSync.shared.restoreFromCloud(modelContext: modelContext)
+        await CloudSync.shared.restoreFromCloud(modelContext: modelContext, oldCode: restoreCode)
         if session.statusMessage.isEmpty == false, session.statusMessage.contains("no saved") {
             errorText = session.statusMessage
         }
