@@ -100,7 +100,7 @@ private enum SharedContent {
             }
         }
         if InstagramShareText.isInstagramURL(result.urlString) {
-            let split = InstagramShareText.split(from: [result.title, result.notes])
+            let split = InstagramShareText.refine(title: result.title, notes: result.notes)
             if !split.title.isEmpty { result.title = split.title }
             result.notes = split.notes
         }
@@ -311,12 +311,19 @@ struct ShareFormView: View {
         isLoadingMeta = previewImage == nil
         let meta = await PageMetadata.fetch(from: link)
         if InstagramShareText.isInstagramURL(link) {
-            let split = InstagramShareText.split(from: [
-                title,
-                notes,
-                meta.title ?? "",
-                meta.description ?? "",
-            ])
+            var incomingTitle = title
+            if incomingTitle.lowercased().contains("on instagram") == false,
+               let pageTitle = meta.title,
+               pageTitle.lowercased().contains("on instagram") {
+                incomingTitle = pageTitle
+            }
+            if PageMetadata.isPlaceholderTitle(incomingTitle), let pageTitle = meta.title {
+                incomingTitle = pageTitle
+            }
+            let captionNotes = [notes, meta.description ?? ""].first {
+                !$0.isEmpty && !InstagramShareText.looksLikeComments($0)
+            } ?? ""
+            let split = InstagramShareText.refine(title: incomingTitle, notes: captionNotes)
             if !split.title.isEmpty {
                 title = split.title
                 category = ShareInbox.guessedCategory(urlString: link, title: split.title + " " + split.notes)
