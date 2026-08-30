@@ -301,7 +301,7 @@ final class CloudSync {
                 for record in records {
                     guard let itemID = record["itemID"] as? String, let uuid = UUID(uuidString: itemID) else { continue }
                     if let local = localByID[itemID] {
-                        apply(record, to: local)
+                        self.apply(record, to: local)
                         continue
                     }
                     let item = TodoItem(
@@ -312,7 +312,7 @@ final class CloudSync {
                         sortOrder: CloudKitValues.intValue(record["sortOrder"]) ?? 0
                     )
                     item.id = uuid
-                    apply(record, to: item)
+                    self.apply(record, to: item)
                     modelContext.insert(item)
                     localByID[itemID] = item
                     added += 1
