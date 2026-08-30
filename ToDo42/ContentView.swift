@@ -738,18 +738,18 @@ struct ItemDetailView: View {
                             titleView
                         }
 
-                        HStack(spacing: 20) {
-                            PartnerHeartButton(name: pairSession.myHeartLabel, isOn: myHeart, size: 24)
+                        HStack(spacing: 16) {
+                            PartnerHeartButton(name: pairSession.myHeartLabel, isOn: myHeart, size: 18)
                             PartnerHeartButton(
                                 name: pairSession.partnerHeartLabel,
                                 isOn: partnerHeart,
                                 interactive: false,
-                                size: 24
+                                size: 18
                             )
-                            DoneCheckButton(isDone: $item.isDone, size: 24, name: "Done")
+                            DoneCheckButton(isDone: $item.isDone, size: 18, name: "Done")
                         }
                         .frame(maxWidth: .infinity)
-                        .padding(.vertical, 4)
+                        .padding(.vertical, 0)
                         .onChange(of: item.chrisHearted) { _, _ in
                             PairSession.shared.noteLocalEdit(item, kind: "heart")
                         }
@@ -1043,19 +1043,19 @@ struct DoneCheckButton: View {
                 isDone.toggle()
             }
         } label: {
-            VStack(spacing: 6) {
+            VStack(spacing: 1) {
                 Image(systemName: isDone ? "checkmark.circle.fill" : "circle")
                     .font(.system(size: size, weight: .semibold))
                     .foregroundStyle(isDone ? Palette.brandBlue(colorScheme) : Color.secondary.opacity(0.55))
-                    .scaleEffect(isDone ? 1.08 : 1)
+                    .scaleEffect(isDone ? 1.06 : 1)
                 if let name {
                     Text(name)
-                        .font(.caption2.weight(.semibold))
+                        .font(.system(size: 10, weight: .semibold))
                         .foregroundStyle(.secondary)
                 }
             }
-            .frame(minWidth: name == nil ? size + 8 : 56)
-            .padding(.vertical, name == nil ? 4 : 4)
+            .frame(minWidth: name == nil ? size + 8 : 44)
+            .padding(.vertical, 0)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -1090,17 +1090,17 @@ struct PartnerHeartButton: View {
     }
 
     private var heartMark: some View {
-        VStack(spacing: 4) {
+        VStack(spacing: 1) {
             Image(systemName: isOn ? "heart.fill" : "heart")
                 .font(.system(size: size, weight: .semibold))
                 .foregroundStyle(isOn ? heartPink : Color.secondary.opacity(0.55))
-                .scaleEffect(isOn ? 1.08 : 1)
+                .scaleEffect(isOn ? 1.06 : 1)
             Text(name)
-                .font(.caption2.weight(.semibold))
+                .font(.system(size: 10, weight: .semibold))
                 .foregroundStyle(.secondary)
         }
-        .frame(minWidth: 56)
-        .padding(.vertical, 4)
+        .frame(minWidth: 44)
+        .padding(.vertical, 0)
     }
 }
 
