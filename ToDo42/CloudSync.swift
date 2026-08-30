@@ -260,8 +260,13 @@ final class CloudSync {
             do {
                 try await self.ensureiCloud()
                 ItemStore.deduplicate(in: modelContext)
-                try await self.pull(modelContext: modelContext)
-                try await self.pushAll(ItemStore.allItems(in: modelContext), allowCreate: allowCreate)
+                if allowCreate {
+                    try await self.pushAll(ItemStore.allItems(in: modelContext), allowCreate: true)
+                    try await self.pull(modelContext: modelContext)
+                } else {
+                    try await self.pull(modelContext: modelContext)
+                    try await self.pushAll(ItemStore.allItems(in: modelContext), allowCreate: false)
+                }
                 PairSession.shared.statusMessage = ""
             } catch {
                 PairSession.shared.statusMessage = Self.friendlyMessage(error)
@@ -276,6 +281,52 @@ final class CloudSync {
                 try await self.saveItem(item, notifyKind: notifyKind)
                 try? await self.registerItemIDs([item.id.uuidString])
                 PairSession.shared.statusMessage = ""
+            } catch {
+                PairSession.shared.statusMessage = Self.friendlyMessage(error)
+            }
+        }
+    }
+
+    func restoreFromCloud(modelContext: ModelContext) async {
+        await enqueue {
+            do {
+                try await self.ensureiCloud()
+                let records = try await self.fetchAllItemRecords()
+                let session = PairSession.shared
+                session.isApplyingRemote = true
+                defer { session.isApplyingRemote = false }
+
+                var localByID = ItemStore.keyedByID(ItemStore.allItems(in: modelContext))
+                var added = 0
+                for record in records {
+                    guard let itemID = record["itemID"] as? String, let uuid = UUID(uuidString: itemID) else { continue }
+                    if let local = localByID[itemID] {
+                        apply(record, to: local)
+                        continue
+                    }
+                    let item = TodoItem(
+                        title: record["title"] as? String ?? "Untitled",
+                        category: ItemCategory(rawValue: record["categoryRaw"] as? String ?? "places") ?? .places,
+                        urlString: record["urlString"] as? String,
+                        notes: record["notes"] as? String ?? "",
+                        sortOrder: CloudKitValues.intValue(record["sortOrder"]) ?? 0
+                    )
+                    item.id = uuid
+                    apply(record, to: item)
+                    modelContext.insert(item)
+                    localByID[itemID] = item
+                    added += 1
+                }
+                try? modelContext.save()
+                if session.isPaired {
+                    try await self.pushAll(ItemStore.allItems(in: modelContext), allowCreate: true)
+                }
+                let total = ItemStore.allItems(in: modelContext).count
+                if records.isEmpty {
+                    session.statusMessage = "iCloud has no saved items to restore."
+                } else {
+                    session.statusMessage = "Restored \(total) item\(total == 1 ? "" : "s") from iCloud."
+                }
             } catch {
                 PairSession.shared.statusMessage = Self.friendlyMessage(error)
             }
@@ -378,7 +429,7 @@ final class CloudSync {
                 notifyNew(record)
             }
         }
-        if fetched.catalogComplete {
+        if fetched.catalogComplete, !remote.isEmpty {
             let remoteIDs = Set(remote.compactMap { $0["itemID"] as? String })
             for local in ItemStore.allItems(in: modelContext) {
                 if remoteIDs.contains(local.id.uuidString) { continue }
@@ -428,6 +479,33 @@ final class CloudSync {
             }
         }
         return (Array(found.values), catalogComplete)
+    }
+
+    private func fetchAllItemRecords() async throws -> [CKRecord] {
+        var found: [String: CKRecord] = [:]
+        let anyQuery = CKQuery(recordType: "TDItem", predicate: NSPredicate(value: true))
+        if let queried = try? await queryAll(anyQuery) {
+            for record in queried {
+                found[record.recordID.recordName] = record
+            }
+        }
+        if let pairs = try? await queryAll(CKQuery(recordType: "TDPair", predicate: NSPredicate(value: true))) {
+            var listed: [String] = []
+            for pair in pairs {
+                let ids = (pair["itemIDs"] as? String ?? "")
+                    .split(separator: ",")
+                    .map(String.init)
+                    .filter { !$0.isEmpty }
+                listed.append(contentsOf: ids)
+            }
+            let missing = listed.filter { found["item-\($0)"] == nil }
+            if !missing.isEmpty {
+                for record in await fetchNamedRecords(missing.map { "item-\($0)" }) {
+                    found[record.recordID.recordName] = record
+                }
+            }
+        }
+        return Array(found.values)
     }
 
     private func queryAll(_ query: CKQuery) async throws -> [CKRecord] {

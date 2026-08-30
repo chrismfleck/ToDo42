@@ -16,11 +16,12 @@ struct PairingView: View {
                 ScrollView {
                     VStack(alignment: .leading, spacing: 20) {
                         nameFields
-                        if session.isPaired {
-                            connected
-                        } else {
-                            unpaired
-                        }
+                    if session.isPaired {
+                        connected
+                    } else {
+                        unpaired
+                    }
+                    restoreButton
                         if !errorText.isEmpty {
                             Text(errorText)
                                 .font(.footnote)
@@ -162,6 +163,17 @@ struct PairingView: View {
         }
     }
 
+    private var restoreButton: some View {
+        Button {
+            Task { await restore() }
+        } label: {
+            Label("Restore my list from iCloud", systemImage: "arrow.clockwise")
+                .frame(maxWidth: .infinity)
+        }
+        .buttonStyle(.bordered)
+        .disabled(session.isBusy)
+    }
+
     private func createInvite() async {
         errorText = ""
         session.isBusy = true
@@ -173,6 +185,16 @@ struct PairingView: View {
             showShare = true
         } catch {
             errorText = error.localizedDescription
+        }
+    }
+
+    private func restore() async {
+        errorText = ""
+        session.isBusy = true
+        defer { session.isBusy = false }
+        await CloudSync.shared.restoreFromCloud(modelContext: modelContext)
+        if session.statusMessage.isEmpty == false, session.statusMessage.contains("no saved") {
+            errorText = session.statusMessage
         }
     }
 
