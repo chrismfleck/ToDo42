@@ -95,9 +95,20 @@ struct ContentView: View {
             Palette.canvas(colorScheme)
                 .ignoresSafeArea()
 
-            VStack(alignment: .leading, spacing: 16) {
-                VStack(spacing: 6) {
-                    HStack(spacing: 10) {
+            VStack(alignment: .leading, spacing: 22) {
+                ZStack {
+                    Image("TitleWordmark")
+                        .renderingMode(.template)
+                        .resizable()
+                        .scaledToFit()
+                        .frame(height: 44)
+                        .foregroundStyle(Palette.brandBlue(colorScheme))
+                        .accessibilityLabel("Save 4 Two")
+                        .frame(maxWidth: .infinity)
+                        .padding(.top, 12)
+                        .allowsHitTesting(false)
+
+                    HStack(spacing: 8) {
                         Button {
                             toggleListEditing()
                         } label: {
@@ -107,6 +118,16 @@ struct ContentView: View {
                                 .frame(width: 32, height: 32)
                         }
                         .accessibilityLabel(isListEditing ? "Done editing" : "Edit list")
+
+                        if isListEditing {
+                            Button { showHelp = true } label: {
+                                Image(systemName: "info.circle.fill")
+                                    .font(.system(size: 22, weight: .semibold))
+                                    .foregroundStyle(Palette.brandBlue(colorScheme))
+                                    .frame(width: 32, height: 32)
+                            }
+                            .accessibilityLabel("Help")
+                        }
 
                         Spacer(minLength: 0)
 
@@ -118,13 +139,6 @@ struct ContentView: View {
                                     .frame(width: 32, height: 32)
                             }
                             .accessibilityLabel("Pair phones")
-
-                            Button { showHelp = true } label: {
-                                Image(systemName: "info.circle.fill")
-                                    .font(.system(size: 32))
-                                    .foregroundStyle(Palette.brandBlue(colorScheme))
-                            }
-                            .accessibilityLabel("Help")
                         }
 
                         Button { showAdd = true } label: {
@@ -134,18 +148,10 @@ struct ContentView: View {
                         }
                         .accessibilityLabel("Add item")
                     }
-
-                    Image("TitleWordmark")
-                        .renderingMode(.template)
-                        .resizable()
-                        .scaledToFit()
-                        .frame(height: 40)
-                        .foregroundStyle(Palette.brandBlue(colorScheme))
-                        .accessibilityLabel("Save 4 Two")
-                        .frame(maxWidth: .infinity)
+                    .frame(maxWidth: .infinity)
+                    .padding(.top, 8)
                 }
                 .padding(.horizontal, 24)
-                .padding(.top, 8)
 
                 Picker("Category", selection: $category) {
                     ForEach(ItemCategory.allCases) { cat in
