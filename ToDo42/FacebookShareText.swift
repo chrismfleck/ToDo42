@@ -53,7 +53,10 @@ enum FacebookShareText {
         let chars = Array(text)
         for index in chars.indices {
             let char = chars[index]
-            guard char == "?" || char == "," else { continue }
+            guard char == "?" || char == "," || char == "." else { continue }
+            if char == ".", index + 1 < chars.endIndex, chars[index + 1].isNumber {
+                continue
+            }
             let title = String(chars[0...index]).trimmingCharacters(in: .whitespacesAndNewlines)
             let restStart = chars.index(after: index)
             let rest = restStart < chars.endIndex
