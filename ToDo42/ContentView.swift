@@ -47,12 +47,15 @@ struct ContentView: View {
     @State private var category: ItemCategory = .places
     @State private var showAdd = false
     @State private var showPairing = false
+    @State private var showHelp = false
     @Environment(PairSession.self) private var pairSession
     @State private var swipingItemID: UUID?
     @State private var selectedItem: TodoItem?
-    @State private var isListEditing = false
+    @State private var isListEditing = !UserDefaults.standard.bool(forKey: Self.hasLeftListEditKey)
     @State private var reorderDrag: ReorderDrag?
     @State private var rowHeights: [UUID: CGFloat] = [:]
+
+    private static let hasLeftListEditKey = "todo42.hasLeftListEditMode"
 
     private var filtered: [TodoItem] {
         items
@@ -98,13 +101,7 @@ struct ContentView: View {
 
                     HStack {
                         Button {
-                            if isListEditing {
-                                reorderDrag = nil
-                                isListEditing = false
-                            } else {
-                                normalizeSortOrders()
-                                isListEditing = true
-                            }
+                            toggleListEditing()
                         } label: {
                             Image(systemName: isListEditing ? "checkmark" : "gearshape")
                                 .font(.system(size: 22, weight: .semibold))
@@ -112,6 +109,16 @@ struct ContentView: View {
                                 .frame(width: 32, height: 32)
                         }
                         .accessibilityLabel(isListEditing ? "Done editing" : "Edit list")
+
+                        if isListEditing {
+                            Button { showHelp = true } label: {
+                                Image(systemName: "info.circle")
+                                    .font(.system(size: 22, weight: .semibold))
+                                    .foregroundStyle(Palette.brandBlue(colorScheme))
+                                    .frame(width: 32, height: 32)
+                            }
+                            .accessibilityLabel("Help")
+                        }
 
                         Spacer()
 
@@ -223,6 +230,9 @@ struct ContentView: View {
             PairingView()
                 .environment(PairSession.shared)
         }
+        .sheet(isPresented: $showHelp) {
+            HelpView()
+        }
         .onAppear {
             importSharedDrafts()
             normalizeStoredText()
@@ -239,6 +249,17 @@ struct ContentView: View {
         }
         .onChange(of: category) { _, _ in
             reorderDrag = nil
+        }
+    }
+
+    private func toggleListEditing() {
+        if isListEditing {
+            reorderDrag = nil
+            isListEditing = false
+            UserDefaults.standard.set(true, forKey: Self.hasLeftListEditKey)
+        } else {
+            normalizeSortOrders()
+            isListEditing = true
         }
     }
 
