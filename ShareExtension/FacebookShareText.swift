@@ -53,7 +53,7 @@ enum FacebookShareText {
         let chars = Array(text)
         for index in chars.indices {
             let char = chars[index]
-            guard char == "?" || char == "," || char == "." else { continue }
+            guard char == "?" || char == "!" || char == "," || char == "." else { continue }
             if char == ".", index + 1 < chars.endIndex, chars[index + 1].isNumber {
                 continue
             }
