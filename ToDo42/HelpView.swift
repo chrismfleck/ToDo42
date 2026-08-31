@@ -61,13 +61,15 @@ struct HelpView: View {
 
                         HelpStep(
                             number: 5,
-                            spoken: "In list view, items can be reordered by tapping the gear and dragging the hamburger handle up or down. Then tap the check."
+                            spoken: "In list view, items can be reordered by tapping the gear and dragging the hamburger handle up or down, or delete with the red icon. Then tap the check."
                         ) {
                             helpText("In list view, items can be reordered by tapping ")
                             + chrome("gearshape")
                             + helpText(" and dragging ")
                             + chrome("line.3.horizontal")
-                            + helpText(" up or down. Then tap ")
+                            + helpText(" up or down, or delete ")
+                            + chrome("minus.circle.fill", color: .red)
+                            + helpText(". Then tap ")
                             + chrome("checkmark")
                             + helpText(".")
                         }
@@ -146,10 +148,10 @@ struct HelpView: View {
         Text(string)
     }
 
-    private func chrome(_ systemName: String) -> Text {
+    private func chrome(_ systemName: String, color: Color? = nil) -> Text {
         Text(Image(systemName: systemName))
             .font(.body.weight(.semibold))
-            .foregroundColor(Palette.brandBlue(colorScheme))
+            .foregroundColor(color ?? Palette.brandBlue(colorScheme))
     }
 }
 

@@ -143,10 +143,6 @@ struct ContentView: View {
                         .foregroundStyle(Palette.brandBlue(colorScheme))
                         .accessibilityLabel("Save 4 Two")
                         .frame(maxWidth: .infinity)
-
-                    Text(AppVersion.label)
-                        .font(.caption2.weight(.medium))
-                        .foregroundStyle(.secondary)
                 }
                 .padding(.horizontal, 24)
                 .padding(.top, 8)
