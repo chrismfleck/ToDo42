@@ -118,14 +118,14 @@ struct ContentView: View {
                                     .frame(width: 32, height: 32)
                             }
                             .accessibilityLabel("Pair phones")
-                        }
 
-                        Button { showHelp = true } label: {
-                            Image(systemName: "info.circle.fill")
-                                .font(.system(size: 32))
-                                .foregroundStyle(Palette.brandBlue(colorScheme))
+                            Button { showHelp = true } label: {
+                                Image(systemName: "info.circle.fill")
+                                    .font(.system(size: 32))
+                                    .foregroundStyle(Palette.brandBlue(colorScheme))
+                            }
+                            .accessibilityLabel("Help")
                         }
-                        .accessibilityLabel("Help")
 
                         Button { showAdd = true } label: {
                             Image(systemName: "plus.circle.fill")
