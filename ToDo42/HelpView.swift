@@ -92,6 +92,8 @@ struct HelpView: View {
                             + helpText(" when you are done. If you see red minus buttons, tap the check first so items can be opened.")
                         }
                     }
+
+                    footer
                 }
                 .padding(20)
                 .padding(.bottom, 24)
@@ -126,6 +128,30 @@ struct HelpView: View {
                 }
                 .accessibilityLabel("Screenshot of the opening list page in edit mode")
         }
+    }
+
+    private var footer: some View {
+        VStack(spacing: 8) {
+            Text(versionText)
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+            Link(destination: URL(string: "https://save4two.com")!) {
+                Text("save4two.com")
+                    .font(.subheadline.weight(.semibold))
+            }
+            .accessibilityLabel("Open save4two.com")
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.top, 12)
+    }
+
+    private var versionText: String {
+        let short = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "1.0"
+        let build = Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? ""
+        if build.isEmpty {
+            return "Version \(short)"
+        }
+        return "Version \(short) (\(build))"
     }
 
     private func helpText(_ string: String) -> Text {
