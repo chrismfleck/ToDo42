@@ -397,7 +397,10 @@ final class CloudSync {
         var localByID = ItemStore.keyedByID(ItemStore.allItems(in: modelContext))
         for record in remote {
             guard let itemID = record["itemID"] as? String, let uuid = UUID(uuidString: itemID) else { continue }
-            let remoteUpdated = record["updatedAt"] as? Date ?? .distantPast
+            let remoteUpdated = PartnerEditMerge.timestamp(
+                updatedAt: CloudKitValues.date(record["updatedAt"]),
+                modificationDate: record.modificationDate
+            )
             let local = localByID[itemID] ?? ItemStore.item(id: uuid, in: modelContext)
             if let local {
                 let remoteChris = CloudKitValues.flag(record["chrisHearted"])
@@ -419,8 +422,33 @@ final class CloudSync {
                     localDeena: local.deenaHearted,
                     remoteDeena: remoteDeena
                 )
-                if remoteUpdated > (local.updatedAt ?? local.createdAt) {
+                let remoteURL = record["urlString"] as? String ?? ""
+                let contentChanged = PartnerEditMerge.contentChanged(
+                    localTitle: local.title,
+                    remoteTitle: record["title"] as? String ?? local.title,
+                    localNotes: local.notes,
+                    remoteNotes: record["notes"] as? String ?? local.notes,
+                    localURL: local.urlString ?? "",
+                    remoteURL: remoteURL,
+                    localCategory: local.categoryRaw,
+                    remoteCategory: record["categoryRaw"] as? String ?? local.categoryRaw,
+                    localDone: local.isDone,
+                    remoteDone: CloudKitValues.flag(record["isDone"]),
+                    localSort: local.sortOrder,
+                    remoteSort: CloudKitValues.intValue(record["sortOrder"]) ?? local.sortOrder
+                )
+                if PartnerEditMerge.shouldApplyRemoteFields(
+                    myRole: session.role,
+                    localUpdated: local.updatedAt ?? local.createdAt,
+                    remoteUpdated: remoteUpdated,
+                    localEditor: local.lastEditor,
+                    remoteEditor: record["lastEditor"] as? String ?? "",
+                    contentChanged: contentChanged
+                ) {
                     apply(record, to: local, hearts: false)
+                    if (local.updatedAt ?? .distantPast) < remoteUpdated {
+                        local.updatedAt = remoteUpdated
+                    }
                     notifyUpdate(record, heartChanged: justHearted)
                 } else if justHearted {
                     notifyUpdate(record, heartChanged: true)
@@ -692,8 +720,8 @@ final class CloudSync {
         }
         item.isDone = CloudKitValues.flag(record["isDone"])
         item.sortOrder = CloudKitValues.intValue(record["sortOrder"]) ?? item.sortOrder
-        item.createdAt = record["createdAt"] as? Date ?? item.createdAt
-        item.updatedAt = record["updatedAt"] as? Date ?? item.updatedAt
+        item.createdAt = CloudKitValues.date(record["createdAt"]) ?? item.createdAt
+        item.updatedAt = CloudKitValues.date(record["updatedAt"]) ?? item.updatedAt
         item.lastEditor = record["lastEditor"] as? String ?? item.lastEditor
         if let asset = record["image"] as? CKAsset, let url = asset.fileURL,
            let data = try? Data(contentsOf: url), data.count < 8_000_000 {
@@ -706,17 +734,27 @@ final class CloudSync {
     }
 
     private func shouldSkipCatchupPush(_ item: TodoItem, existing: CKRecord) -> Bool {
-        let remoteUpdated = existing["updatedAt"] as? Date ?? .distantPast
-        let localUpdated = item.updatedAt ?? item.createdAt
-        guard remoteUpdated >= localUpdated else { return false }
+        let remoteUpdated = PartnerEditMerge.timestamp(
+            updatedAt: CloudKitValues.date(existing["updatedAt"]),
+            modificationDate: existing.modificationDate
+        )
+        let ownHeartMatches: Bool
         switch PairSession.shared.role {
         case .chris:
-            return CloudKitValues.flag(existing["chrisHearted"]) == item.chrisHearted
+            ownHeartMatches = CloudKitValues.flag(existing["chrisHearted"]) == item.chrisHearted
         case .deena:
-            return CloudKitValues.flag(existing["deenaHearted"]) == item.deenaHearted
+            ownHeartMatches = CloudKitValues.flag(existing["deenaHearted"]) == item.deenaHearted
         case nil:
-            return true
+            ownHeartMatches = true
         }
+        return PartnerEditMerge.shouldSkipCatchupPush(
+            myRole: PairSession.shared.role,
+            localUpdated: item.updatedAt ?? item.createdAt,
+            remoteUpdated: remoteUpdated,
+            localEditor: item.lastEditor,
+            remoteEditor: existing["lastEditor"] as? String ?? "",
+            ownHeartMatches: ownHeartMatches
+        )
     }
 
     private func registerItemIDs(_ itemIDs: [String]) async throws {

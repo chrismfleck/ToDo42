@@ -23,6 +23,101 @@ enum CloudKitValues {
         }
         return nil
     }
+
+    static func date(_ value: Any?) -> Date? {
+        if let date = value as? Date { return date }
+        if let number = value as? NSNumber {
+            let interval = number.doubleValue
+            if interval > 1_000_000_000_000 {
+                return Date(timeIntervalSince1970: interval / 1000)
+            }
+            if interval > 1_000_000_000 {
+                return Date(timeIntervalSince1970: interval)
+            }
+        }
+        if let text = value as? String {
+            let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+            if let interval = Double(trimmed) {
+                return Date(timeIntervalSince1970: interval)
+            }
+            return ISO8601DateFormatter().date(from: trimmed)
+        }
+        return nil
+    }
+}
+
+enum PartnerEditMerge {
+    static func timestamp(updatedAt: Date?, modificationDate: Date?) -> Date {
+        switch (updatedAt, modificationDate) {
+        case let (updated?, modified?):
+            return max(updated, modified)
+        case let (updated?, nil):
+            return updated
+        case let (nil, modified?):
+            return modified
+        default:
+            return .distantPast
+        }
+    }
+
+    static func shouldApplyRemoteFields(
+        myRole: PairRole?,
+        localUpdated: Date,
+        remoteUpdated: Date,
+        localEditor: String,
+        remoteEditor: String,
+        contentChanged: Bool
+    ) -> Bool {
+        if remoteUpdated > localUpdated { return true }
+        let me = myRole?.rawValue ?? ""
+        guard !remoteEditor.isEmpty, remoteEditor != me else { return false }
+        if localEditor == me, localUpdated > remoteUpdated { return false }
+        return contentChanged || remoteUpdated >= localUpdated
+    }
+
+    static func shouldSkipCatchupPush(
+        myRole: PairRole?,
+        localUpdated: Date,
+        remoteUpdated: Date,
+        localEditor: String,
+        remoteEditor: String,
+        ownHeartMatches: Bool
+    ) -> Bool {
+        let me = myRole?.rawValue ?? ""
+        if remoteUpdated > localUpdated { return true }
+        if !remoteEditor.isEmpty, remoteEditor != me, remoteUpdated >= localUpdated {
+            return true
+        }
+        if !localEditor.isEmpty, localEditor != me {
+            return true
+        }
+        if abs(remoteUpdated.timeIntervalSince(localUpdated)) < 1 {
+            return ownHeartMatches
+        }
+        return false
+    }
+
+    static func contentChanged(
+        localTitle: String,
+        remoteTitle: String,
+        localNotes: String,
+        remoteNotes: String,
+        localURL: String,
+        remoteURL: String,
+        localCategory: String,
+        remoteCategory: String,
+        localDone: Bool,
+        remoteDone: Bool,
+        localSort: Int,
+        remoteSort: Int
+    ) -> Bool {
+        localTitle != remoteTitle
+            || localNotes != remoteNotes
+            || localURL != remoteURL
+            || localCategory != remoteCategory
+            || localDone != remoteDone
+            || localSort != remoteSort
+    }
 }
 
 enum PartnerHeartMerge {

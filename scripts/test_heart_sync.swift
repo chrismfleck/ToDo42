@@ -20,6 +20,58 @@ enum CloudKitValues {
     }
 }
 
+enum PartnerEditMerge {
+    static func timestamp(updatedAt: Date?, modificationDate: Date?) -> Date {
+        switch (updatedAt, modificationDate) {
+        case let (updated?, modified?):
+            return max(updated, modified)
+        case let (updated?, nil):
+            return updated
+        case let (nil, modified?):
+            return modified
+        default:
+            return .distantPast
+        }
+    }
+
+    static func shouldApplyRemoteFields(
+        myRole: PairRole?,
+        localUpdated: Date,
+        remoteUpdated: Date,
+        localEditor: String,
+        remoteEditor: String,
+        contentChanged: Bool
+    ) -> Bool {
+        if remoteUpdated > localUpdated { return true }
+        let me = myRole?.rawValue ?? ""
+        guard !remoteEditor.isEmpty, remoteEditor != me else { return false }
+        if localEditor == me, localUpdated > remoteUpdated { return false }
+        return contentChanged || remoteUpdated >= localUpdated
+    }
+
+    static func shouldSkipCatchupPush(
+        myRole: PairRole?,
+        localUpdated: Date,
+        remoteUpdated: Date,
+        localEditor: String,
+        remoteEditor: String,
+        ownHeartMatches: Bool
+    ) -> Bool {
+        let me = myRole?.rawValue ?? ""
+        if remoteUpdated > localUpdated { return true }
+        if !remoteEditor.isEmpty, remoteEditor != me, remoteUpdated >= localUpdated {
+            return true
+        }
+        if !localEditor.isEmpty, localEditor != me {
+            return true
+        }
+        if abs(remoteUpdated.timeIntervalSince(localUpdated)) < 1 {
+            return ownHeartMatches
+        }
+        return false
+    }
+}
+
 enum PartnerHeartMerge {
     static func partnerJustHearted(
         myRole: PairRole?,
@@ -152,6 +204,86 @@ expect(
 expect(
     Dictionary([("same", 1), ("same", 2)], uniquingKeysWith: { first, _ in first })["same"] == 1,
     "Duplicate sync keys keep the first item instead of crashing"
+)
+
+let olderEdit = Date(timeIntervalSince1970: 10)
+let newerEdit = Date(timeIntervalSince1970: 20)
+expect(
+    PartnerEditMerge.shouldApplyRemoteFields(
+        myRole: .deena,
+        localUpdated: olderEdit,
+        remoteUpdated: newerEdit,
+        localEditor: "deena",
+        remoteEditor: "chris",
+        contentChanged: true
+    ),
+    "Deena applies Chris's newer item edit"
+)
+expect(
+    PartnerEditMerge.shouldApplyRemoteFields(
+        myRole: .chris,
+        localUpdated: olderEdit,
+        remoteUpdated: newerEdit,
+        localEditor: "chris",
+        remoteEditor: "deena",
+        contentChanged: true
+    ),
+    "Chris applies Deena's newer item edit"
+)
+expect(
+    PartnerEditMerge.shouldApplyRemoteFields(
+        myRole: .chris,
+        localUpdated: olderEdit,
+        remoteUpdated: PartnerEditMerge.timestamp(updatedAt: nil, modificationDate: newerEdit),
+        localEditor: "chris",
+        remoteEditor: "deena",
+        contentChanged: true
+    ),
+    "Chris applies Deena's edit when only CloudKit modificationDate is present"
+)
+expect(
+    PartnerEditMerge.shouldSkipCatchupPush(
+        myRole: .deena,
+        localUpdated: olderEdit,
+        remoteUpdated: newerEdit,
+        localEditor: "deena",
+        remoteEditor: "chris",
+        ownHeartMatches: true
+    ),
+    "Deena does not overwrite Chris's newer cloud edit on catchup"
+)
+expect(
+    PartnerEditMerge.shouldSkipCatchupPush(
+        myRole: .chris,
+        localUpdated: olderEdit,
+        remoteUpdated: newerEdit,
+        localEditor: "chris",
+        remoteEditor: "deena",
+        ownHeartMatches: true
+    ),
+    "Chris does not overwrite Deena's newer cloud edit on catchup"
+)
+expect(
+    PartnerEditMerge.shouldSkipCatchupPush(
+        myRole: .chris,
+        localUpdated: newerEdit,
+        remoteUpdated: olderEdit,
+        localEditor: "chris",
+        remoteEditor: "deena",
+        ownHeartMatches: true
+    ) == false,
+    "Chris still uploads when his local edit is newer"
+)
+expect(
+    PartnerEditMerge.shouldApplyRemoteFields(
+        myRole: .chris,
+        localUpdated: newerEdit,
+        remoteUpdated: olderEdit,
+        localEditor: "chris",
+        remoteEditor: "deena",
+        contentChanged: true
+    ) == false,
+    "Chris keeps a newer local edit instead of rolling back to Deena"
 )
 
 if failed > 0 {

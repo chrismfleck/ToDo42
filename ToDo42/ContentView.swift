@@ -237,7 +237,6 @@ struct ContentView: View {
         }
         .onAppear {
             importSharedDrafts()
-            normalizeStoredText()
             Task { await refreshFromCloud() }
         }
         .onChange(of: scenePhase) { _, phase in
@@ -276,6 +275,7 @@ struct ContentView: View {
 
     private func refreshFromCloud() async {
         await CloudSync.shared.sync(modelContext: modelContext)
+        normalizeStoredText()
         if let cat = PairSession.shared.takeRevealCategory() {
             category = cat
         }
@@ -363,6 +363,7 @@ struct ContentView: View {
             if from != to {
                 for (index, row) in ordered.enumerated() {
                     row.sortOrder = index
+                    PairSession.shared.noteLocalEdit(row, kind: "edit")
                 }
             }
             reorderDrag = nil
@@ -385,16 +386,16 @@ struct ContentView: View {
             let category = ItemCategory(rawValue: payload.category) ?? .places
             let sortOrder = nextOrders[category] ?? nextSortOrder(for: category)
             nextOrders[category] = sortOrder - 1
-            modelContext.insert(
-                TodoItem(
-                    title: title,
-                    category: category,
-                    urlString: link.isEmpty ? nil : link,
-                    imageData: imageData,
-                    notes: SharedText.reflowNotes(rawNotes),
-                    sortOrder: sortOrder
-                )
+            let item = TodoItem(
+                title: title,
+                category: category,
+                urlString: link.isEmpty ? nil : link,
+                imageData: imageData,
+                notes: SharedText.reflowNotes(rawNotes),
+                sortOrder: sortOrder
             )
+            modelContext.insert(item)
+            PairSession.shared.noteLocalEdit(item, kind: "add")
         }
     }
 }
