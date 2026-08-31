@@ -11,6 +11,7 @@ enum InstagramShareText {
         if t.contains("on instagram") { return true }
         if looksLikeComments(notes) { return true }
         if t.contains("ingredient") || t.contains("for the ") || t.contains("tbsp") { return true }
+        if title.contains("&#") || notes.contains("&#") { return true }
         return title.count > 90
     }
 

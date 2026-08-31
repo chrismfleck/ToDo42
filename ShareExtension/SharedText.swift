@@ -9,15 +9,77 @@ enum SharedText {
         normalized(string, preserveNewlines: true)
     }
 
-    static func reflowNotes(_ string: String) -> String {
-        let looksLikeRecipe = string.range(of: "ingredient", options: .caseInsensitive) != nil
-            || string.range(of: "tbsp", options: .caseInsensitive) != nil
-            || string.range(of: "for the ", options: .caseInsensitive) != nil
-        guard looksLikeRecipe else {
-            return normalizedMultiline(string)
+    static func decodeHTMLEntities(_ string: String) -> String {
+        var text = string
+        let named: [String: String] = [
+            "&amp;": "&",
+            "&quot;": "\"",
+            "&#39;": "'",
+            "&apos;": "'",
+            "&lt;": "<",
+            "&gt;": ">",
+            "&nbsp;": " ",
+            "&bull;": "•",
+            "&middot;": "·",
+            "&deg;": "°",
+            "&frac12;": "1/2",
+            "&frac14;": "1/4",
+            "&frac34;": "3/4",
+            "&ndash;": "-",
+            "&mdash;": "-",
+            "&hellip;": "...",
+        ]
+        for _ in 0..<2 {
+            for (entity, replacement) in named {
+                text = text.replacingOccurrences(of: entity, with: replacement, options: .caseInsensitive)
+            }
+            text = replaceNumericEntities(in: text, hex: true)
+            text = replaceNumericEntities(in: text, hex: false)
         }
+        text = text.replacingOccurrences(of: "½", with: "1/2")
+        text = text.replacingOccurrences(of: "¼", with: "1/4")
+        text = text.replacingOccurrences(of: "¾", with: "3/4")
+        return text.replacingOccurrences(
+            of: #"&#x?[0-9a-fA-F]+;"#,
+            with: "",
+            options: [.regularExpression, .caseInsensitive]
+        )
+    }
 
-        var text = string.replacingOccurrences(of: "\r\n", with: "\n")
+    private static func replaceNumericEntities(in text: String, hex: Bool) -> String {
+        let pattern = hex ? #"&#x([0-9a-fA-F]+);"# : #"&#([0-9]+);"#
+        guard let regex = try? NSRegularExpression(pattern: pattern, options: .caseInsensitive) else {
+            return text
+        }
+        let ns = text as NSString
+        let matches = regex.matches(in: text, options: [], range: NSRange(location: 0, length: ns.length))
+        var result = text
+        for match in matches.reversed() {
+            guard match.numberOfRanges > 1 else { continue }
+            let digits = ns.substring(with: match.range(at: 1))
+            let value = UInt32(digits, radix: hex ? 16 : 10)
+            let replacement: String
+            if let value, let scalar = Unicode.Scalar(value) {
+                replacement = String(Character(scalar))
+            } else {
+                replacement = ""
+            }
+            if let range = Range(match.range, in: result) {
+                result.replaceSubrange(range, with: replacement)
+            }
+        }
+        return result
+    }
+
+    static func reflowNotes(_ string: String) -> String {
+        var text = decodeHTMLEntities(string).replacingOccurrences(of: "\r\n", with: "\n")
+        let looksLikeRecipe = text.range(of: "ingredient", options: .caseInsensitive) != nil
+            || text.range(of: "tbsp", options: .caseInsensitive) != nil
+            || text.range(of: "for the ", options: .caseInsensitive) != nil
+            || text.contains("•")
+        guard looksLikeRecipe else {
+            return normalizedMultiline(text)
+        }
         let headers = [
             "Ingredients",
             "For the ",
@@ -52,11 +114,18 @@ enum SharedText {
             with: "\n",
             options: .regularExpression
         )
+        text = text.replacingOccurrences(of: #"\s*[•·]\s*"#, with: "\n", options: .regularExpression)
+        text = text.replacingOccurrences(
+            of: #"[ \n]+(?=\d+\s+(?:Preheat|Mix|Bake|Add|Season|Serve|Place|Cook|Stir|Remove))"#,
+            with: "\n",
+            options: [.regularExpression, .caseInsensitive]
+        )
         return normalizedMultiline(text)
     }
 
     private static func normalized(_ string: String, preserveNewlines: Bool) -> String {
-        let mutable = NSMutableString(string: string)
+        let decoded = decodeHTMLEntities(string)
+        let mutable = NSMutableString(string: decoded)
         CFStringTransform(mutable, nil, kCFStringTransformFullwidthHalfwidth, false)
         CFStringTransform(mutable, nil, kCFStringTransformToLatin, false)
         CFStringTransform(mutable, nil, kCFStringTransformStripCombiningMarks, false)
@@ -86,7 +155,7 @@ enum SharedText {
                 output.append(Character(scalar))
                 continue
             }
-            let allowed = CharacterSet(charactersIn: ".,!?'’:-/&()·•|$+")
+            let allowed = CharacterSet(charactersIn: ".,!?'’:-/&()·•|$+°")
             if allowed.contains(scalar) {
                 output.append(Character(scalar))
             }
