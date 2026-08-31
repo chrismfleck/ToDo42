@@ -98,8 +98,9 @@ struct ContentView: View {
                         .accessibilityLabel("Save 4 Two")
                         .frame(maxWidth: .infinity)
                         .padding(.top, 12)
+                        .allowsHitTesting(false)
 
-                    HStack {
+                    HStack(spacing: 10) {
                         Button {
                             toggleListEditing()
                         } label: {
@@ -110,23 +111,22 @@ struct ContentView: View {
                         }
                         .accessibilityLabel(isListEditing ? "Done editing" : "Edit list")
 
+                        Spacer(minLength: 0)
+
                         if isListEditing {
                             Button { showHelp = true } label: {
                                 Image(systemName: "info.circle")
-                                    .font(.system(size: 22, weight: .semibold))
+                                    .font(.system(size: 24, weight: .semibold))
                                     .foregroundStyle(Palette.brandBlue(colorScheme))
                                     .frame(width: 32, height: 32)
                             }
                             .accessibilityLabel("Help")
-                        }
 
-                        Spacer()
-
-                        if isListEditing {
                             Button { showPairing = true } label: {
                                 Image(systemName: pairSession.isPaired ? "person.2.fill" : "person.2")
                                     .font(.system(size: 22, weight: .semibold))
                                     .foregroundStyle(Palette.brandBlue(colorScheme))
+                                    .frame(width: 32, height: 32)
                             }
                             .accessibilityLabel("Pair phones")
                         }
@@ -138,6 +138,8 @@ struct ContentView: View {
                         }
                         .accessibilityLabel("Add item")
                     }
+                    .frame(maxWidth: .infinity)
+                    .zIndex(1)
                     .padding(.top, 8)
                 }
                 .padding(.horizontal, 24)

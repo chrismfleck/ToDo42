@@ -92,9 +92,17 @@ struct HelpView: View {
                             + helpText(" when you are done. If you see red minus buttons, tap the check first so items can be opened.")
                         }
                     }
+
+                    Link(destination: URL(string: "https://save4two.com")!) {
+                        Text("save4two.com")
+                            .font(.subheadline.weight(.semibold))
+                            .frame(maxWidth: .infinity)
+                    }
+                    .padding(.top, 8)
+                    .accessibilityLabel("Open save4two.com")
                 }
                 .padding(20)
-                .padding(.bottom, 24)
+                .padding(.bottom, 16)
             }
             .background(Palette.canvas(colorScheme).ignoresSafeArea())
             .navigationTitle("Help")
