@@ -103,6 +103,10 @@ private enum SharedContent {
             let split = InstagramShareText.refine(title: result.title, notes: result.notes)
             if !split.title.isEmpty { result.title = split.title }
             result.notes = split.notes
+        } else if FacebookShareText.isFacebookURL(result.urlString) {
+            let split = FacebookShareText.refine(title: result.title, notes: result.notes)
+            if !split.title.isEmpty { result.title = split.title }
+            result.notes = split.notes
         }
         return result
     }
@@ -312,6 +316,21 @@ struct ShareFormView: View {
         let meta = await PageMetadata.fetch(from: link)
         if InstagramShareText.isInstagramURL(link) {
             let split = InstagramShareText.split(from: [
+                title,
+                notes,
+                meta.title ?? "",
+                meta.description ?? "",
+            ])
+            if !split.title.isEmpty {
+                title = split.title
+                category = ShareInbox.guessedCategory(urlString: link, title: split.title + " " + split.notes)
+            }
+            notes = split.notes
+        } else if FacebookShareText.isFacebookURL(link) {
+            if PageMetadata.isPlaceholderTitle(title), let pageTitle = meta.title, !pageTitle.isEmpty {
+                title = pageTitle
+            }
+            let split = FacebookShareText.split(from: [
                 title,
                 notes,
                 meta.title ?? "",

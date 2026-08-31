@@ -310,6 +310,14 @@ struct ContentView: View {
                     continue
                 }
             }
+            if FacebookShareText.isFacebookURL(link) || item.title.lowercased().contains("on facebook") {
+                let split = FacebookShareText.refine(title: item.title, notes: item.notes)
+                if !split.title.isEmpty {
+                    item.title = SharedText.normalized(split.title)
+                    item.notes = SharedText.reflowNotes(split.notes.isEmpty ? item.notes : split.notes)
+                    continue
+                }
+            }
             let title = SharedText.normalized(item.title)
             if item.title != title { item.title = title }
             let notes = SharedText.reflowNotes(item.notes)
@@ -375,6 +383,11 @@ struct ContentView: View {
             var rawNotes = payload.notes
             if InstagramShareText.isInstagramURL(link) || InstagramShareText.needsCleanup(title: rawTitle, notes: rawNotes) {
                 let split = InstagramShareText.refine(title: rawTitle, notes: rawNotes)
+                if !split.title.isEmpty { rawTitle = split.title }
+                rawNotes = split.notes
+            }
+            if FacebookShareText.isFacebookURL(link) || rawTitle.lowercased().contains("on facebook") {
+                let split = FacebookShareText.refine(title: rawTitle, notes: rawNotes)
                 if !split.title.isEmpty { rawTitle = split.title }
                 rawNotes = split.notes
             }
