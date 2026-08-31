@@ -27,6 +27,14 @@ enum Palette {
     }
 }
 
+enum AppVersion {
+    static var label: String {
+        let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "1.0"
+        let build = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "0"
+        return "Version \(version) (\(build))"
+    }
+}
+
 private extension View {
     func appCard(cornerRadius: CGFloat, scheme: ColorScheme) -> some View {
         background(Palette.card(scheme), in: RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
@@ -135,6 +143,10 @@ struct ContentView: View {
                         .foregroundStyle(Palette.brandBlue(colorScheme))
                         .accessibilityLabel("Save 4 Two")
                         .frame(maxWidth: .infinity)
+
+                    Text(AppVersion.label)
+                        .font(.caption2.weight(.medium))
+                        .foregroundStyle(.secondary)
                 }
                 .padding(.horizontal, 24)
                 .padding(.top, 8)

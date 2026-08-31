@@ -101,11 +101,11 @@ struct HelpView: View {
                     .padding(.top, 8)
                     .accessibilityLabel("Open save4two.com")
 
-                    Text(versionText)
+                    Text(AppVersion.label)
                         .font(.footnote)
                         .foregroundStyle(.secondary)
                         .frame(maxWidth: .infinity)
-                        .accessibilityLabel(versionText)
+                        .accessibilityLabel(AppVersion.label)
                 }
                 .padding(20)
                 .padding(.bottom, 16)
@@ -120,12 +120,6 @@ struct HelpView: View {
             }
         }
         .tint(Palette.brandBlue(colorScheme))
-    }
-
-    private var versionText: String {
-        let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "1.0"
-        let build = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "0"
-        return "Version \(version) (\(build))"
     }
 
     private var openingScreenshot: some View {
