@@ -11,7 +11,9 @@ struct ToDo42App: App {
         // Keep lists on the phone. Pairing uses CloudKit by itself; SwiftData
         // must not switch to an empty iCloud store when that entitlement is on.
         let config = ModelConfiguration(cloudKitDatabase: .none)
-        return try! ModelContainer(for: TodoItem.self, configurations: config)
+        let container = try! ModelContainer(for: TodoItem.self, configurations: config)
+        ItemStore.deduplicate(in: container.mainContext)
+        return container
     }()
 
     var body: some Scene {

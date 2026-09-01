@@ -59,7 +59,12 @@ enum ShareInbox {
         if haystack.contains("airbnb") || haystack.contains("vrbo") || haystack.contains("hotel") || haystack.contains("maps.apple") {
             return "places"
         }
-        if haystack.contains("allrecipes") || haystack.contains("nytimes.com/cooking") || haystack.contains("yelp") || haystack.contains("opentable") {
+        if haystack.contains("allrecipes")
+            || haystack.contains("nytimes.com/cooking")
+            || haystack.contains("yelp")
+            || haystack.contains("opentable")
+            || haystack.contains("recipe")
+            || haystack.contains("ingredients") {
             return "eats"
         }
         if haystack.contains("instagram")

@@ -28,6 +28,7 @@ final class TodoItem {
     var imageAssetName: String?
     var imageURLString: String?
     var imageData: Data?
+    var extraImageData: Data?
     var notes: String = ""
     var chrisHearted: Bool = false
     var deenaHearted: Bool = false
@@ -45,6 +46,7 @@ final class TodoItem {
         imageAssetName: String? = nil,
         imageURLString: String? = nil,
         imageData: Data? = nil,
+        extraImageData: Data? = nil,
         notes: String = "",
         sortOrder: Int = 0
     ) {
@@ -55,6 +57,7 @@ final class TodoItem {
         self.imageAssetName = imageAssetName
         self.imageURLString = imageURLString
         self.imageData = imageData
+        self.extraImageData = extraImageData
         self.notes = notes
         self.chrisHearted = false
         self.deenaHearted = false
@@ -75,6 +78,68 @@ final class TodoItem {
         if let name = imageAssetName, !name.isEmpty { return true }
         if let url = imageURLString, !url.isEmpty { return true }
         return false
+    }
+
+    var hasExtraPhoto: Bool {
+        if let data = extraImageData, !data.isEmpty { return true }
+        return false
+    }
+}
+
+enum ItemStore {
+    static func allItems(in context: ModelContext) -> [TodoItem] {
+        (try? context.fetch(FetchDescriptor<TodoItem>())) ?? []
+    }
+
+    static func item(id: UUID, in context: ModelContext) -> TodoItem? {
+        allItems(in: context).first { $0.id == id }
+    }
+
+    static func keyedByID(_ items: [TodoItem]) -> [String: TodoItem] {
+        Dictionary(items.map { ($0.id.uuidString, $0) }, uniquingKeysWith: { first, _ in first })
+    }
+
+    static func deduplicate(in context: ModelContext) {
+        let items = allItems(in: context)
+        var keepers: [UUID: TodoItem] = [:]
+        var extras: [TodoItem] = []
+        for item in items {
+            guard let current = keepers[item.id] else {
+                keepers[item.id] = item
+                continue
+            }
+            let keepCurrent = ItemDuplicatePick.keepFirst(
+                firstUpdated: current.updatedAt ?? current.createdAt,
+                firstHasPhoto: current.hasPhoto,
+                firstNoteCount: current.notes.count,
+                secondUpdated: item.updatedAt ?? item.createdAt,
+                secondHasPhoto: item.hasPhoto,
+                secondNoteCount: item.notes.count
+            )
+            if keepCurrent {
+                extras.append(item)
+            } else {
+                extras.append(current)
+                keepers[item.id] = item
+            }
+        }
+        guard !extras.isEmpty else { return }
+        for extra in extras {
+            guard let keep = keepers[extra.id] else { continue }
+            keep.chrisHearted = keep.chrisHearted || extra.chrisHearted
+            keep.deenaHearted = keep.deenaHearted || extra.deenaHearted
+            if keep.notes.isEmpty, extra.notes.isEmpty == false {
+                keep.notes = extra.notes
+            }
+            if keep.imageData == nil, let data = extra.imageData, data.isEmpty == false {
+                keep.imageData = data
+            }
+            if keep.extraImageData == nil, let data = extra.extraImageData, data.isEmpty == false {
+                keep.extraImageData = data
+            }
+            context.delete(extra)
+        }
+        try? context.save()
     }
 }
 

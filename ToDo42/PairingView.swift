@@ -6,35 +6,49 @@ struct PairingView: View {
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.modelContext) private var modelContext
     @Environment(PairSession.self) private var session
-    @Query private var items: [TodoItem]
     @State private var joinCode = ""
+    @State private var restoreCode = ""
     @State private var errorText = ""
     @State private var showShare = false
 
     var body: some View {
         NavigationStack {
-            ScrollView {
-                VStack(alignment: .leading, spacing: 20) {
-                    nameFields
-                    if session.isPaired {
-                        connected
-                    } else {
-                        unpaired
+            GeometryReader { geo in
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 20) {
+                        nameFields
+                        if session.isPaired {
+                            connected
+                        } else {
+                            unpaired
+                        }
+                        restoreButton
+                        if !errorText.isEmpty {
+                            Text(errorText)
+                                .font(.footnote)
+                                .foregroundStyle(.red)
+                        }
+                        if !session.statusMessage.isEmpty {
+                            Text(session.statusMessage)
+                                .font(.footnote)
+                                .foregroundStyle(.secondary)
+                        }
+
+                        Spacer(minLength: 32)
+
+                        Link(destination: URL(string: "https://save4two.com")!) {
+                            Text("save4two.com")
+                                .font(.subheadline.weight(.semibold))
+                                .frame(maxWidth: .infinity)
+                        }
+                        .padding(.bottom, 8)
+                        .accessibilityLabel("Open save4two.com")
                     }
-                    if !errorText.isEmpty {
-                        Text(errorText)
-                            .font(.footnote)
-                            .foregroundStyle(.red)
-                    }
-                    if !session.statusMessage.isEmpty {
-                        Text(session.statusMessage)
-                            .font(.footnote)
-                            .foregroundStyle(.secondary)
-                    }
+                    .frame(maxWidth: .infinity, minHeight: geo.size.height, alignment: .topLeading)
+                    .padding(24)
                 }
-                .padding(24)
+                .scrollDismissesKeyboard(.interactively)
             }
-            .scrollDismissesKeyboard(.interactively)
             .background(Palette.canvas(colorScheme).ignoresSafeArea())
             .navigationTitle("Pair phones")
             .navigationBarTitleDisplayMode(.inline)
@@ -150,6 +164,25 @@ struct PairingView: View {
         }
     }
 
+    private var restoreButton: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("Lost the list after a new invite? Enter an older 6-digit code from Messages, then restore.")
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+            TextField("Older 6-digit code", text: $restoreCode)
+                .keyboardType(.numberPad)
+                .textFieldStyle(.roundedBorder)
+            Button {
+                Task { await restore() }
+            } label: {
+                Label("Restore my list from iCloud", systemImage: "arrow.clockwise")
+                    .frame(maxWidth: .infinity)
+            }
+            .buttonStyle(.bordered)
+            .disabled(session.isBusy)
+        }
+    }
+
     private func createInvite() async {
         errorText = ""
         session.isBusy = true
@@ -157,10 +190,20 @@ struct PairingView: View {
         session.persistLocal()
         do {
             _ = try await CloudSync.shared.createInvite()
-            await CloudSync.shared.sync(modelContext: modelContext, items: items)
+            await CloudSync.shared.sync(modelContext: modelContext, allowCreate: true)
             showShare = true
         } catch {
             errorText = error.localizedDescription
+        }
+    }
+
+    private func restore() async {
+        errorText = ""
+        session.isBusy = true
+        defer { session.isBusy = false }
+        await CloudSync.shared.restoreFromCloud(modelContext: modelContext, oldCode: restoreCode)
+        if session.statusMessage.isEmpty == false, session.statusMessage.contains("no saved") {
+            errorText = session.statusMessage
         }
     }
 
@@ -171,7 +214,7 @@ struct PairingView: View {
         session.persistLocal()
         do {
             try await CloudSync.shared.join(code: joinCode)
-            await CloudSync.shared.sync(modelContext: modelContext, items: items)
+            await CloudSync.shared.sync(modelContext: modelContext, allowCreate: true)
         } catch {
             errorText = error.localizedDescription
         }

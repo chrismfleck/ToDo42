@@ -37,6 +37,8 @@ private extension View {
     }
 }
 
+private let heartPink = Color(red: 0.92, green: 0.28, blue: 0.45)
+
 struct ContentView: View {
     @Environment(\.modelContext) private var modelContext
     @Environment(\.colorScheme) private var colorScheme
@@ -45,12 +47,15 @@ struct ContentView: View {
     @State private var category: ItemCategory = .places
     @State private var showAdd = false
     @State private var showPairing = false
+    @State private var showHelp = false
     @Environment(PairSession.self) private var pairSession
     @State private var swipingItemID: UUID?
     @State private var selectedItem: TodoItem?
-    @State private var isListEditing = false
+    @State private var isListEditing = !UserDefaults.standard.bool(forKey: Self.hasLeftListEditKey)
     @State private var reorderDrag: ReorderDrag?
     @State private var rowHeights: [UUID: CGFloat] = [:]
+
+    private static let hasLeftListEditKey = "todo42.hasLeftListEditMode"
 
     private var filtered: [TodoItem] {
         items
@@ -95,27 +100,36 @@ struct ContentView: View {
                         .padding(.top, 12)
 
                     HStack {
-                        Button(isListEditing ? "Done" : "Edit") {
-                            if isListEditing {
-                                reorderDrag = nil
-                                isListEditing = false
-                            } else {
-                                normalizeSortOrders()
-                                isListEditing = true
-                            }
+                        Button {
+                            toggleListEditing()
+                        } label: {
+                            Image(systemName: isListEditing ? "checkmark" : "gearshape")
+                                .font(.system(size: 22, weight: .semibold))
+                                .foregroundStyle(Palette.brandBlue(colorScheme))
+                                .frame(width: 32, height: 32)
                         }
-                        .font(.subheadline.weight(.semibold))
-                        .foregroundStyle(Palette.brandBlue(colorScheme))
-                        .accessibilityLabel(isListEditing ? "Done reordering" : "Reorder list")
+                        .accessibilityLabel(isListEditing ? "Done editing" : "Edit list")
+
+                        if isListEditing {
+                            Button { showHelp = true } label: {
+                                Image(systemName: "info.circle")
+                                    .font(.system(size: 22, weight: .semibold))
+                                    .foregroundStyle(Palette.brandBlue(colorScheme))
+                                    .frame(width: 32, height: 32)
+                            }
+                            .accessibilityLabel("Help")
+                        }
 
                         Spacer()
 
-                        Button { showPairing = true } label: {
-                            Image(systemName: pairSession.isPaired ? "person.2.fill" : "person.2")
-                                .font(.system(size: 22, weight: .semibold))
-                                .foregroundStyle(Palette.brandBlue(colorScheme))
+                        if isListEditing {
+                            Button { showPairing = true } label: {
+                                Image(systemName: pairSession.isPaired ? "person.2.fill" : "person.2")
+                                    .font(.system(size: 22, weight: .semibold))
+                                    .foregroundStyle(Palette.brandBlue(colorScheme))
+                            }
+                            .accessibilityLabel("Pair phones")
                         }
-                        .accessibilityLabel("Pair phones")
 
                         Button { showAdd = true } label: {
                             Image(systemName: "plus.circle.fill")
@@ -138,24 +152,20 @@ struct ContentView: View {
 
                 ScrollView {
                     LazyVStack(spacing: 14) {
-                        ForEach(filtered, id: \.id) { item in
+                        ForEach(filtered, id: \.persistentModelID) { item in
                             SwipeToDeleteRow(
                                 itemID: item.id,
                                 swipingItemID: $swipingItemID,
-                                isEnabled: !isListEditing
+                                isEnabled: false
                             ) {
-                                withAnimation(.easeIn(duration: 0.2)) {
-                                    if selectedItem?.id == item.id { selectedItem = nil }
-                                    let id = item.id
-                                    modelContext.delete(item)
-                                    Task { await CloudSync.shared.deleteRemote(id) }
-                                }
+                                deleteItem(item)
                             } content: {
                                 Group {
                                     if isListEditing {
                                         ItemRowView(
                                             item: item,
                                             showsDragHandle: true,
+                                            onDelete: { deleteItem(item) },
                                             onHandleDragChanged: { translation in
                                                 handleReorderChanged(item: item, translation: translation)
                                             },
@@ -220,23 +230,52 @@ struct ContentView: View {
             PairingView()
                 .environment(PairSession.shared)
         }
+        .sheet(isPresented: $showHelp) {
+            HelpView()
+        }
         .onAppear {
             importSharedDrafts()
-            seedIfNeeded()
             normalizeStoredText()
-            Task { await CloudSync.shared.sync(modelContext: modelContext, items: items) }
+            Task { await refreshFromCloud() }
         }
         .onChange(of: scenePhase) { _, phase in
             if phase == .active {
                 importSharedDrafts()
-                Task { await CloudSync.shared.sync(modelContext: modelContext, items: items) }
+                Task { await refreshFromCloud() }
             }
         }
         .onReceive(NotificationCenter.default.publisher(for: .todo42CloudPush)) { _ in
-            Task { await CloudSync.shared.sync(modelContext: modelContext, items: items) }
+            Task { await refreshFromCloud() }
         }
         .onChange(of: category) { _, _ in
             reorderDrag = nil
+        }
+    }
+
+    private func toggleListEditing() {
+        if isListEditing {
+            reorderDrag = nil
+            isListEditing = false
+            UserDefaults.standard.set(true, forKey: Self.hasLeftListEditKey)
+        } else {
+            normalizeSortOrders()
+            isListEditing = true
+        }
+    }
+
+    private func deleteItem(_ item: TodoItem) {
+        withAnimation(.easeIn(duration: 0.2)) {
+            if selectedItem?.id == item.id { selectedItem = nil }
+            let id = item.id
+            modelContext.delete(item)
+            Task { await CloudSync.shared.deleteRemote(id) }
+        }
+    }
+
+    private func refreshFromCloud() async {
+        await CloudSync.shared.sync(modelContext: modelContext)
+        if let cat = PairSession.shared.takeRevealCategory() {
+            category = cat
         }
     }
 
@@ -262,9 +301,26 @@ struct ContentView: View {
 
     private func normalizeStoredText() {
         for item in items {
+            let link = item.urlString ?? ""
+            if InstagramShareText.isInstagramURL(link) || InstagramShareText.needsCleanup(title: item.title, notes: item.notes) {
+                let split = InstagramShareText.refine(title: item.title, notes: item.notes)
+                if !split.title.isEmpty {
+                    item.title = SharedText.normalized(split.title)
+                    item.notes = SharedText.reflowNotes(split.notes.isEmpty ? item.notes : split.notes)
+                    continue
+                }
+            }
+            if FacebookShareText.isFacebookURL(link) || item.title.lowercased().contains("on facebook") {
+                let split = FacebookShareText.refine(title: item.title, notes: item.notes)
+                if !split.title.isEmpty {
+                    item.title = SharedText.normalized(split.title)
+                    item.notes = SharedText.reflowNotes(split.notes.isEmpty ? item.notes : split.notes)
+                    continue
+                }
+            }
             let title = SharedText.normalized(item.title)
             if item.title != title { item.title = title }
-            let notes = SharedText.normalized(item.notes)
+            let notes = SharedText.reflowNotes(item.notes)
             if item.notes != notes { item.notes = notes }
         }
     }
@@ -319,40 +375,24 @@ struct ContentView: View {
         }
     }
 
-    private func seedIfNeeded() {
-        let key = "todo42.seeded.v2"
-        guard !UserDefaults.standard.bool(forKey: key) else { return }
-
-        if items.isEmpty {
-            for cat in ItemCategory.allCases {
-                for (index, seed) in SampleData.seeds.filter({ $0.category == cat }).enumerated() {
-                    modelContext.insert(SampleData.makeItem(seed, sortOrder: index))
-                }
-            }
-        } else {
-            for item in items {
-                guard let sample = SampleData.matching(title: item.title) else { continue }
-                if item.imageAssetName == nil {
-                    item.imageAssetName = sample.imageAssetName
-                }
-                if item.urlString == nil {
-                    item.urlString = sample.urlString
-                }
-                if item.notes.isEmpty {
-                    item.notes = sample.notes
-                }
-            }
-        }
-
-        UserDefaults.standard.set(true, forKey: key)
-    }
-
     private func importSharedDrafts() {
         var nextOrders: [ItemCategory: Int] = [:]
         for (payload, imageData) in ShareInbox.consumeDrafts() {
-            let title = SharedText.normalized(payload.title)
-            guard !title.isEmpty else { continue }
             let link = payload.urlString.trimmingCharacters(in: .whitespacesAndNewlines)
+            var rawTitle = payload.title
+            var rawNotes = payload.notes
+            if InstagramShareText.isInstagramURL(link) || InstagramShareText.needsCleanup(title: rawTitle, notes: rawNotes) {
+                let split = InstagramShareText.refine(title: rawTitle, notes: rawNotes)
+                if !split.title.isEmpty { rawTitle = split.title }
+                rawNotes = split.notes
+            }
+            if FacebookShareText.isFacebookURL(link) || rawTitle.lowercased().contains("on facebook") {
+                let split = FacebookShareText.refine(title: rawTitle, notes: rawNotes)
+                if !split.title.isEmpty { rawTitle = split.title }
+                rawNotes = split.notes
+            }
+            let title = SharedText.normalized(rawTitle)
+            guard !title.isEmpty else { continue }
             let category = ItemCategory(rawValue: payload.category) ?? .places
             let sortOrder = nextOrders[category] ?? nextSortOrder(for: category)
             nextOrders[category] = sortOrder - 1
@@ -362,7 +402,7 @@ struct ContentView: View {
                     category: category,
                     urlString: link.isEmpty ? nil : link,
                     imageData: imageData,
-                    notes: SharedText.normalized(payload.notes),
+                    notes: SharedText.reflowNotes(rawNotes),
                     sortOrder: sortOrder
                 )
             )
@@ -477,11 +517,22 @@ struct ItemRowView: View {
     @Environment(\.colorScheme) private var colorScheme
     let item: TodoItem
     var showsDragHandle: Bool = false
+    var onDelete: (() -> Void)? = nil
     var onHandleDragChanged: ((CGFloat) -> Void)?
     var onHandleDragEnded: (() -> Void)?
 
     var body: some View {
         HStack(alignment: .center, spacing: 16) {
+            if let onDelete {
+                Button(action: onDelete) {
+                    Image(systemName: "minus.circle.fill")
+                        .font(.system(size: 22, weight: .semibold))
+                        .foregroundStyle(.red)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Delete \(item.title)")
+            }
+
             ItemPhotoView(item: item, cornerRadius: 14)
                 .frame(width: 76, height: 76)
 
@@ -503,6 +554,20 @@ struct ItemRowView: View {
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             .dynamicTypeSize(.large)
+
+            if item.chrisHearted || item.deenaHearted {
+                HStack(spacing: 4) {
+                    if item.chrisHearted {
+                        Image(systemName: "heart.fill")
+                    }
+                    if item.deenaHearted {
+                        Image(systemName: "heart.fill")
+                    }
+                }
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(heartPink)
+                .accessibilityLabel("Hearted")
+            }
 
             if showsDragHandle {
                 Image(systemName: "line.3.horizontal")
@@ -533,6 +598,7 @@ private struct LockedText: UIViewRepresentable {
     var font: UIFont
     var color: UIColor
     var lines: Int
+    var preserveNewlines: Bool = false
 
     func makeUIView(context: Context) -> UILabel {
         let label = UILabel()
@@ -545,7 +611,7 @@ private struct LockedText: UIViewRepresentable {
     }
 
     func updateUIView(_ label: UILabel, context: Context) {
-        label.text = SharedText.normalized(text)
+        label.text = preserveNewlines ? SharedText.normalizedMultiline(text) : SharedText.normalized(text)
         label.font = font
         label.textColor = color
         label.numberOfLines = lines
@@ -577,7 +643,7 @@ struct ItemPagerView: View {
 
     var body: some View {
         TabView(selection: $selectedID) {
-            ForEach(items, id: \.id) { item in
+            ForEach(items, id: \.persistentModelID) { item in
                 ItemDetailView(item: item, onEditingChange: { editing in
                     if item.id == selectedID {
                         isEditing = editing
@@ -587,7 +653,8 @@ struct ItemPagerView: View {
             }
         }
         .tabViewStyle(.page(indexDisplayMode: .never))
-        .scrollDisabled(isEditing)
+        // Lock only the pager swipe. `.scrollDisabled` also freezes the item page itself.
+        .background { PagingScrollLock(locked: isEditing) }
         .background(Palette.canvas(colorScheme).ignoresSafeArea())
         .onChange(of: selectedID) { _, newID in
             if let match = items.first(where: { $0.id == newID }) {
@@ -597,6 +664,46 @@ struct ItemPagerView: View {
             UIImpactFeedbackGenerator(style: .light).impactOccurred()
         }
         .accessibilityHint(items.count > 1 ? "Swipe left or right to see other items" : "")
+    }
+}
+
+/// Disables a `TabView` page swipe without turning off nested `ScrollView`s.
+private struct PagingScrollLock: UIViewRepresentable {
+    var locked: Bool
+
+    func makeUIView(context: Context) -> UIView {
+        let view = UIView()
+        view.isUserInteractionEnabled = false
+        view.backgroundColor = .clear
+        return view
+    }
+
+    func updateUIView(_ uiView: UIView, context: Context) {
+        let locked = locked
+        DispatchQueue.main.async {
+            var node: UIView? = uiView.superview
+            while let view = node {
+                let pagers = Self.pagingScrollViews(in: view)
+                if !pagers.isEmpty {
+                    for pager in pagers {
+                        pager.isScrollEnabled = !locked
+                    }
+                    return
+                }
+                node = view.superview
+            }
+        }
+    }
+
+    private static func pagingScrollViews(in view: UIView) -> [UIScrollView] {
+        var found: [UIScrollView] = []
+        if let scroll = view as? UIScrollView, scroll.isPagingEnabled {
+            found.append(scroll)
+        }
+        for child in view.subviews {
+            found.append(contentsOf: pagingScrollViews(in: child))
+        }
+        return found
     }
 }
 
@@ -610,8 +717,8 @@ struct ItemDetailView: View {
     @State private var draftTitle = ""
     @State private var draftLink = ""
     @State private var draftNotes = ""
-    @State private var draftCategory: ItemCategory = .places
     @State private var photoItem: PhotosPickerItem?
+    @State private var extraPhotoItem: PhotosPickerItem?
 
     private var isGuest: Bool { pairSession.role == .deena }
 
@@ -645,15 +752,18 @@ struct ItemDetailView: View {
 
                 Spacer()
 
-                Button(isEditing ? "Done" : "Edit") {
+                Button {
                     if isEditing {
                         commitEdits()
                     } else {
                         beginEditing()
                     }
+                } label: {
+                    Image(systemName: isEditing ? "checkmark" : "gearshape")
+                        .font(.system(size: 22, weight: .semibold))
+                        .foregroundStyle(Palette.brandBlue(colorScheme))
+                        .frame(width: 32, height: 32)
                 }
-                .font(.subheadline.weight(.semibold))
-                .foregroundStyle(Palette.brandBlue(colorScheme))
                 .disabled(isEditing && draftTitle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                 .accessibilityLabel(isEditing ? "Done editing" : "Edit item")
             }
@@ -668,24 +778,29 @@ struct ItemDetailView: View {
                     VStack(alignment: .leading, spacing: 16) {
                         if isEditing {
                             labeledField("Title") {
-                                TextField("Title", text: $draftTitle)
-                                    .font(.title.bold())
+                                TextField("Title", text: $draftTitle, axis: .vertical)
+                                    .font(.body)
+                                    .lineLimit(1...6)
+                                    .multilineTextAlignment(.leading)
                                     .padding(12)
                                     .appCard(cornerRadius: 12, scheme: colorScheme)
                             }
                         } else {
-                            Text(verbatim: SharedText.normalized(item.title))
-                                .font(.title.bold())
-                                .padding(.top, 4)
+                            titleView
                         }
 
-                        HStack(spacing: 28) {
-                            PartnerHeartButton(name: pairSession.myHeartLabel, isOn: myHeart)
-                            PartnerHeartButton(name: pairSession.partnerHeartLabel, isOn: partnerHeart)
-                            DoneCheckButton(isDone: $item.isDone, size: 34, name: "Done")
+                        HStack(spacing: 16) {
+                            PartnerHeartButton(name: pairSession.myHeartLabel, isOn: myHeart, size: 18)
+                            PartnerHeartButton(
+                                name: pairSession.partnerHeartLabel,
+                                isOn: partnerHeart,
+                                interactive: false,
+                                size: 18
+                            )
+                            DoneCheckButton(isDone: $item.isDone, size: 18, name: "Done")
                         }
                         .frame(maxWidth: .infinity)
-                        .padding(.vertical, 4)
+                        .padding(.vertical, 0)
                         .onChange(of: item.chrisHearted) { _, _ in
                             PairSession.shared.noteLocalEdit(item, kind: "heart")
                         }
@@ -697,6 +812,14 @@ struct ItemDetailView: View {
                         }
 
                         if isEditing {
+                            Picker("Category", selection: categoryBinding) {
+                                ForEach(ItemCategory.allCases) { cat in
+                                    Text(cat.title).tag(cat)
+                                }
+                            }
+                            .pickerStyle(.segmented)
+                            .accessibilityLabel("Category")
+
                             labeledField("Link") {
                                 TextField("https://", text: $draftLink)
                                     .textInputAutocapitalization(.never)
@@ -706,63 +829,110 @@ struct ItemDetailView: View {
                                     .appCard(cornerRadius: 12, scheme: colorScheme)
                             }
 
-                            labeledField("Notes") {
-                                TextField("Add a note", text: $draftNotes, axis: .vertical)
-                                    .lineLimit(3...8)
-                                    .padding(12)
-                                    .appCard(cornerRadius: 12, scheme: colorScheme)
-                            }
+                            TextField("Add a note", text: $draftNotes, axis: .vertical)
+                                .font(.system(size: 16, weight: .semibold))
+                                .lineLimit(3...20)
+                                .padding(12)
+                                .appCard(cornerRadius: 12, scheme: colorScheme)
 
-                            labeledField("Category") {
-                                Picker("Category", selection: $draftCategory) {
-                                    ForEach(ItemCategory.allCases) { cat in
-                                        Text(cat.title).tag(cat)
-                                    }
-                                }
-                                .pickerStyle(.segmented)
-                            }
+                            extraPhotoSection
                         } else {
-                            if let s = item.urlString?.trimmingCharacters(in: .whitespacesAndNewlines),
-                               let url = URL(string: s), !s.isEmpty {
-                                Link(destination: url) {
-                                    Label("Open link", systemImage: "link")
-                                        .font(.headline)
-                                }
+                            if !item.notes.isEmpty {
+                                LockedText(
+                                    text: item.notes,
+                                    font: UIFont.systemFont(ofSize: 16, weight: .semibold),
+                                    color: .label,
+                                    lines: 0,
+                                    preserveNewlines: true
+                                )
                             }
 
-                            if !item.notes.isEmpty {
-                                VStack(alignment: .leading, spacing: 6) {
-                                    Text("Notes")
-                                        .font(.caption.weight(.semibold))
-                                        .foregroundStyle(.secondary)
-                                    Text(verbatim: SharedText.normalized(item.notes))
-                                }
+                            if item.hasExtraPhoto {
+                                extraPhotoSection
                             }
                         }
                     }
                     .padding(20)
+                    .padding(.bottom, isEditing ? 180 : 0)
                 }
             }
             .scrollContentBackground(.hidden)
             .scrollDismissesKeyboard(.interactively)
-            .scrollDisabled(false)
         }
         .background(Palette.canvas(colorScheme).ignoresSafeArea())
         .onChange(of: photoItem) { _, newItem in
             Task { await applyPickedPhoto(newItem) }
+        }
+        .onChange(of: extraPhotoItem) { _, newItem in
+            Task { await applyExtraPhoto(newItem) }
         }
         .onDisappear {
             if isEditing { commitEdits() }
         }
     }
 
+    private var savedURL: URL? {
+        guard let s = item.urlString?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !s.isEmpty,
+              let url = URL(string: s)
+        else { return nil }
+        return url
+    }
+
+    @ViewBuilder
+    private var titleView: some View {
+        let titleText = Text(verbatim: SharedText.normalized(item.title))
+            .font(.body)
+            .underline(savedURL != nil)
+            .multilineTextAlignment(.leading)
+            .padding(.top, 4)
+
+        if let url = savedURL {
+            Link(destination: url) {
+                titleText
+                    .foregroundStyle(Palette.brandBlue(colorScheme))
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .accessibilityLabel("Open \(SharedText.normalized(item.title))")
+        } else {
+            titleText
+        }
+    }
+
+    private var categoryBinding: Binding<ItemCategory> {
+        Binding(
+            get: { item.category },
+            set: {
+                item.category = $0
+                PairSession.shared.noteLocalEdit(item, kind: "edit")
+            }
+        )
+    }
+
     @ViewBuilder
     private var photoSection: some View {
         if item.hasPhoto {
-            ItemPhotoView(item: item, cornerRadius: 0, placeholderIconSize: 48)
-                .frame(maxWidth: .infinity)
-                .frame(height: 280)
-                .clipped()
+            ZStack(alignment: .topTrailing) {
+                ItemPhotoView(item: item, cornerRadius: 18, placeholderIconSize: 48)
+                    .frame(maxWidth: .infinity)
+                    .frame(height: 280)
+                    .clipped()
+
+                if isEditing {
+                    Button(action: clearPhoto) {
+                        Image(systemName: "xmark.circle.fill")
+                            .symbolRenderingMode(.palette)
+                            .foregroundStyle(.white, Color.black.opacity(0.55))
+                            .font(.system(size: 28, weight: .semibold))
+                    }
+                    .buttonStyle(.plain)
+                    .padding(14)
+                    .accessibilityLabel("Delete photo")
+                }
+            }
+            .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+            .padding(.horizontal, 20)
+            .padding(.top, 8)
         } else {
             PhotosPicker(selection: $photoItem, matching: .images) {
                 VStack(spacing: 10) {
@@ -775,10 +945,21 @@ struct ItemDetailView: View {
                 .frame(maxWidth: .infinity)
                 .frame(height: 280)
                 .background(Palette.canvas(colorScheme))
+                .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
             }
             .buttonStyle(.plain)
+            .padding(.horizontal, 20)
+            .padding(.top, 8)
             .accessibilityLabel("Upload photo")
         }
+    }
+
+    private func clearPhoto() {
+        item.imageData = nil
+        item.imageAssetName = nil
+        item.imageURLString = nil
+        photoItem = nil
+        PairSession.shared.noteLocalEdit(item, kind: "edit")
     }
 
     private func applyPickedPhoto(_ picked: PhotosPickerItem?) async {
@@ -789,6 +970,62 @@ struct ItemDetailView: View {
         item.imageData = jpeg
         item.imageAssetName = nil
         item.imageURLString = nil
+        PairSession.shared.noteLocalEdit(item, kind: "edit")
+    }
+
+    @ViewBuilder
+    private var extraPhotoSection: some View {
+        if item.hasExtraPhoto, let data = item.extraImageData, let image = UIImage(data: data) {
+            ZStack(alignment: .topTrailing) {
+                Image(uiImage: image)
+                    .resizable()
+                    .aspectRatio(image.size, contentMode: .fit)
+                    .frame(maxWidth: .infinity)
+                    .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+
+                if isEditing {
+                    Button(action: clearExtraPhoto) {
+                        Image(systemName: "xmark.circle.fill")
+                            .symbolRenderingMode(.palette)
+                            .foregroundStyle(.white, Color.black.opacity(0.55))
+                            .font(.system(size: 28, weight: .semibold))
+                    }
+                    .buttonStyle(.plain)
+                    .padding(14)
+                    .accessibilityLabel("Delete extra photo")
+                }
+            }
+        } else if isEditing {
+            PhotosPicker(selection: $extraPhotoItem, matching: .images) {
+                VStack(spacing: 10) {
+                    Image(systemName: "photo.badge.plus")
+                        .font(.system(size: 28, weight: .medium))
+                    Text("Add photo")
+                        .font(.subheadline.weight(.semibold))
+                }
+                .foregroundStyle(Palette.brandBlue(colorScheme))
+                .frame(maxWidth: .infinity)
+                .frame(height: 280)
+                .background(Palette.canvas(colorScheme))
+                .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Add extra photo")
+        }
+    }
+
+    private func clearExtraPhoto() {
+        item.extraImageData = nil
+        extraPhotoItem = nil
+        PairSession.shared.noteLocalEdit(item, kind: "edit")
+    }
+
+    private func applyExtraPhoto(_ picked: PhotosPickerItem?) async {
+        guard let picked else { return }
+        guard let data = try? await picked.loadTransferable(type: Data.self),
+              let image = UIImage(data: data),
+              let jpeg = PhotoJPEG.compressed(image) else { return }
+        item.extraImageData = jpeg
         PairSession.shared.noteLocalEdit(item, kind: "edit")
     }
 
@@ -806,7 +1043,6 @@ struct ItemDetailView: View {
         draftTitle = item.title
         draftLink = item.urlString ?? ""
         draftNotes = item.notes
-        draftCategory = item.category
         withAnimation(.easeInOut(duration: 0.2)) {
             isEditing = true
         }
@@ -820,8 +1056,7 @@ struct ItemDetailView: View {
         }
         let trimmedLink = draftLink.trimmingCharacters(in: .whitespacesAndNewlines)
         item.urlString = trimmedLink.isEmpty ? nil : trimmedLink
-        item.notes = SharedText.normalized(draftNotes)
-        item.category = draftCategory
+        item.notes = SharedText.normalizedMultiline(draftNotes)
         PairSession.shared.noteLocalEdit(item, kind: "edit")
         withAnimation(.easeInOut(duration: 0.2)) {
             isEditing = false
@@ -846,8 +1081,6 @@ private enum PhotoJPEG {
     }
 }
 
-private let heartPink = Color(red: 0.92, green: 0.28, blue: 0.45)
-
 struct DoneCheckButton: View {
     @Environment(\.colorScheme) private var colorScheme
     @Binding var isDone: Bool
@@ -860,19 +1093,19 @@ struct DoneCheckButton: View {
                 isDone.toggle()
             }
         } label: {
-            VStack(spacing: 6) {
+            VStack(spacing: 1) {
                 Image(systemName: isDone ? "checkmark.circle.fill" : "circle")
                     .font(.system(size: size, weight: .semibold))
                     .foregroundStyle(isDone ? Palette.brandBlue(colorScheme) : Color.secondary.opacity(0.55))
-                    .scaleEffect(isDone ? 1.08 : 1)
+                    .scaleEffect(isDone ? 1.06 : 1)
                 if let name {
                     Text(name)
-                        .font(.caption.weight(.semibold))
+                        .font(.system(size: 10, weight: .semibold))
                         .foregroundStyle(.secondary)
                 }
             }
-            .frame(minWidth: name == nil ? size + 8 : 72)
-            .padding(.vertical, name == nil ? 4 : 8)
+            .frame(minWidth: name == nil ? size + 8 : 44)
+            .padding(.vertical, 0)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -884,28 +1117,40 @@ struct DoneCheckButton: View {
 struct PartnerHeartButton: View {
     let name: String
     @Binding var isOn: Bool
+    var interactive: Bool = true
+    var size: CGFloat = 34
 
     var body: some View {
-        Button {
-            withAnimation(.spring(duration: 0.28)) {
-                isOn.toggle()
+        Group {
+            if interactive {
+                Button {
+                    withAnimation(.spring(duration: 0.28)) {
+                        isOn.toggle()
+                    }
+                } label: {
+                    heartMark
+                }
+                .buttonStyle(.plain)
+            } else {
+                heartMark
             }
-        } label: {
-            VStack(spacing: 6) {
-                Image(systemName: isOn ? "heart.fill" : "heart")
-                    .font(.system(size: 34, weight: .semibold))
-                    .foregroundStyle(isOn ? heartPink : Color.secondary.opacity(0.55))
-                    .scaleEffect(isOn ? 1.08 : 1)
-                Text(name)
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(.secondary)
-            }
-            .frame(minWidth: 72)
-            .padding(.vertical, 8)
         }
-        .buttonStyle(.plain)
         .accessibilityLabel("\(name) heart")
         .accessibilityAddTraits(isOn ? .isSelected : [])
+    }
+
+    private var heartMark: some View {
+        VStack(spacing: 1) {
+            Image(systemName: isOn ? "heart.fill" : "heart")
+                .font(.system(size: size, weight: .semibold))
+                .foregroundStyle(isOn ? heartPink : Color.secondary.opacity(0.55))
+                .scaleEffect(isOn ? 1.06 : 1)
+            Text(name)
+                .font(.system(size: 10, weight: .semibold))
+                .foregroundStyle(.secondary)
+        }
+        .frame(minWidth: 44)
+        .padding(.vertical, 0)
     }
 }
 
@@ -957,7 +1202,8 @@ struct AddItemView: View {
                         }
                     }
 
-                    TextField("Title", text: $title)
+                    TextField("Title", text: $title, axis: .vertical)
+                        .lineLimit(1...4)
                     TextField("Link", text: $urlString)
                         .textInputAutocapitalization(.never)
                         .keyboardType(.URL)
@@ -1000,7 +1246,7 @@ struct AddItemView: View {
     private func save() {
         let trimmedTitle = SharedText.normalized(title)
         let trimmedLink = urlString.trimmingCharacters(in: .whitespacesAndNewlines)
-        let trimmedNotes = SharedText.normalized(notes)
+        let trimmedNotes = SharedText.reflowNotes(notes)
         let nextSortOrder = (items.filter { $0.category == selectedCategory }.map(\.sortOrder).min() ?? 0) - 1
         let item = TodoItem(
             title: trimmedTitle,

@@ -99,6 +99,15 @@ private enum SharedContent {
                 result.title = "Shared item"
             }
         }
+        if InstagramShareText.isInstagramURL(result.urlString) {
+            let split = InstagramShareText.refine(title: result.title, notes: result.notes)
+            if !split.title.isEmpty { result.title = split.title }
+            result.notes = split.notes
+        } else if FacebookShareText.isFacebookURL(result.urlString) {
+            let split = FacebookShareText.refine(title: result.title, notes: result.notes)
+            if !split.title.isEmpty { result.title = split.title }
+            result.notes = split.notes
+        }
         return result
     }
 
@@ -287,7 +296,7 @@ struct ShareFormView: View {
                             SharePayload(
                                 title: SharedText.normalized(title),
                                 urlString: urlString.trimmingCharacters(in: .whitespacesAndNewlines),
-                                notes: SharedText.normalized(notes),
+                                notes: SharedText.reflowNotes(notes),
                                 category: category
                             ),
                             previewImage
@@ -305,12 +314,41 @@ struct ShareFormView: View {
         guard link.hasPrefix("http") else { return }
         isLoadingMeta = previewImage == nil
         let meta = await PageMetadata.fetch(from: link)
-        if PageMetadata.isPlaceholderTitle(title), let pageTitle = meta.title, !pageTitle.isEmpty {
-            title = pageTitle
-            category = ShareInbox.guessedCategory(urlString: link, title: pageTitle)
-        }
-        if notes.isEmpty, let description = meta.description, !description.isEmpty {
-            notes = description
+        if InstagramShareText.isInstagramURL(link) {
+            let split = InstagramShareText.split(from: [
+                title,
+                notes,
+                meta.title ?? "",
+                meta.description ?? "",
+            ])
+            if !split.title.isEmpty {
+                title = split.title
+                category = ShareInbox.guessedCategory(urlString: link, title: split.title + " " + split.notes)
+            }
+            notes = split.notes
+        } else if FacebookShareText.isFacebookURL(link) {
+            if PageMetadata.isPlaceholderTitle(title), let pageTitle = meta.title, !pageTitle.isEmpty {
+                title = pageTitle
+            }
+            let split = FacebookShareText.split(from: [
+                title,
+                notes,
+                meta.title ?? "",
+                meta.description ?? "",
+            ])
+            if !split.title.isEmpty {
+                title = split.title
+                category = ShareInbox.guessedCategory(urlString: link, title: split.title + " " + split.notes)
+            }
+            notes = split.notes
+        } else {
+            if PageMetadata.isPlaceholderTitle(title), let pageTitle = meta.title, !pageTitle.isEmpty {
+                title = pageTitle
+                category = ShareInbox.guessedCategory(urlString: link, title: pageTitle)
+            }
+            if notes.isEmpty, let description = meta.description, !description.isEmpty {
+                notes = description
+            }
         }
         if previewImage == nil {
             previewImage = meta.image
