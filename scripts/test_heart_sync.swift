@@ -115,13 +115,59 @@ enum ItemDuplicatePick {
         firstUpdated: Date,
         firstHasPhoto: Bool,
         firstNoteCount: Int,
+        firstTitleEmpty: Bool = false,
         secondUpdated: Date,
         secondHasPhoto: Bool,
-        secondNoteCount: Int
+        secondNoteCount: Int,
+        secondTitleEmpty: Bool = false
     ) -> Bool {
+        if firstTitleEmpty != secondTitleEmpty { return !firstTitleEmpty }
         if firstUpdated != secondUpdated { return firstUpdated > secondUpdated }
         if firstHasPhoto != secondHasPhoto { return firstHasPhoto }
         return firstNoteCount >= secondNoteCount
+    }
+}
+
+enum TDItemRecordKind: Equatable {
+    case listItem
+    case extraPhoto
+    case unknown
+
+    static func classify(recordName: String, title: String?, sortOrder: Int?) -> TDItemRecordKind {
+        if recordName.hasPrefix("extra-") { return .extraPhoto }
+        let emptyTitle = (title ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        if sortOrder == -1, emptyTitle { return .extraPhoto }
+        if recordName.hasPrefix("item-") { return .listItem }
+        if emptyTitle { return .extraPhoto }
+        return .unknown
+    }
+}
+
+enum RemoteItemApply {
+    static func resolvedTitle(localTitle: String, remoteTitle: String?) -> String {
+        let trimmed = (remoteTitle ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.isEmpty { return localTitle }
+        return remoteTitle ?? localTitle
+    }
+
+    static func shouldApplyRemoteContent(
+        localUpdated: Date,
+        remoteUpdated: Date,
+        localTitle: String,
+        remoteTitle: String?
+    ) -> Bool {
+        if remoteUpdated > localUpdated { return true }
+        let localEmpty = localTitle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        let remoteHasTitle = !(remoteTitle ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        return localEmpty && remoteHasTitle
+    }
+
+    static func extraItemID(recordName: String, itemID: String?) -> String? {
+        if let itemID, !itemID.isEmpty { return itemID }
+        if recordName.hasPrefix("extra-") {
+            return String(recordName.dropFirst("extra-".count))
+        }
+        return nil
     }
 }
 
@@ -150,6 +196,19 @@ expect(
     "If timestamps match, keep the copy with a photo"
 )
 expect(
+    ItemDuplicatePick.keepFirst(
+        firstUpdated: newer,
+        firstHasPhoto: true,
+        firstNoteCount: 0,
+        firstTitleEmpty: true,
+        secondUpdated: older,
+        secondHasPhoto: false,
+        secondNoteCount: 0,
+        secondTitleEmpty: false
+    ) == false,
+    "Keep the copy that still has an item title"
+)
+expect(
     Dictionary([("same", 1), ("same", 2)], uniquingKeysWith: { first, _ in first })["same"] == 1,
     "Duplicate sync keys keep the first item instead of crashing"
 )
@@ -163,6 +222,52 @@ expect(
 expect(
     !extraRecordName(for: sampleID).hasPrefix("item-"),
     "Companion photo records are not treated as list items"
+)
+expect(
+    TDItemRecordKind.classify(recordName: "extra-\(sampleID)", title: "", sortOrder: -1) == .extraPhoto,
+    "extra- records are companion photos"
+)
+expect(
+    TDItemRecordKind.classify(recordName: "item-\(sampleID)", title: "Lake House", sortOrder: 0) == .listItem,
+    "item- records are list items"
+)
+expect(
+    TDItemRecordKind.classify(recordName: sampleID, title: "", sortOrder: -1) == .extraPhoto,
+    "Blank title plus sortOrder -1 is a companion photo even without extra- prefix"
+)
+expect(
+    TDItemRecordKind.classify(recordName: sampleID, title: "", sortOrder: 3) == .extraPhoto,
+    "Blank-title TDItem rows are not created as list items"
+)
+expect(
+    RemoteItemApply.resolvedTitle(localTitle: "Lake House", remoteTitle: "") == "Lake House",
+    "Empty companion title does not wipe the item title"
+)
+expect(
+    RemoteItemApply.resolvedTitle(localTitle: "Lake House", remoteTitle: nil) == "Lake House",
+    "Missing companion title does not wipe the item title"
+)
+expect(
+    RemoteItemApply.shouldApplyRemoteContent(
+        localUpdated: newer,
+        remoteUpdated: older,
+        localTitle: "",
+        remoteTitle: "Lake House"
+    ),
+    "Pull restores a wiped title from the real item record"
+)
+expect(
+    RemoteItemApply.shouldApplyRemoteContent(
+        localUpdated: newer,
+        remoteUpdated: older,
+        localTitle: "Lake House",
+        remoteTitle: "Cabin"
+    ) == false,
+    "Newer local item is not overwritten just because a companion photo exists"
+)
+expect(
+    RemoteItemApply.extraItemID(recordName: "extra-\(sampleID)", itemID: nil) == sampleID,
+    "Companion photos map back to the item UUID"
 )
 
 if failed > 0 {

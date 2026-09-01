@@ -63,12 +63,61 @@ enum ItemDuplicatePick {
         firstUpdated: Date,
         firstHasPhoto: Bool,
         firstNoteCount: Int,
+        firstTitleEmpty: Bool = false,
         secondUpdated: Date,
         secondHasPhoto: Bool,
-        secondNoteCount: Int
+        secondNoteCount: Int,
+        secondTitleEmpty: Bool = false
     ) -> Bool {
+        if firstTitleEmpty != secondTitleEmpty { return !firstTitleEmpty }
         if firstUpdated != secondUpdated { return firstUpdated > secondUpdated }
         if firstHasPhoto != secondHasPhoto { return firstHasPhoto }
         return firstNoteCount >= secondNoteCount
+    }
+}
+
+/// Companion bottom-photo records are also `TDItem` rows that reuse `image`.
+/// They must never be applied as list items or they wipe titles and replace
+/// the primary photo.
+enum TDItemRecordKind: Equatable {
+    case listItem
+    case extraPhoto
+    case unknown
+
+    static func classify(recordName: String, title: String?, sortOrder: Int?) -> TDItemRecordKind {
+        if recordName.hasPrefix("extra-") { return .extraPhoto }
+        let emptyTitle = (title ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        if sortOrder == -1, emptyTitle { return .extraPhoto }
+        if recordName.hasPrefix("item-") { return .listItem }
+        if emptyTitle { return .extraPhoto }
+        return .unknown
+    }
+}
+
+enum RemoteItemApply {
+    static func resolvedTitle(localTitle: String, remoteTitle: String?) -> String {
+        let trimmed = (remoteTitle ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.isEmpty { return localTitle }
+        return remoteTitle ?? localTitle
+    }
+
+    static func shouldApplyRemoteContent(
+        localUpdated: Date,
+        remoteUpdated: Date,
+        localTitle: String,
+        remoteTitle: String?
+    ) -> Bool {
+        if remoteUpdated > localUpdated { return true }
+        let localEmpty = localTitle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        let remoteHasTitle = !(remoteTitle ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        return localEmpty && remoteHasTitle
+    }
+
+    static func extraItemID(recordName: String, itemID: String?) -> String? {
+        if let itemID, !itemID.isEmpty { return itemID }
+        if recordName.hasPrefix("extra-") {
+            return String(recordName.dropFirst("extra-".count))
+        }
+        return nil
     }
 }
