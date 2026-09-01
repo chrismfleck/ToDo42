@@ -135,9 +135,9 @@ enum TDItemRecordKind: Equatable {
 
     static func classify(recordName: String, title: String?, sortOrder: Int?) -> TDItemRecordKind {
         if recordName.hasPrefix("extra-") { return .extraPhoto }
+        if recordName.hasPrefix("item-") { return .listItem }
         let emptyTitle = (title ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         if sortOrder == -1, emptyTitle { return .extraPhoto }
-        if recordName.hasPrefix("item-") { return .listItem }
         if emptyTitle { return .extraPhoto }
         return .unknown
     }
@@ -156,10 +156,17 @@ enum RemoteItemApply {
         localTitle: String,
         remoteTitle: String?
     ) -> Bool {
+        let remoteHasTitle = !(remoteTitle ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        if !remoteHasTitle { return false }
         if remoteUpdated > localUpdated { return true }
         let localEmpty = localTitle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-        let remoteHasTitle = !(remoteTitle ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-        return localEmpty && remoteHasTitle
+        return localEmpty
+    }
+
+    static func shouldRepublishTitle(localTitle: String, remoteTitle: String?) -> Bool {
+        let localHas = !localTitle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        let remoteEmpty = (remoteTitle ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        return localHas && remoteEmpty
     }
 
     static func extraItemID(recordName: String, itemID: String?) -> String? {
@@ -264,6 +271,23 @@ expect(
         remoteTitle: "Cabin"
     ) == false,
     "Newer local item is not overwritten just because a companion photo exists"
+)
+expect(
+    TDItemRecordKind.classify(recordName: "item-\(sampleID)", title: "", sortOrder: 0) == .listItem,
+    "Wiped item- rows stay list items so Chris can republish the title"
+)
+expect(
+    RemoteItemApply.shouldApplyRemoteContent(
+        localUpdated: older,
+        remoteUpdated: newer,
+        localTitle: "Lake House",
+        remoteTitle: ""
+    ) == false,
+    "A newer blank iCloud copy does not overwrite a local title"
+)
+expect(
+    RemoteItemApply.shouldRepublishTitle(localTitle: "Lake House", remoteTitle: ""),
+    "Chris republishes a real title over a wiped iCloud copy"
 )
 expect(
     RemoteItemApply.extraItemID(recordName: "extra-\(sampleID)", itemID: nil) == sampleID,

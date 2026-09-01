@@ -688,23 +688,33 @@ final class CloudSync {
 
     private func saveItem(_ item: TodoItem, notifyKind: String, allowCreate: Bool = true) async throws {
         guard let pairID = PairSession.shared.pairID else { return }
+        let recordID = CKRecord.ID(recordName: "item-\(item.id.uuidString)")
         let wipedTitle = item.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         if wipedTitle {
-            // Companion extra-photo records used to apply as list items and blank
-            // the title. Never push that corruption over Chris's good CloudKit copy.
-            if item.hasExtraPhoto {
-                try await saveExtraPhotoRecord(for: item, pairID: pairID)
+            // Do not push a blank title over iCloud. Hearts can still move,
+            // and Chris's copy will republish the real title on catch-up.
+            if let existing = try? await database.record(for: recordID) {
+                switch PairSession.shared.role {
+                case .chris:
+                    existing["chrisHearted"] = item.chrisHearted ? 1 : 0
+                case .deena:
+                    existing["deenaHearted"] = item.deenaHearted ? 1 : 0
+                case nil:
+                    existing["chrisHearted"] = item.chrisHearted ? 1 : 0
+                    existing["deenaHearted"] = item.deenaHearted ? 1 : 0
+                }
+                try? await saveOverwriting(existing)
             }
+            await saveExtraPhotoRecord(for: item, pairID: pairID)
             return
         }
-        let recordID = CKRecord.ID(recordName: "item-\(item.id.uuidString)")
         let record: CKRecord
         if let existing = try? await database.record(for: recordID) {
             if notifyKind.isEmpty, shouldSkipCatchupPush(item, existing: existing) {
                 // Still publish a local bottom photo that never made it to iCloud
                 // (older builds dropped those uploads), without rewriting newer fields.
                 if item.hasExtraPhoto {
-                    try await saveExtraPhotoRecord(for: item, pairID: pairID)
+                    await saveExtraPhotoRecord(for: item, pairID: pairID)
                 }
                 return
             }
@@ -747,7 +757,7 @@ final class CloudSync {
         // Bottom photos use a companion record with the existing `image` asset field.
         // Writing a second `image2` field on the item used to happen in a follow-up
         // save that failed silently on Production CloudKit, so partners never saw it.
-        try await saveExtraPhotoRecord(for: item, pairID: pairID)
+        await saveExtraPhotoRecord(for: item, pairID: pairID)
     }
 
     /// Bottom-of-page photos sync through a companion TDItem that reuses the known
@@ -756,7 +766,7 @@ final class CloudSync {
         CKRecord.ID(recordName: "extra-\(itemID.uuidString)")
     }
 
-    private func saveExtraPhotoRecord(for item: TodoItem, pairID: String) async throws {
+    private func saveExtraPhotoRecord(for item: TodoItem, pairID: String) async {
         let recordID = extraRecordID(for: item.id)
         guard let extra = item.extraImageData, !extra.isEmpty else {
             try? await database.deleteRecord(withID: recordID)
@@ -766,21 +776,14 @@ final class CloudSync {
             ?? CKRecord(recordType: "TDItem", recordID: recordID)
         record["pairID"] = pairID
         record["itemID"] = item.id.uuidString
-        record["title"] = nil
-        record["urlString"] = nil
-        record["notes"] = nil
-        record["categoryRaw"] = item.categoryRaw
-        record["chrisHearted"] = nil
-        record["deenaHearted"] = nil
-        record["isDone"] = nil
         record["sortOrder"] = -1
         record["createdAt"] = item.createdAt
         record["updatedAt"] = item.updatedAt ?? item.createdAt
         record["lastEditor"] = item.lastEditor
         let extraURL = FileManager.default.temporaryDirectory.appendingPathComponent("\(item.id.uuidString)-extra.jpg")
-        try extra.write(to: extraURL)
+        guard (try? extra.write(to: extraURL)) != nil else { return }
         record["image"] = CKAsset(fileURL: extraURL)
-        try await saveOverwriting(record)
+        try? await saveOverwriting(record)
     }
 
     private func applyExtraPhoto(_ record: CKRecord, to item: TodoItem) {
@@ -828,6 +831,12 @@ final class CloudSync {
     }
 
     private func shouldSkipCatchupPush(_ item: TodoItem, existing: CKRecord) -> Bool {
+        if RemoteItemApply.shouldRepublishTitle(
+            localTitle: item.title,
+            remoteTitle: existing["title"] as? String
+        ) {
+            return false
+        }
         let remoteUpdated = existing["updatedAt"] as? Date ?? .distantPast
         let localUpdated = item.updatedAt ?? item.createdAt
         guard remoteUpdated >= localUpdated else { return false }

@@ -86,9 +86,9 @@ enum TDItemRecordKind: Equatable {
 
     static func classify(recordName: String, title: String?, sortOrder: Int?) -> TDItemRecordKind {
         if recordName.hasPrefix("extra-") { return .extraPhoto }
+        if recordName.hasPrefix("item-") { return .listItem }
         let emptyTitle = (title ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         if sortOrder == -1, emptyTitle { return .extraPhoto }
-        if recordName.hasPrefix("item-") { return .listItem }
         if emptyTitle { return .extraPhoto }
         return .unknown
     }
@@ -107,10 +107,18 @@ enum RemoteItemApply {
         localTitle: String,
         remoteTitle: String?
     ) -> Bool {
+        let remoteHasTitle = !(remoteTitle ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        // Wiped extra-photo rows must never win, even if iCloud stamped them later.
+        if !remoteHasTitle { return false }
         if remoteUpdated > localUpdated { return true }
         let localEmpty = localTitle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-        let remoteHasTitle = !(remoteTitle ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-        return localEmpty && remoteHasTitle
+        return localEmpty
+    }
+
+    static func shouldRepublishTitle(localTitle: String, remoteTitle: String?) -> Bool {
+        let localHas = !localTitle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        let remoteEmpty = (remoteTitle ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        return localHas && remoteEmpty
     }
 
     static func extraItemID(recordName: String, itemID: String?) -> String? {
