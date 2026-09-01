@@ -396,16 +396,16 @@ struct ContentView: View {
             let category = ItemCategory(rawValue: payload.category) ?? .places
             let sortOrder = nextOrders[category] ?? nextSortOrder(for: category)
             nextOrders[category] = sortOrder - 1
-            modelContext.insert(
-                TodoItem(
-                    title: title,
-                    category: category,
-                    urlString: link.isEmpty ? nil : link,
-                    imageData: imageData,
-                    notes: SharedText.reflowNotes(rawNotes),
-                    sortOrder: sortOrder
-                )
+            let item = TodoItem(
+                title: title,
+                category: category,
+                urlString: link.isEmpty ? nil : link,
+                imageData: imageData,
+                notes: SharedText.reflowNotes(rawNotes),
+                sortOrder: sortOrder
             )
+            modelContext.insert(item)
+            PairSession.shared.noteLocalEdit(item, kind: "add")
         }
     }
 }

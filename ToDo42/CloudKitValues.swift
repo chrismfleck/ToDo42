@@ -90,7 +90,7 @@ enum TDItemRecordKind: Equatable {
         let emptyTitle = (title ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         if sortOrder == -1, emptyTitle { return .extraPhoto }
         if emptyTitle { return .extraPhoto }
-        return .unknown
+        return .listItem
     }
 }
 
@@ -119,6 +119,11 @@ enum RemoteItemApply {
         let localHas = !localTitle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         let remoteEmpty = (remoteTitle ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         return localHas && remoteEmpty
+    }
+
+    static func shouldCreateMissingRecord(allowCreate: Bool, notifyKind: String, title: String) -> Bool {
+        if allowCreate || !notifyKind.isEmpty { return true }
+        return !title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
     static func extraItemID(recordName: String, itemID: String?) -> String? {

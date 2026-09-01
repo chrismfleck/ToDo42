@@ -130,7 +130,11 @@ final class PairSession {
     }
 
     func noteLocalEdit(_ item: TodoItem, kind: String) {
-        guard !isApplyingRemote else { return }
+        // Adds must always upload. Skipping them while a pull is applying
+        // leaves the item on this phone only; catch-up used to refuse to create it.
+        if kind != "add" {
+            guard !isApplyingRemote else { return }
+        }
         item.updatedAt = Date()
         item.lastEditor = role?.rawValue ?? ""
         Task { await CloudSync.shared.upload(item, notifyKind: kind) }
@@ -720,7 +724,11 @@ final class CloudSync {
             }
             record = existing
         } else {
-            guard allowCreate || !notifyKind.isEmpty else { return }
+            guard RemoteItemApply.shouldCreateMissingRecord(
+                allowCreate: allowCreate,
+                notifyKind: notifyKind,
+                title: item.title
+            ) else { return }
             record = CKRecord(recordType: "TDItem", recordID: recordID)
             record["chrisHearted"] = item.chrisHearted ? 1 : 0
             record["deenaHearted"] = item.deenaHearted ? 1 : 0
