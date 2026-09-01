@@ -313,7 +313,9 @@ final class CloudSync {
                 defer { session.isApplyingRemote = false }
 
                 var localByID = ItemStore.keyedByID(ItemStore.allItems(in: modelContext))
-                for record in records {
+                let itemRecords = records.filter { !$0.recordID.recordName.hasPrefix("extra-") }
+                let extraRecords = records.filter { $0.recordID.recordName.hasPrefix("extra-") }
+                for record in itemRecords {
                     guard let itemID = record["itemID"] as? String, let uuid = UUID(uuidString: itemID) else { continue }
                     if let local = localByID[itemID] {
                         self.apply(record, to: local)
@@ -330,6 +332,13 @@ final class CloudSync {
                     self.apply(record, to: item)
                     modelContext.insert(item)
                     localByID[itemID] = item
+                }
+                for record in extraRecords {
+                    let itemID = record["itemID"] as? String
+                        ?? String(record.recordID.recordName.dropFirst("extra-".count))
+                    if let local = localByID[itemID] {
+                        self.applyExtraPhoto(record, to: local)
+                    }
                 }
                 try? modelContext.save()
                 if session.isPaired {
@@ -352,6 +361,7 @@ final class CloudSync {
         await enqueue {
             do {
                 try await self.database.deleteRecord(withID: CKRecord.ID(recordName: "item-\(id.uuidString)"))
+                try? await self.database.deleteRecord(withID: self.extraRecordID(for: id))
                 try await self.removeItemID(id.uuidString)
                 PairSession.shared.statusMessage = ""
             } catch {
@@ -388,7 +398,8 @@ final class CloudSync {
             .map(String.init)
             .filter { !$0.isEmpty }
         let fetched = await fetchRemoteItemRecords(pairID: pairID, listedIDs: listedIDs)
-        let remote = fetched.records
+        let remote = fetched.records.filter { !$0.recordID.recordName.hasPrefix("extra-") }
+        let extraRecords = fetched.records.filter { $0.recordID.recordName.hasPrefix("extra-") }
 
         let session = PairSession.shared
         session.isApplyingRemote = true
@@ -443,10 +454,36 @@ final class CloudSync {
                 notifyNew(record)
             }
         }
+        for record in extraRecords {
+            let itemID = record["itemID"] as? String
+                ?? String(record.recordID.recordName.dropFirst("extra-".count))
+            guard let local = localByID[itemID] ?? {
+                guard let uuid = UUID(uuidString: itemID) else { return nil }
+                return ItemStore.item(id: uuid, in: modelContext)
+            }() else { continue }
+            applyExtraPhoto(record, to: local)
+        }
         if fetched.catalogComplete, !remote.isEmpty {
             let remoteIDs = Set(remote.compactMap { $0["itemID"] as? String })
+            let extrasByItemID = Set(extraRecords.compactMap { record -> String? in
+                if let itemID = record["itemID"] as? String, !itemID.isEmpty { return itemID }
+                return String(record.recordID.recordName.dropFirst("extra-".count))
+            })
             for local in ItemStore.allItems(in: modelContext) {
-                if remoteIDs.contains(local.id.uuidString) { continue }
+                if remoteIDs.contains(local.id.uuidString) {
+                    if local.hasExtraPhoto, !extrasByItemID.contains(local.id.uuidString) {
+                        let remoteItem = remote.first {
+                            ($0["itemID"] as? String) == local.id.uuidString
+                        }
+                        let remoteUpdated = remoteItem?["updatedAt"] as? Date
+                            ?? remoteItem?.modificationDate
+                            ?? .distantPast
+                        if remoteUpdated >= (local.updatedAt ?? local.createdAt) {
+                            local.extraImageData = nil
+                        }
+                    }
+                    continue
+                }
                 if Date().timeIntervalSince(local.createdAt) < 180 { continue }
                 modelContext.delete(local)
             }
@@ -489,6 +526,12 @@ final class CloudSync {
         let missing = listedIDs.filter { found["item-\($0)"] == nil }
         if !missing.isEmpty {
             for record in await fetchNamedRecords(missing.map { "item-\($0)" }) {
+                found[record.recordID.recordName] = record
+            }
+        }
+        let missingExtras = listedIDs.filter { found["extra-\($0)"] == nil }
+        if !missingExtras.isEmpty {
+            for record in await fetchNamedRecords(missingExtras.map { "extra-\($0)" }) {
                 found[record.recordID.recordName] = record
             }
         }
@@ -634,6 +677,11 @@ final class CloudSync {
         let record: CKRecord
         if let existing = try? await database.record(for: recordID) {
             if notifyKind.isEmpty, shouldSkipCatchupPush(item, existing: existing) {
+                // Still publish a local bottom photo that never made it to iCloud
+                // (older builds dropped those uploads), without rewriting newer fields.
+                if item.hasExtraPhoto {
+                    try await saveExtraPhotoRecord(for: item, pairID: pairID)
+                }
                 return
             }
             record = existing
@@ -672,11 +720,59 @@ final class CloudSync {
             record["image"] = CKAsset(fileURL: url)
         }
         try await saveOverwriting(record)
-        if let extra = item.extraImageData, !extra.isEmpty {
-            let extraURL = FileManager.default.temporaryDirectory.appendingPathComponent("\(item.id.uuidString)-extra.jpg")
-            try extra.write(to: extraURL)
-            record["image2"] = CKAsset(fileURL: extraURL)
-            try? await saveOverwriting(record)
+        // Bottom photos use a companion record with the existing `image` asset field.
+        // Writing a second `image2` field on the item used to happen in a follow-up
+        // save that failed silently on Production CloudKit, so partners never saw it.
+        try await saveExtraPhotoRecord(for: item, pairID: pairID)
+    }
+
+    /// Bottom-of-page photos sync through a companion TDItem that reuses the known
+    /// `image` asset field, so Production CloudKit does not need a new `image2` field.
+    private func extraRecordID(for itemID: UUID) -> CKRecord.ID {
+        CKRecord.ID(recordName: "extra-\(itemID.uuidString)")
+    }
+
+    private func saveExtraPhotoRecord(for item: TodoItem, pairID: String) async throws {
+        let recordID = extraRecordID(for: item.id)
+        guard let extra = item.extraImageData, !extra.isEmpty else {
+            try? await database.deleteRecord(withID: recordID)
+            return
+        }
+        let record = (try? await database.record(for: recordID))
+            ?? CKRecord(recordType: "TDItem", recordID: recordID)
+        record["pairID"] = pairID
+        record["itemID"] = item.id.uuidString
+        record["title"] = ""
+        record["urlString"] = ""
+        record["notes"] = ""
+        record["categoryRaw"] = item.categoryRaw
+        record["chrisHearted"] = 0
+        record["deenaHearted"] = 0
+        record["isDone"] = 0
+        record["sortOrder"] = -1
+        record["createdAt"] = item.createdAt
+        record["updatedAt"] = item.updatedAt ?? item.createdAt
+        record["lastEditor"] = item.lastEditor
+        let extraURL = FileManager.default.temporaryDirectory.appendingPathComponent("\(item.id.uuidString)-extra.jpg")
+        try extra.write(to: extraURL)
+        record["image"] = CKAsset(fileURL: extraURL)
+        try await saveOverwriting(record)
+    }
+
+    private func applyExtraPhoto(_ record: CKRecord, to item: TodoItem) {
+        let remoteUpdated = record["updatedAt"] as? Date ?? record.modificationDate ?? .distantPast
+        if item.hasExtraPhoto, (item.updatedAt ?? item.createdAt) > remoteUpdated {
+            return
+        }
+        if let asset = record["image"] as? CKAsset, let url = asset.fileURL,
+           let data = try? Data(contentsOf: url), !data.isEmpty, data.count < 8_000_000 {
+            item.extraImageData = data
+            if (item.updatedAt ?? .distantPast) < remoteUpdated {
+                item.updatedAt = remoteUpdated
+            }
+            if let editor = record["lastEditor"] as? String, !editor.isEmpty {
+                item.lastEditor = editor
+            }
         }
     }
 
