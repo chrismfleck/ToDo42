@@ -154,6 +154,17 @@ expect(
     "Duplicate sync keys keep the first item instead of crashing"
 )
 
+func extraRecordName(for itemID: String) -> String { "extra-\(itemID)" }
+let sampleID = "AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE"
+expect(
+    extraRecordName(for: sampleID) == "extra-\(sampleID)",
+    "Bottom photos use a stable companion record name"
+)
+expect(
+    !extraRecordName(for: sampleID).hasPrefix("item-"),
+    "Companion photo records are not treated as list items"
+)
+
 if failed > 0 {
     fputs("\(failed) test(s) failed\n", stderr)
     exit(1)
