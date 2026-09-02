@@ -301,27 +301,29 @@ struct ContentView: View {
 
     private func normalizeStoredText() {
         for item in items {
+            var title = item.title
+            var notes = item.notes
             let link = item.urlString ?? ""
-            if InstagramShareText.isInstagramURL(link) || InstagramShareText.needsCleanup(title: item.title, notes: item.notes) {
-                let split = InstagramShareText.refine(title: item.title, notes: item.notes)
+            if InstagramShareText.isInstagramURL(link) || InstagramShareText.needsCleanup(title: title, notes: notes) {
+                let split = InstagramShareText.refine(title: title, notes: notes)
                 if !split.title.isEmpty {
-                    item.title = SharedText.normalized(split.title)
-                    item.notes = SharedText.reflowNotes(split.notes.isEmpty ? item.notes : split.notes)
-                    continue
+                    title = split.title
+                    notes = split.notes.isEmpty ? notes : split.notes
+                }
+            } else if FacebookShareText.isFacebookURL(link) || title.lowercased().contains("on facebook") {
+                let split = FacebookShareText.refine(title: title, notes: notes)
+                if !split.title.isEmpty {
+                    title = split.title
+                    notes = split.notes.isEmpty ? notes : split.notes
                 }
             }
-            if FacebookShareText.isFacebookURL(link) || item.title.lowercased().contains("on facebook") {
-                let split = FacebookShareText.refine(title: item.title, notes: item.notes)
-                if !split.title.isEmpty {
-                    item.title = SharedText.normalized(split.title)
-                    item.notes = SharedText.reflowNotes(split.notes.isEmpty ? item.notes : split.notes)
-                    continue
-                }
-            }
-            let title = SharedText.normalized(item.title)
-            if item.title != title { item.title = title }
-            let notes = SharedText.reflowNotes(item.notes)
-            if item.notes != notes { item.notes = notes }
+            let cut = SharedText.cutTitle(title, notes: notes)
+            let nextTitle = SharedText.normalized(cut.title)
+            let nextNotes = SharedText.reflowNotes(cut.notes)
+            guard item.title != nextTitle || item.notes != nextNotes else { continue }
+            item.title = nextTitle
+            item.notes = nextNotes
+            PairSession.shared.noteLocalEdit(item, kind: "edit")
         }
     }
 
@@ -391,7 +393,8 @@ struct ContentView: View {
                 if !split.title.isEmpty { rawTitle = split.title }
                 rawNotes = split.notes
             }
-            let title = SharedText.normalized(rawTitle)
+            let cut = SharedText.cutTitle(rawTitle, notes: rawNotes)
+            let title = SharedText.normalized(cut.title)
             guard !title.isEmpty else { continue }
             let category = ItemCategory(rawValue: payload.category) ?? .places
             let sortOrder = nextOrders[category] ?? nextSortOrder(for: category)
@@ -401,7 +404,7 @@ struct ContentView: View {
                 category: category,
                 urlString: link.isEmpty ? nil : link,
                 imageData: imageData,
-                notes: SharedText.reflowNotes(rawNotes),
+                notes: SharedText.reflowNotes(cut.notes),
                 sortOrder: sortOrder
             )
             modelContext.insert(item)
@@ -1052,11 +1055,14 @@ struct ItemDetailView: View {
     private func commitEdits() {
         let trimmedTitle = draftTitle.trimmingCharacters(in: .whitespacesAndNewlines)
         if !trimmedTitle.isEmpty {
-            item.title = SharedText.normalized(trimmedTitle)
+            let cut = SharedText.cutTitle(SharedText.normalized(trimmedTitle), notes: SharedText.normalizedMultiline(draftNotes))
+            item.title = cut.title
+            item.notes = cut.notes
+        } else {
+            item.notes = SharedText.normalizedMultiline(draftNotes)
         }
         let trimmedLink = draftLink.trimmingCharacters(in: .whitespacesAndNewlines)
         item.urlString = trimmedLink.isEmpty ? nil : trimmedLink
-        item.notes = SharedText.normalizedMultiline(draftNotes)
         PairSession.shared.noteLocalEdit(item, kind: "edit")
         withAnimation(.easeInOut(duration: 0.2)) {
             isEditing = false
@@ -1244,9 +1250,10 @@ struct AddItemView: View {
     }
 
     private func save() {
-        let trimmedTitle = SharedText.normalized(title)
+        let cut = SharedText.cutTitle(SharedText.normalized(title), notes: SharedText.reflowNotes(notes))
+        let trimmedTitle = cut.title
         let trimmedLink = urlString.trimmingCharacters(in: .whitespacesAndNewlines)
-        let trimmedNotes = SharedText.reflowNotes(notes)
+        let trimmedNotes = cut.notes
         let nextSortOrder = (items.filter { $0.category == selectedCategory }.map(\.sortOrder).min() ?? 0) - 1
         let item = TodoItem(
             title: trimmedTitle,

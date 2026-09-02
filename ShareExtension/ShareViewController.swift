@@ -108,6 +108,9 @@ private enum SharedContent {
             if !split.title.isEmpty { result.title = split.title }
             result.notes = split.notes
         }
+        let cut = SharedText.cutTitle(result.title, notes: result.notes)
+        result.title = cut.title
+        result.notes = cut.notes
         return result
     }
 
@@ -350,6 +353,9 @@ struct ShareFormView: View {
                 notes = description
             }
         }
+        let cut = SharedText.cutTitle(title, notes: notes)
+        title = cut.title
+        notes = cut.notes
         if previewImage == nil {
             previewImage = meta.image
         }
