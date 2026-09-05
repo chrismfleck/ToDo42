@@ -130,7 +130,11 @@ final class PairSession {
     }
 
     func noteLocalEdit(_ item: TodoItem, kind: String) {
-        guard !isApplyingRemote else { return }
+        // Adds must always upload. Skipping them while a pull is applying
+        // leaves the item on this phone only; catch-up used to refuse to create it.
+        if kind != "add" {
+            guard !isApplyingRemote else { return }
+        }
         item.updatedAt = Date()
         item.lastEditor = role?.rawValue ?? ""
         Task { await CloudSync.shared.upload(item, notifyKind: kind) }
@@ -313,16 +317,18 @@ final class CloudSync {
                 defer { session.isApplyingRemote = false }
 
                 var localByID = ItemStore.keyedByID(ItemStore.allItems(in: modelContext))
-                let itemRecords = records.filter { !$0.recordID.recordName.hasPrefix("extra-") }
-                let extraRecords = records.filter { $0.recordID.recordName.hasPrefix("extra-") }
+                let itemRecords = records.filter { self.recordKind($0) == .listItem }
+                let extraRecords = records.filter { self.recordKind($0) == .extraPhoto }
                 for record in itemRecords {
                     guard let itemID = record["itemID"] as? String, let uuid = UUID(uuidString: itemID) else { continue }
                     if let local = localByID[itemID] {
                         self.apply(record, to: local)
                         continue
                     }
+                    let title = RemoteItemApply.resolvedTitle(localTitle: "", remoteTitle: record["title"] as? String)
+                    guard !title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { continue }
                     let item = TodoItem(
-                        title: record["title"] as? String ?? "Untitled",
+                        title: title,
                         category: ItemCategory(rawValue: record["categoryRaw"] as? String ?? "places") ?? .places,
                         urlString: record["urlString"] as? String,
                         notes: record["notes"] as? String ?? "",
@@ -334,8 +340,10 @@ final class CloudSync {
                     localByID[itemID] = item
                 }
                 for record in extraRecords {
-                    let itemID = record["itemID"] as? String
-                        ?? String(record.recordID.recordName.dropFirst("extra-".count))
+                    guard let itemID = RemoteItemApply.extraItemID(
+                        recordName: record.recordID.recordName,
+                        itemID: record["itemID"] as? String
+                    ) else { continue }
                     if let local = localByID[itemID] {
                         self.applyExtraPhoto(record, to: local)
                     }
@@ -398,8 +406,8 @@ final class CloudSync {
             .map(String.init)
             .filter { !$0.isEmpty }
         let fetched = await fetchRemoteItemRecords(pairID: pairID, listedIDs: listedIDs)
-        let remote = fetched.records.filter { !$0.recordID.recordName.hasPrefix("extra-") }
-        let extraRecords = fetched.records.filter { $0.recordID.recordName.hasPrefix("extra-") }
+        let remote = fetched.records.filter { recordKind($0) == .listItem }
+        let extraRecords = fetched.records.filter { recordKind($0) == .extraPhoto }
 
         let session = PairSession.shared
         session.isApplyingRemote = true
@@ -430,15 +438,22 @@ final class CloudSync {
                     localDeena: local.deenaHearted,
                     remoteDeena: remoteDeena
                 )
-                if remoteUpdated > (local.updatedAt ?? local.createdAt) {
+                if RemoteItemApply.shouldApplyRemoteContent(
+                    localUpdated: local.updatedAt ?? local.createdAt,
+                    remoteUpdated: remoteUpdated,
+                    localTitle: local.title,
+                    remoteTitle: record["title"] as? String
+                ) {
                     apply(record, to: local, hearts: false)
                     notifyUpdate(record, heartChanged: justHearted)
                 } else if justHearted {
                     notifyUpdate(record, heartChanged: true)
                 }
             } else {
+                let title = RemoteItemApply.resolvedTitle(localTitle: "", remoteTitle: record["title"] as? String)
+                guard !title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { continue }
                 let item = TodoItem(
-                    title: record["title"] as? String ?? "Untitled",
+                    title: title,
                     category: ItemCategory(rawValue: record["categoryRaw"] as? String ?? "places") ?? .places,
                     urlString: record["urlString"] as? String,
                     notes: record["notes"] as? String ?? "",
@@ -455,8 +470,10 @@ final class CloudSync {
             }
         }
         for record in extraRecords {
-            let itemID = record["itemID"] as? String
-                ?? String(record.recordID.recordName.dropFirst("extra-".count))
+            guard let itemID = RemoteItemApply.extraItemID(
+                recordName: record.recordID.recordName,
+                itemID: record["itemID"] as? String
+            ) else { continue }
             guard let local = localByID[itemID] ?? {
                 guard let uuid = UUID(uuidString: itemID) else { return nil }
                 return ItemStore.item(id: uuid, in: modelContext)
@@ -466,8 +483,10 @@ final class CloudSync {
         if fetched.catalogComplete, !remote.isEmpty {
             let remoteIDs = Set(remote.compactMap { $0["itemID"] as? String })
             let extrasByItemID = Set(extraRecords.compactMap { record -> String? in
-                if let itemID = record["itemID"] as? String, !itemID.isEmpty { return itemID }
-                return String(record.recordID.recordName.dropFirst("extra-".count))
+                RemoteItemApply.extraItemID(
+                    recordName: record.recordID.recordName,
+                    itemID: record["itemID"] as? String
+                )
             })
             for local in ItemStore.allItems(in: modelContext) {
                 if remoteIDs.contains(local.id.uuidString) {
@@ -674,19 +693,42 @@ final class CloudSync {
     private func saveItem(_ item: TodoItem, notifyKind: String, allowCreate: Bool = true) async throws {
         guard let pairID = PairSession.shared.pairID else { return }
         let recordID = CKRecord.ID(recordName: "item-\(item.id.uuidString)")
+        let wipedTitle = item.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        if wipedTitle {
+            // Do not push a blank title over iCloud. Hearts can still move,
+            // and Chris's copy will republish the real title on catch-up.
+            if let existing = try? await database.record(for: recordID) {
+                switch PairSession.shared.role {
+                case .chris:
+                    existing["chrisHearted"] = item.chrisHearted ? 1 : 0
+                case .deena:
+                    existing["deenaHearted"] = item.deenaHearted ? 1 : 0
+                case nil:
+                    existing["chrisHearted"] = item.chrisHearted ? 1 : 0
+                    existing["deenaHearted"] = item.deenaHearted ? 1 : 0
+                }
+                try? await saveOverwriting(existing)
+            }
+            await saveExtraPhotoRecord(for: item, pairID: pairID)
+            return
+        }
         let record: CKRecord
         if let existing = try? await database.record(for: recordID) {
             if notifyKind.isEmpty, shouldSkipCatchupPush(item, existing: existing) {
                 // Still publish a local bottom photo that never made it to iCloud
                 // (older builds dropped those uploads), without rewriting newer fields.
                 if item.hasExtraPhoto {
-                    try await saveExtraPhotoRecord(for: item, pairID: pairID)
+                    await saveExtraPhotoRecord(for: item, pairID: pairID)
                 }
                 return
             }
             record = existing
         } else {
-            guard allowCreate || !notifyKind.isEmpty else { return }
+            guard RemoteItemApply.shouldCreateMissingRecord(
+                allowCreate: allowCreate,
+                notifyKind: notifyKind,
+                title: item.title
+            ) else { return }
             record = CKRecord(recordType: "TDItem", recordID: recordID)
             record["chrisHearted"] = item.chrisHearted ? 1 : 0
             record["deenaHearted"] = item.deenaHearted ? 1 : 0
@@ -723,7 +765,7 @@ final class CloudSync {
         // Bottom photos use a companion record with the existing `image` asset field.
         // Writing a second `image2` field on the item used to happen in a follow-up
         // save that failed silently on Production CloudKit, so partners never saw it.
-        try await saveExtraPhotoRecord(for: item, pairID: pairID)
+        await saveExtraPhotoRecord(for: item, pairID: pairID)
     }
 
     /// Bottom-of-page photos sync through a companion TDItem that reuses the known
@@ -732,7 +774,7 @@ final class CloudSync {
         CKRecord.ID(recordName: "extra-\(itemID.uuidString)")
     }
 
-    private func saveExtraPhotoRecord(for item: TodoItem, pairID: String) async throws {
+    private func saveExtraPhotoRecord(for item: TodoItem, pairID: String) async {
         let recordID = extraRecordID(for: item.id)
         guard let extra = item.extraImageData, !extra.isEmpty else {
             try? await database.deleteRecord(withID: recordID)
@@ -742,42 +784,37 @@ final class CloudSync {
             ?? CKRecord(recordType: "TDItem", recordID: recordID)
         record["pairID"] = pairID
         record["itemID"] = item.id.uuidString
-        record["title"] = ""
-        record["urlString"] = ""
-        record["notes"] = ""
-        record["categoryRaw"] = item.categoryRaw
-        record["chrisHearted"] = 0
-        record["deenaHearted"] = 0
-        record["isDone"] = 0
         record["sortOrder"] = -1
         record["createdAt"] = item.createdAt
         record["updatedAt"] = item.updatedAt ?? item.createdAt
         record["lastEditor"] = item.lastEditor
         let extraURL = FileManager.default.temporaryDirectory.appendingPathComponent("\(item.id.uuidString)-extra.jpg")
-        try extra.write(to: extraURL)
+        guard (try? extra.write(to: extraURL)) != nil else { return }
         record["image"] = CKAsset(fileURL: extraURL)
-        try await saveOverwriting(record)
+        try? await saveOverwriting(record)
     }
 
     private func applyExtraPhoto(_ record: CKRecord, to item: TodoItem) {
-        let remoteUpdated = record["updatedAt"] as? Date ?? record.modificationDate ?? .distantPast
-        if item.hasExtraPhoto, (item.updatedAt ?? item.createdAt) > remoteUpdated {
-            return
-        }
         if let asset = record["image"] as? CKAsset, let url = asset.fileURL,
            let data = try? Data(contentsOf: url), !data.isEmpty, data.count < 8_000_000 {
             item.extraImageData = data
-            if (item.updatedAt ?? .distantPast) < remoteUpdated {
-                item.updatedAt = remoteUpdated
-            }
-            if let editor = record["lastEditor"] as? String, !editor.isEmpty {
-                item.lastEditor = editor
-            }
         }
     }
 
+    private func recordKind(_ record: CKRecord) -> TDItemRecordKind {
+        TDItemRecordKind.classify(
+            recordName: record.recordID.recordName,
+            title: record["title"] as? String,
+            sortOrder: CloudKitValues.intValue(record["sortOrder"])
+        )
+    }
+
     private func apply(_ record: CKRecord, to item: TodoItem, hearts: Bool = true) {
-        item.title = record["title"] as? String ?? item.title
+        item.title = RemoteItemApply.resolvedTitle(
+            localTitle: item.title,
+            remoteTitle: record["title"] as? String
+        )
+        guard recordKind(record) == .listItem else { return }
         let url = record["urlString"] as? String ?? ""
         item.urlString = url.isEmpty ? nil : url
         item.notes = record["notes"] as? String ?? item.notes
@@ -802,6 +839,12 @@ final class CloudSync {
     }
 
     private func shouldSkipCatchupPush(_ item: TodoItem, existing: CKRecord) -> Bool {
+        if RemoteItemApply.shouldRepublishTitle(
+            localTitle: item.title,
+            remoteTitle: existing["title"] as? String
+        ) {
+            return false
+        }
         let remoteUpdated = existing["updatedAt"] as? Date ?? .distantPast
         let localUpdated = item.updatedAt ?? item.createdAt
         guard remoteUpdated >= localUpdated else { return false }
@@ -880,6 +923,7 @@ final class CloudSync {
     }
 
     private func notifyNew(_ record: CKRecord) {
+        guard recordKind(record) == .listItem else { return }
         let editor = record["lastEditor"] as? String ?? ""
         guard editor != PairSession.shared.role?.rawValue else { return }
         let who = PairSession.shared.displayName(forEditor: editor)

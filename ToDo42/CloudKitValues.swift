@@ -63,12 +63,74 @@ enum ItemDuplicatePick {
         firstUpdated: Date,
         firstHasPhoto: Bool,
         firstNoteCount: Int,
+        firstTitleEmpty: Bool = false,
         secondUpdated: Date,
         secondHasPhoto: Bool,
-        secondNoteCount: Int
+        secondNoteCount: Int,
+        secondTitleEmpty: Bool = false
     ) -> Bool {
+        if firstTitleEmpty != secondTitleEmpty { return !firstTitleEmpty }
         if firstUpdated != secondUpdated { return firstUpdated > secondUpdated }
         if firstHasPhoto != secondHasPhoto { return firstHasPhoto }
         return firstNoteCount >= secondNoteCount
+    }
+}
+
+/// Companion bottom-photo records are also `TDItem` rows that reuse `image`.
+/// They must never be applied as list items or they wipe titles and replace
+/// the primary photo.
+enum TDItemRecordKind: Equatable {
+    case listItem
+    case extraPhoto
+    case unknown
+
+    static func classify(recordName: String, title: String?, sortOrder: Int?) -> TDItemRecordKind {
+        if recordName.hasPrefix("extra-") { return .extraPhoto }
+        if recordName.hasPrefix("item-") { return .listItem }
+        let emptyTitle = (title ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        if sortOrder == -1, emptyTitle { return .extraPhoto }
+        if emptyTitle { return .extraPhoto }
+        return .listItem
+    }
+}
+
+enum RemoteItemApply {
+    static func resolvedTitle(localTitle: String, remoteTitle: String?) -> String {
+        let trimmed = (remoteTitle ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.isEmpty { return localTitle }
+        return remoteTitle ?? localTitle
+    }
+
+    static func shouldApplyRemoteContent(
+        localUpdated: Date,
+        remoteUpdated: Date,
+        localTitle: String,
+        remoteTitle: String?
+    ) -> Bool {
+        let remoteHasTitle = !(remoteTitle ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        // Wiped extra-photo rows must never win, even if iCloud stamped them later.
+        if !remoteHasTitle { return false }
+        if remoteUpdated > localUpdated { return true }
+        let localEmpty = localTitle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        return localEmpty
+    }
+
+    static func shouldRepublishTitle(localTitle: String, remoteTitle: String?) -> Bool {
+        let localHas = !localTitle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        let remoteEmpty = (remoteTitle ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        return localHas && remoteEmpty
+    }
+
+    static func shouldCreateMissingRecord(allowCreate: Bool, notifyKind: String, title: String) -> Bool {
+        if allowCreate || !notifyKind.isEmpty { return true }
+        return !title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    static func extraItemID(recordName: String, itemID: String?) -> String? {
+        if let itemID, !itemID.isEmpty { return itemID }
+        if recordName.hasPrefix("extra-") {
+            return String(recordName.dropFirst("extra-".count))
+        }
+        return nil
     }
 }

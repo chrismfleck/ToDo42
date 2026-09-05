@@ -10,13 +10,13 @@ enum FacebookShareText {
     }
 
     static func needsCleanup(title: String) -> Bool {
-        splitTitle(peel(title)) != nil
+        title.count > 80 || splitTitle(peel(title)) != nil
     }
 
     static func refine(title: String, notes: String) -> (title: String, notes: String) {
         let source = peel(title)
         guard let cut = splitTitle(source) else {
-            return (source, notes.trimmingCharacters(in: .whitespacesAndNewlines))
+            return SharedText.cutTitle(source, notes: notes)
         }
         var nextNotes = notes.trimmingCharacters(in: .whitespacesAndNewlines)
         if nextNotes.isEmpty {
@@ -24,7 +24,7 @@ enum FacebookShareText {
         } else if !nextNotes.localizedCaseInsensitiveContains(String(cut.rest.prefix(24))) {
             nextNotes = cut.rest + "\n" + nextNotes
         }
-        return (cut.title, nextNotes)
+        return SharedText.cutTitle(cut.title, notes: nextNotes)
     }
 
     static func split(from pieces: [String]) -> (title: String, notes: String) {

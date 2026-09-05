@@ -10,6 +10,8 @@
 	<dict>
 		<key>NSExtensionAttributes</key>
 		<dict>
+			<key>NSExtensionJavaScriptPreprocessingFile</key>
+			<string>GetPageMetadata</string>
 			<key>NSExtensionActivationRule</key>
 			<string>SUBQUERY(extensionItems, $extensionItem, SUBQUERY($extensionItem.attachments, $attachment, ANY $attachment.registeredTypeIdentifiers UTI-CONFORMS-TO "public.url" || ANY $attachment.registeredTypeIdentifiers UTI-CONFORMS-TO "public.plain-text" || ANY $attachment.registeredTypeIdentifiers UTI-CONFORMS-TO "public.text" || ANY $attachment.registeredTypeIdentifiers UTI-CONFORMS-TO "public.image" || ANY $attachment.registeredTypeIdentifiers UTI-CONFORMS-TO "public.movie" || ANY $attachment.registeredTypeIdentifiers UTI-CONFORMS-TO "public.data" || ANY $attachment.registeredTypeIdentifiers UTI-CONFORMS-TO "com.apple.property-list").@count &gt; 0).@count &gt; 0</string>
 		</dict>
