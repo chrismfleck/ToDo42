@@ -54,9 +54,9 @@ struct HelpView: View {
 
                         HelpStep(
                             number: 4,
-                            spoken: "Review or edit the page, select a category, tap Save."
+                            spoken: "Wait for the photo if it is still loading. Review or edit the page, select a category, tap Save."
                         ) {
-                            helpText("Review or edit the page, select a category, tap Save.")
+                            helpText("Wait for the photo if it is still loading. Review or edit the page, select a category, tap Save.")
                         }
 
                         HelpStep(

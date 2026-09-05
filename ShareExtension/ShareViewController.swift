@@ -17,6 +17,7 @@ final class ShareViewController: UIViewController {
             urlString: extracted.urlString,
             notes: extracted.notes,
             image: extracted.image,
+            pageImageURL: extracted.pageImageURL,
             onCancel: { [weak self] in
                 self?.extensionContext?.cancelRequest(withError: CocoaError(.userCancelled))
             },
@@ -44,6 +45,14 @@ private struct ExtractedShare {
     var urlString = ""
     var notes = ""
     var image: UIImage?
+    var pageImageURL = ""
+}
+
+private struct PageShareMeta {
+    var url = ""
+    var title = ""
+    var description = ""
+    var imageURL = ""
 }
 
 private enum SharedContent {
@@ -59,39 +68,36 @@ private enum SharedContent {
                 apply(text, to: &result)
             }
             for provider in item.attachments ?? [] {
-                if result.urlString.isEmpty, provider.hasItemConformingToTypeIdentifier(UTType.url.identifier) {
-                    if let url = await loadURL(provider) {
-                        result.urlString = url.absoluteString
-                        if result.title.isEmpty {
-                            result.title = prettyTitle(from: url)
-                        }
-                    }
+                if result.image == nil {
+                    result.image = await ShareMedia.image(from: provider)
                 }
-                if result.urlString.isEmpty, provider.hasItemConformingToTypeIdentifier("public.file-url") {
-                    if let url = await loadTypedURL(provider, type: "public.file-url"), url.scheme?.hasPrefix("http") == true {
-                        result.urlString = url.absoluteString
-                    }
-                }
-                if result.urlString.isEmpty, provider.hasItemConformingToTypeIdentifier(UTType.propertyList.identifier) {
+                if provider.hasItemConformingToTypeIdentifier(UTType.propertyList.identifier) {
                     apply(await loadPropertyList(provider), to: &result)
+                }
+                if provider.hasItemConformingToTypeIdentifier(UTType.url.identifier) {
+                    if let url = await loadURL(provider) {
+                        apply(url, to: &result)
+                    }
+                }
+                if provider.hasItemConformingToTypeIdentifier("public.file-url") {
+                    if let url = await loadTypedURL(provider, type: "public.file-url") {
+                        apply(url, to: &result)
+                    }
                 }
                 if result.urlString.isEmpty, provider.hasItemConformingToTypeIdentifier(UTType.plainText.identifier) {
                     if let text = await loadText(provider) {
                         apply(text, to: &result)
                     }
                 }
-                if result.image == nil {
-                    for type in [UTType.image, .jpeg, .png, .heic, .webP] {
-                        if provider.hasItemConformingToTypeIdentifier(type.identifier),
-                           let image = await loadImage(provider, type: type.identifier) {
-                            result.image = image
-                            break
-                        }
-                    }
-                }
             }
         }
 
+        if result.image == nil, !result.pageImageURL.isEmpty {
+            result.image = await PageMetadata.downloadImageURL(
+                result.pageImageURL,
+                referer: URL(string: result.urlString)
+            )
+        }
         if result.title.isEmpty {
             if !result.urlString.isEmpty, let url = URL(string: result.urlString) {
                 result.title = prettyTitle(from: url)
@@ -112,6 +118,28 @@ private enum SharedContent {
         result.title = cut.title
         result.notes = cut.notes
         return result
+    }
+
+    private static func apply(_ meta: PageShareMeta, to result: inout ExtractedShare) {
+        if result.urlString.isEmpty, !meta.url.isEmpty { result.urlString = meta.url }
+        if result.title.isEmpty, !meta.title.isEmpty { result.title = meta.title }
+        if result.notes.isEmpty, !meta.description.isEmpty { result.notes = meta.description }
+        if result.pageImageURL.isEmpty, !meta.imageURL.isEmpty { result.pageImageURL = meta.imageURL }
+    }
+
+    private static func apply(_ url: URL, to result: inout ExtractedShare) {
+        if url.scheme?.hasPrefix("http") == true {
+            if result.urlString.isEmpty {
+                result.urlString = url.absoluteString
+                if result.title.isEmpty {
+                    result.title = prettyTitle(from: url)
+                }
+            }
+            return
+        }
+        if result.image == nil {
+            result.image = ShareMedia.image(fromFileURL: url)
+        }
     }
 
     private static func apply(_ text: String, to result: inout ExtractedShare) {
@@ -173,18 +201,21 @@ private enum SharedContent {
         }
     }
 
-    private static func loadPropertyList(_ provider: NSItemProvider) async -> String {
+    private static func loadPropertyList(_ provider: NSItemProvider) async -> PageShareMeta {
         await withCheckedContinuation { continuation in
             provider.loadItem(forTypeIdentifier: UTType.propertyList.identifier, options: nil) { item, _ in
                 if let dict = item as? [String: Any] {
-                    let js = dict[NSExtensionJavaScriptPreprocessingResultsKey] as? [String: Any]
-                    let url = (js?["URL"] as? String) ?? (dict["URL"] as? String) ?? ""
-                    let title = (js?["title"] as? String) ?? (dict["title"] as? String) ?? ""
-                    continuation.resume(returning: [title, url].filter { !$0.isEmpty }.joined(separator: " "))
+                    let js = dict[NSExtensionJavaScriptPreprocessingResultsKey] as? [String: Any] ?? dict
+                    continuation.resume(returning: PageShareMeta(
+                        url: (js["URL"] as? String) ?? (dict["URL"] as? String) ?? "",
+                        title: (js["title"] as? String) ?? (dict["title"] as? String) ?? "",
+                        description: (js["description"] as? String) ?? (dict["description"] as? String) ?? "",
+                        imageURL: (js["imageURL"] as? String) ?? (dict["imageURL"] as? String) ?? ""
+                    ))
                 } else if let url = item as? URL {
-                    continuation.resume(returning: url.absoluteString)
+                    continuation.resume(returning: PageShareMeta(url: url.absoluteString))
                 } else {
-                    continuation.resume(returning: "")
+                    continuation.resume(returning: PageShareMeta())
                 }
             }
         }
@@ -198,29 +229,6 @@ private enum SharedContent {
         }
     }
 
-    private static func loadImage(_ provider: NSItemProvider, type: String) async -> UIImage? {
-        if provider.canLoadObject(ofClass: UIImage.self) {
-            let loaded: UIImage? = await withCheckedContinuation { continuation in
-                _ = provider.loadObject(ofClass: UIImage.self) { object, _ in
-                    continuation.resume(returning: object as? UIImage)
-                }
-            }
-            if let loaded { return loaded }
-        }
-        return await withCheckedContinuation { continuation in
-            provider.loadItem(forTypeIdentifier: type, options: nil) { item, _ in
-                if let image = item as? UIImage {
-                    continuation.resume(returning: image)
-                } else if let data = item as? Data, let image = UIImage(data: data) {
-                    continuation.resume(returning: image)
-                } else if let url = item as? URL, let data = try? Data(contentsOf: url), let image = UIImage(data: data) {
-                    continuation.resume(returning: image)
-                } else {
-                    continuation.resume(returning: nil)
-                }
-            }
-        }
-    }
 }
 
 struct ShareFormView: View {
@@ -230,6 +238,7 @@ struct ShareFormView: View {
     @State var category: String
     @State var previewImage: UIImage?
     @State private var isLoadingMeta = false
+    var pageImageURL: String
     var onCancel: () -> Void
     var onSave: (SharePayload, UIImage?) -> Void
 
@@ -238,6 +247,7 @@ struct ShareFormView: View {
         urlString: String,
         notes: String,
         image: UIImage?,
+        pageImageURL: String = "",
         onCancel: @escaping () -> Void,
         onSave: @escaping (SharePayload, UIImage?) -> Void
     ) {
@@ -246,6 +256,7 @@ struct ShareFormView: View {
         _notes = State(initialValue: notes)
         _category = State(initialValue: ShareInbox.guessedCategory(urlString: urlString, title: title))
         _previewImage = State(initialValue: image)
+        self.pageImageURL = pageImageURL
         self.onCancel = onCancel
         self.onSave = onSave
     }
@@ -305,7 +316,7 @@ struct ShareFormView: View {
                             previewImage
                         )
                     }
-                    .disabled(title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                    .disabled(title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || isLoadingMeta)
                 }
             }
             .task { await enrichFromPage() }
@@ -314,8 +325,16 @@ struct ShareFormView: View {
 
     private func enrichFromPage() async {
         let link = urlString.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard link.hasPrefix("http") else { return }
-        isLoadingMeta = previewImage == nil
+        let needsPhoto = previewImage == nil
+        if !needsPhoto && !link.hasPrefix("http") { return }
+        isLoadingMeta = needsPhoto
+        if previewImage == nil, !pageImageURL.isEmpty {
+            previewImage = await PageMetadata.downloadImageURL(pageImageURL, referer: URL(string: link))
+        }
+        guard link.hasPrefix("http") else {
+            isLoadingMeta = false
+            return
+        }
         let meta = await PageMetadata.fetch(from: link)
         if InstagramShareText.isInstagramURL(link) {
             let split = InstagramShareText.split(from: [
