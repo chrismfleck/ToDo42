@@ -26,7 +26,11 @@ def looks_like_logo(url):
         return True
     if "/static/" in lower and ("/images/" in lower or "/rsrc" in lower or "/ico/" in lower):
         return True
-    if "logo" in lower and ("instagram" in lower or "facebook" in lower):
+    if "logo" in lower and ("instagram" in lower or "facebook" in lower or "tiktok" in lower):
+        return True
+    if ("tiktokcdn" in lower or "muscdn" in lower) and (
+        "static" in lower or ".js" in lower or ".css" in lower or "obj/tiktok-web" in lower
+    ):
         return True
     return False
 
@@ -88,6 +92,8 @@ def image_candidates(html):
     add(meta(html, itemprop="image"))
     add(json_ld_string(html, "image"))
     add(json_ld_string(html, "thumbnailUrl"))
+    cover = first_match(r'"(?:originCover|dynamicCover|cover|thumbnail_url)"\s*:\s*"(https?://[^"]+)"', html, 1)
+    add(cover)
     href = first_match(r'<link[^>]+rel\s*=\s*["\']image_src["\'][^>]+href\s*=\s*["\']([^"\']+)["\']', html, 1)
     add(href)
     href = first_match(r'<link[^>]+href\s*=\s*["\']([^"\']+)["\'][^>]+rel\s*=\s*["\']image_src["\']', html, 1)
@@ -99,6 +105,15 @@ def image_candidates(html):
     )
     add(cdn)
     return found
+
+
+def is_tiktok_url(string):
+    return "tiktok.com" in string.lower()
+
+
+def oembed_url(page_url):
+    from urllib.parse import urlencode
+    return "https://www.tiktok.com/oembed?" + urlencode({"url": page_url})
 
 
 def instagram_embed_url(url):
@@ -171,6 +186,21 @@ def main():
     )
     check(instagram_embed_url("https://example.com/p/PostCode/") is None, "non-instagram")
     check(instagram_embed_url("https://www.instagram.com/explore/") is None, "no shortcode")
+
+    check(is_tiktok_url("https://vm.tiktok.com/ZMabcd/"), "vm short link")
+    check(is_tiktok_url("https://www.tiktok.com/@user/video/123"), "full video")
+    check(not is_tiktok_url("https://www.instagram.com/p/x/"), "not tiktok")
+    embed = oembed_url("https://www.tiktok.com/@scout2015/video/6718335390845095173")
+    check(embed.startswith("https://www.tiktok.com/oembed?"), f"oembed host {embed}")
+    check("url=" in embed and "tiktok.com" in embed, f"oembed query {embed}")
+
+    cover_html = '{"originCover":"https://p16-sign.tiktokcdn-us.com/tos-cover~tplv-origin.image?x=1"}'
+    covers = image_candidates(cover_html)
+    check(covers == ["https://p16-sign.tiktokcdn-us.com/tos-cover~tplv-origin.image?x=1"], f"cover json {covers}")
+    check(
+        image_candidates('{"cover":"https://lf16-tiktok-web.tiktokcdn-us.com/obj/tiktok-web-tx/logo.png"}') == [],
+        "skip tiktok static",
+    )
 
     print("ok")
     return 0

@@ -22,7 +22,7 @@ GetPageMetadata.prototype = {
             if (link) { image = link.getAttribute("href") || ""; }
         }
         if (!image) {
-            var img = document.querySelector('article img, main img, img[src*="cdninstagram"], img[src*="fbcdn"], img[srcset]');
+            var img = document.querySelector('article img, main img, img[src*="cdninstagram"], img[src*="fbcdn"], img[src*="tiktokcdn"], img[src*="muscdn"], img[srcset]');
             if (img) { image = img.currentSrc || img.src || ""; }
         }
         arguments.completionFunction({

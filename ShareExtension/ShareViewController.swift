@@ -166,6 +166,7 @@ private enum SharedContent {
         let host = url.host?.replacingOccurrences(of: "www.", with: "") ?? ""
         if host.contains("airbnb") { return "Airbnb stay" }
         if host.contains("instagram") { return "Instagram" }
+        if host.contains("tiktok") { return "TikTok" }
         if host.contains("x.com") || host.contains("twitter") { return "X post" }
         if host.contains("facebook") || host.contains("fb.com") || host.contains("fb.watch") { return "Facebook" }
         return host.isEmpty ? "Shared item" : host

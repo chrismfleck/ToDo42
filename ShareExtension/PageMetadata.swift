@@ -15,7 +15,16 @@ enum PageMetadata {
             return Result()
         }
 
-        var best = await fetchPage(url)
+        var best = Result()
+        if isTikTokURL(url.absoluteString) {
+            best = await fetchTikTokOEmbed(url)
+        }
+        if best.image == nil || best.title == nil {
+            let page = await fetchPage(url)
+            if best.title == nil { best.title = page.title }
+            if best.description == nil { best.description = page.description }
+            if best.image == nil { best.image = page.image }
+        }
         if best.image == nil, let embed = instagramEmbedURL(from: url) {
             let extra = await fetchPage(embed)
             if best.title == nil { best.title = extra.title }
@@ -25,6 +34,19 @@ enum PageMetadata {
         return best
     }
 
+    static func isTikTokURL(_ string: String) -> Bool {
+        string.lowercased().contains("tiktok.com")
+    }
+
+    static func oembedURL(for pageURL: URL) -> URL? {
+        var comps = URLComponents()
+        comps.scheme = "https"
+        comps.host = "www.tiktok.com"
+        comps.path = "/oembed"
+        comps.queryItems = [URLQueryItem(name: "url", value: pageURL.absoluteString)]
+        return comps.url
+    }
+
     static func isPlaceholderTitle(_ title: String) -> Bool {
         let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         if trimmed.isEmpty { return true }
@@ -32,12 +54,17 @@ enum PageMetadata {
             "shared item",
             "airbnb stay",
             "instagram",
+            "tiktok",
             "x post",
             "facebook",
             "airbnb.com",
             "www.airbnb.com",
             "instagram.com",
             "www.instagram.com",
+            "tiktok.com",
+            "www.tiktok.com",
+            "vm.tiktok.com",
+            "vt.tiktok.com",
         ]
         if placeholders.contains(trimmed) { return true }
         if trimmed.hasSuffix(".com") && !trimmed.contains(" ") { return true }
@@ -78,6 +105,13 @@ enum PageMetadata {
         add(meta(html, itemprop: "image"))
         add(jsonLDString(html, key: "image"))
         add(jsonLDString(html, key: "thumbnailUrl"))
+        if let cover = firstMatch(
+            #""(?:originCover|dynamicCover|cover|thumbnail_url)"\s*:\s*"(https?://[^"]+)"#,
+            in: html,
+            group: 1
+        ) {
+            add(cover)
+        }
         if let href = firstMatch(
             #"<link[^>]+rel\s*=\s*["']image_src["'][^>]+href\s*=\s*["']([^"']+)["']"#,
             in: html,
@@ -165,6 +199,9 @@ enum PageMetadata {
         if host.contains("cdninstagram") || host.contains("fbcdn") || host.contains("scontent") {
             return URL(string: "https://www.instagram.com/") ?? fallback
         }
+        if host.contains("tiktokcdn") || host.contains("muscdn") || host.contains("tiktok.com") {
+            return URL(string: "https://www.tiktok.com/") ?? fallback
+        }
         return fallback
     }
 
@@ -175,10 +212,57 @@ enum PageMetadata {
         if lower.contains("/static/") && (lower.contains("/images/") || lower.contains("/rsrc") || lower.contains("/ico/")) {
             return true
         }
-        if lower.contains("logo") && (lower.contains("instagram") || lower.contains("facebook")) {
+        if lower.contains("logo") && (lower.contains("instagram") || lower.contains("facebook") || lower.contains("tiktok")) {
+            return true
+        }
+        if (lower.contains("tiktokcdn") || lower.contains("muscdn"))
+            && (lower.contains("static") || lower.contains(".js") || lower.contains(".css") || lower.contains("obj/tiktok-web")) {
             return true
         }
         return false
+    }
+
+    private static func fetchTikTokOEmbed(_ url: URL) async -> Result {
+        var result = await requestTikTokOEmbed(url)
+        if result.image == nil, let resolved = await finalURL(afterRedirects: url),
+           resolved.absoluteString != url.absoluteString {
+            let retry = await requestTikTokOEmbed(resolved)
+            if result.title == nil { result.title = retry.title }
+            if result.image == nil { result.image = retry.image }
+        }
+        return result
+    }
+
+    private static func requestTikTokOEmbed(_ url: URL) async -> Result {
+        guard let oembedURL = oembedURL(for: url) else { return Result() }
+        do {
+            var request = URLRequest(url: oembedURL, timeoutInterval: 12)
+            request.setValue(safariUA, forHTTPHeaderField: "User-Agent")
+            request.setValue("application/json", forHTTPHeaderField: "Accept")
+            let (data, _) = try await URLSession.shared.data(for: request)
+            guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+                return Result()
+            }
+            let title = (json["title"] as? String).map(clean)
+            var image: UIImage?
+            if let thumb = json["thumbnail_url"] as? String, !thumb.isEmpty {
+                image = await downloadImageURL(thumb, referer: URL(string: "https://www.tiktok.com/"))
+            }
+            return Result(title: title, description: nil, image: image)
+        } catch {
+            return Result()
+        }
+    }
+
+    private static func finalURL(afterRedirects url: URL) async -> URL? {
+        var request = URLRequest(url: url, timeoutInterval: 12)
+        request.setValue(safariUA, forHTTPHeaderField: "User-Agent")
+        do {
+            let (_, response) = try await URLSession.shared.data(for: request)
+            return response.url
+        } catch {
+            return nil
+        }
     }
 
     private static func meta(_ html: String, property: String? = nil, name: String? = nil, itemprop: String? = nil) -> String? {
