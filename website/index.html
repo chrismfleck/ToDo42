@@ -4,6 +4,7 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Save4Two — Shared list for couples, friends, family</title>
+  <link rel="icon" href="app-icon.png" type="image/png" />
   <meta name="description" content="Save ideas from Instagram, Reels, TikTok, X, and websites. Heart it, do it, check it complete, and keep the memories." />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
@@ -48,6 +49,27 @@
       line-height: 1.05;
       letter-spacing: -1.2px;
       margin: 10px 0 16px;
+    }
+    .title-line {
+      display: flex;
+      align-items: center;
+      width: 100%;
+    }
+    .icon-slot {
+      flex: 1;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      min-width: 72px;
+    }
+    .app-icon {
+      width: 72px;
+      height: 72px;
+      border-radius: 16px;
+      box-shadow: 0 10px 28px rgba(0,0,0,.45);
+    }
+    @media (max-width: 800px) {
+      .app-icon { width: 56px; height: 56px; border-radius: 13px; }
     }
     .lede { color: var(--muted); font-size: 18px; line-height: 1.55; max-width: 520px; }
     .actions { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 28px; }
@@ -121,7 +143,15 @@
     <section class="hero">
       <div>
         <p style="color:var(--blue);font-weight:600;font-size:13px;letter-spacing:.12em;text-transform:uppercase;">For couples, friends, family</p>
-        <h1>See it. Save it.<br>Do it together.</h1>
+        <h1>
+          <span class="title-line">
+            <span>See it. Save it.</span>
+            <span class="icon-slot">
+              <img class="app-icon" src="app-icon.png" alt="Save4Two app icon" />
+            </span>
+          </span>
+          Do it together.
+        </h1>
         <p class="lede">
           That yacht charter, the Sphere tickets, the cabin on the lake —
           stop losing ideas in DMs. Save4Two keeps one shared
