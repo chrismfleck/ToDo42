@@ -59,7 +59,7 @@ struct ContentView: View {
             VStack(alignment: .leading, spacing: 22) {
                 ZStack(alignment: .topTrailing) {
                     VStack(spacing: 8) {
-                        Text("ToDo 4 2")
+                        Text("Save 4 Two")
                             .font(.system(size: 34, weight: .bold, design: .rounded))
                             .italic()
                             .foregroundStyle(Palette.brandBlue(colorScheme))
@@ -141,10 +141,14 @@ struct ContentView: View {
     }
 
     private func seedIfNeeded() {
-        let key = "todo42.seeded.v2"
+        let key = "todo42.seeded.v3"
         guard !UserDefaults.standard.bool(forKey: key) else { return }
 
+        let previousSamples = items.filter { SampleData.previousTitles.contains($0.title) }
         if items.isEmpty {
+            SampleData.seeds.forEach { modelContext.insert(SampleData.makeItem($0)) }
+        } else if !previousSamples.isEmpty, previousSamples.count == items.count {
+            previousSamples.forEach { modelContext.delete($0) }
             SampleData.seeds.forEach { modelContext.insert(SampleData.makeItem($0)) }
         } else {
             for item in items {
@@ -268,6 +272,8 @@ struct ItemDetailView: View {
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.dismiss) private var dismiss
     @Bindable var item: TodoItem
+    @AppStorage("todo42.yourName") private var yourName = "YourName"
+    @AppStorage("todo42.partnerName") private var partnerName = "PartnerName"
     @State private var isEditing = false
     @State private var draftTitle = ""
     @State private var draftLink = ""
@@ -326,8 +332,8 @@ struct ItemDetailView: View {
                         }
 
                         HStack(spacing: 28) {
-                            PartnerHeartButton(name: "Chris", isOn: $item.chrisHearted)
-                            PartnerHeartButton(name: "Deena", isOn: $item.deenaHearted)
+                            PartnerHeartButton(name: $yourName, fallback: "YourName", isOn: $item.chrisHearted)
+                            PartnerHeartButton(name: $partnerName, fallback: "PartnerName", isOn: $item.deenaHearted)
                             DoneCheckButton(isDone: $item.isDone, size: 34, name: "Done")
                         }
                         .frame(maxWidth: .infinity)
@@ -513,30 +519,58 @@ struct DoneCheckButton: View {
 }
 
 struct PartnerHeartButton: View {
-    let name: String
+    @Binding var name: String
+    var fallback: String
     @Binding var isOn: Bool
 
     var body: some View {
-        Button {
-            withAnimation(.spring(duration: 0.28)) {
-                isOn.toggle()
-            }
-        } label: {
-            VStack(spacing: 6) {
+        VStack(spacing: 6) {
+            Button {
+                withAnimation(.spring(duration: 0.28)) {
+                    isOn.toggle()
+                }
+            } label: {
                 Image(systemName: isOn ? "heart.fill" : "heart")
                     .font(.system(size: 34, weight: .semibold))
                     .foregroundStyle(isOn ? heartPink : Color.secondary.opacity(0.55))
                     .scaleEffect(isOn ? 1.08 : 1)
-                Text(name)
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(.secondary)
+                    .frame(minWidth: 72)
+                    .padding(.top, 8)
+                    .contentShape(Rectangle())
             }
-            .frame(minWidth: 72)
-            .padding(.vertical, 8)
+            .buttonStyle(.plain)
+            .accessibilityLabel("\(displayName) heart")
+            .accessibilityAddTraits(isOn ? .isSelected : [])
+
+            TextField(fallback, text: $name)
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+                .textInputAutocapitalization(.words)
+                .autocorrectionDisabled()
+                .submitLabel(.done)
+                .frame(minWidth: 72)
+                .padding(.bottom, 8)
+                .accessibilityLabel("\(fallback) name")
+                .onSubmit(normalizeName)
+                .onChange(of: name) { _, newValue in
+                    if newValue.contains("\n") {
+                        name = newValue.replacingOccurrences(of: "\n", with: "")
+                        normalizeName()
+                    }
+                }
         }
-        .buttonStyle(.plain)
-        .accessibilityLabel("\(name) heart")
-        .accessibilityAddTraits(isOn ? .isSelected : [])
+        .onDisappear(perform: normalizeName)
+    }
+
+    private var displayName: String {
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? fallback : trimmed
+    }
+
+    private func normalizeName() {
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        name = trimmed.isEmpty ? fallback : trimmed
     }
 }
 
