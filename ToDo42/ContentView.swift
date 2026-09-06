@@ -235,6 +235,7 @@ struct ContentView: View {
         }
         .onAppear {
             importSharedDrafts()
+            seedIfNeeded()
             normalizeStoredText()
             Task { await refreshFromCloud() }
         }
@@ -374,6 +375,16 @@ struct ContentView: View {
                 }
             }
             reorderDrag = nil
+        }
+    }
+
+    private func seedIfNeeded() {
+        let key = "todo42.seeded.v3"
+        guard !UserDefaults.standard.bool(forKey: key) else { return }
+        defer { UserDefaults.standard.set(true, forKey: key) }
+        guard items.isEmpty else { return }
+        for (index, seed) in SampleData.seeds.enumerated() {
+            modelContext.insert(SampleData.makeItem(seed, sortOrder: index))
         }
     }
 
