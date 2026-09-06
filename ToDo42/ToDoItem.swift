@@ -81,11 +81,31 @@ enum SampleData {
     }
 
     static let seeds: [Seed] = [
-        Seed(title: "Lake House", category: .places, urlString: "https://maps.apple.com/?q=Lake+House", imageAssetName: "LakeHouse", notes: "Weekend getaway"),
-        Seed(title: "Beach", category: .places, urlString: "https://maps.apple.com/?q=Beach", imageAssetName: "Beach", notes: "Sunset picnic"),
-        Seed(title: "Mountain Cabin", category: .places, urlString: "https://maps.apple.com/?q=Mountain+Cabin", imageAssetName: "MountainCabin", notes: "Fall weekend"),
-        Seed(title: "Hobie Sailing", category: .fun, urlString: "https://www.hobie.com/", imageAssetName: "HobieSailing", notes: "Book a lesson"),
-        Seed(title: "Lemon Garlic Pasta", category: .eats, urlString: "https://www.allrecipes.com/", imageAssetName: "LemonGarlicPasta", notes: "30-min recipe"),
+        Seed(
+            title: "Lake Escape 2",
+            category: .places,
+            urlString: "https://www.airbnb.com/rooms/810901494684354420?photo_id=1572097457&source_impression_id=p3_1788720795_P3m5HyIdx_dI3pKD",
+            imageAssetName: "LakeEscape",
+            notes: "Dock, kayaks, fire pit"
+        ),
+        Seed(
+            title: "Greek Seas Charter Sailing",
+            category: .fun,
+            urlString: "https://share.google/jvIvhY1em9UXeMeEh",
+            imageAssetName: "GreekSailing",
+            notes: "Athens sailing"
+        ),
+        Seed(
+            title: "Keto recipe",
+            category: .eats,
+            urlString: "https://www.instagram.com/reel/Cw0BCo0vBC9/?utm_source=ig_web_copy_link&stkn=MzRlODBiNWFlZA==",
+            imageAssetName: "KetoRecipe",
+            notes: "Reel recipe"
+        ),
+    ]
+
+    static let previousTitles = [
+        "Lake House", "Beach", "Mountain Cabin", "Hobie Sailing", "Lemon Garlic Pasta",
     ]
 
     static func matching(title: String) -> Seed? {
