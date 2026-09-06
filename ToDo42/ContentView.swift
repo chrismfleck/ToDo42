@@ -1011,17 +1011,16 @@ struct ItemDetailView: View {
             }
         } else if isEditing {
             PhotosPicker(selection: $extraPhotoItem, matching: .images) {
-                VStack(spacing: 10) {
+                HStack(spacing: 10) {
                     Image(systemName: "photo.badge.plus")
-                        .font(.system(size: 28, weight: .medium))
+                        .font(.system(size: 22, weight: .semibold))
                     Text("Add photo")
-                        .font(.subheadline.weight(.semibold))
+                        .font(.headline)
                 }
                 .foregroundStyle(Palette.brandBlue(colorScheme))
                 .frame(maxWidth: .infinity)
-                .frame(height: 280)
-                .background(Palette.canvas(colorScheme))
-                .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+                .padding(.vertical, 18)
+                .appCard(cornerRadius: 12, scheme: colorScheme)
             }
             .buttonStyle(.plain)
             .accessibilityLabel("Add extra photo")
