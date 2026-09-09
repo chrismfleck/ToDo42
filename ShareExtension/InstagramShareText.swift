@@ -12,7 +12,7 @@ enum InstagramShareText {
         if looksLikeComments(notes) { return true }
         if t.contains("ingredient") || t.contains("for the ") || t.contains("tbsp") { return true }
         if title.contains("&#") || notes.contains("&#") { return true }
-        return title.count > 90
+        return title.count > 80
     }
 
     static func refine(title: String, notes: String) -> (title: String, notes: String) {
@@ -40,10 +40,10 @@ enum InstagramShareText {
         }
 
         if nextTitle.isEmpty { nextTitle = peeled.headline }
-        if !nextNotes.isEmpty {
-            nextNotes = SharedText.reflowNotes(nextNotes)
-        }
-        return (nextTitle.trimmingCharacters(in: .whitespacesAndNewlines), nextNotes)
+        return SharedText.cutTitle(
+            nextTitle.trimmingCharacters(in: .whitespacesAndNewlines),
+            notes: nextNotes
+        )
     }
 
     static func split(from pieces: [String]) -> (title: String, notes: String) {

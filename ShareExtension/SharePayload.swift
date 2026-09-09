@@ -29,7 +29,7 @@ enum ShareInbox {
         var payload = payload
         let id = UUID().uuidString
 
-        if let image, let data = jpegData(from: image) {
+        if let image, let data = ShareMedia.jpegData(from: image) {
             let fileName = "\(id).jpg"
             try data.write(to: inbox.appendingPathComponent(fileName), options: .atomic)
             payload.imageFileName = fileName
@@ -37,21 +37,6 @@ enum ShareInbox {
 
         let data = try JSONEncoder().encode(payload)
         try data.write(to: inbox.appendingPathComponent("\(id).json"), options: .atomic)
-    }
-
-    static func jpegData(from image: UIImage) -> Data? {
-        let maxSide: CGFloat = 1600
-        let longest = max(image.size.width, image.size.height)
-        let scaled: UIImage
-        if longest > maxSide {
-            let scale = maxSide / longest
-            let size = CGSize(width: image.size.width * scale, height: image.size.height * scale)
-            let renderer = UIGraphicsImageRenderer(size: size)
-            scaled = renderer.image { _ in image.draw(in: CGRect(origin: .zero, size: size)) }
-        } else {
-            scaled = image
-        }
-        return scaled.jpegData(compressionQuality: 0.82)
     }
 
     static func guessedCategory(urlString: String, title: String) -> String {

@@ -103,7 +103,7 @@ struct PairingView: View {
         VStack(alignment: .leading, spacing: 16) {
             Text("Share one list")
                 .font(.title2.bold())
-            Text("Invite \(session.partnerHeartLabel) with a code. They install Save4Two from TestFlight, then enter the code. Both phones must be signed in to iCloud.")
+            Text("Invite \(session.partnerHeartLabel) with a code. They install Save4Two, then enter the code. Both phones must be signed in to iCloud.")
                 .foregroundStyle(.secondary)
 
             Button {

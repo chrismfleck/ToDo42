@@ -99,8 +99,22 @@ enum ItemStore {
         Dictionary(items.map { ($0.id.uuidString, $0) }, uniquingKeysWith: { first, _ in first })
     }
 
+    /// Build 42 stored bottom photos as TDItem rows with a blank title and the
+    /// extra image in `image`. If those rows were applied as list items, keep
+    /// that photo as the extra before a later pull restores the real primary.
+    static func preserveMisplacedExtraPhotos(in items: [TodoItem]) {
+        for item in items {
+            let emptyTitle = item.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            guard emptyTitle else { continue }
+            if item.extraImageData == nil, let data = item.imageData, !data.isEmpty {
+                item.extraImageData = data
+            }
+        }
+    }
+
     static func deduplicate(in context: ModelContext) {
         let items = allItems(in: context)
+        preserveMisplacedExtraPhotos(in: items)
         var keepers: [UUID: TodoItem] = [:]
         var extras: [TodoItem] = []
         for item in items {
@@ -112,9 +126,11 @@ enum ItemStore {
                 firstUpdated: current.updatedAt ?? current.createdAt,
                 firstHasPhoto: current.hasPhoto,
                 firstNoteCount: current.notes.count,
+                firstTitleEmpty: current.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
                 secondUpdated: item.updatedAt ?? item.createdAt,
                 secondHasPhoto: item.hasPhoto,
-                secondNoteCount: item.notes.count
+                secondNoteCount: item.notes.count,
+                secondTitleEmpty: item.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             )
             if keepCurrent {
                 extras.append(item)
@@ -128,6 +144,10 @@ enum ItemStore {
             guard let keep = keepers[extra.id] else { continue }
             keep.chrisHearted = keep.chrisHearted || extra.chrisHearted
             keep.deenaHearted = keep.deenaHearted || extra.deenaHearted
+            if keep.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+               extra.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false {
+                keep.title = extra.title
+            }
             if keep.notes.isEmpty, extra.notes.isEmpty == false {
                 keep.notes = extra.notes
             }

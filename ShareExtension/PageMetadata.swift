@@ -14,8 +14,138 @@ enum PageMetadata {
         guard let url = URL(string: urlString), let scheme = url.scheme, scheme.hasPrefix("http") else {
             return Result()
         }
+
+        var best = Result()
+        if isTikTokURL(url.absoluteString) {
+            best = await fetchTikTokOEmbed(url)
+        }
+        if best.image == nil || best.title == nil {
+            let page = await fetchPage(url)
+            if best.title == nil { best.title = page.title }
+            if best.description == nil { best.description = page.description }
+            if best.image == nil { best.image = page.image }
+        }
+        if best.image == nil, let embed = instagramEmbedURL(from: url) {
+            let extra = await fetchPage(embed)
+            if best.title == nil { best.title = extra.title }
+            if best.description == nil { best.description = extra.description }
+            if best.image == nil { best.image = extra.image }
+        }
+        return best
+    }
+
+    static func isTikTokURL(_ string: String) -> Bool {
+        string.lowercased().contains("tiktok.com")
+    }
+
+    static func oembedURL(for pageURL: URL) -> URL? {
+        var comps = URLComponents()
+        comps.scheme = "https"
+        comps.host = "www.tiktok.com"
+        comps.path = "/oembed"
+        comps.queryItems = [URLQueryItem(name: "url", value: pageURL.absoluteString)]
+        return comps.url
+    }
+
+    static func isPlaceholderTitle(_ title: String) -> Bool {
+        let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        if trimmed.isEmpty { return true }
+        let placeholders: Set<String> = [
+            "shared item",
+            "airbnb stay",
+            "instagram",
+            "tiktok",
+            "x post",
+            "facebook",
+            "airbnb.com",
+            "www.airbnb.com",
+            "instagram.com",
+            "www.instagram.com",
+            "tiktok.com",
+            "www.tiktok.com",
+            "vm.tiktok.com",
+            "vt.tiktok.com",
+        ]
+        if placeholders.contains(trimmed) { return true }
+        if trimmed.hasSuffix(".com") && !trimmed.contains(" ") { return true }
+        return false
+    }
+
+    static func instagramEmbedURL(from url: URL) -> URL? {
+        let host = url.host?.lowercased() ?? ""
+        guard host.contains("instagram.com") || host.contains("instagr.am") else { return nil }
+        let pattern = #"/(p|reel|reels|tv)/([A-Za-z0-9_-]+)"#
+        guard let kindRaw = firstMatch(pattern, in: url.path, group: 1),
+              let code = firstMatch(pattern, in: url.path, group: 2),
+              !code.isEmpty else {
+            return nil
+        }
+        let kind = kindRaw.lowercased() == "reels" ? "reel" : kindRaw.lowercased()
+        return URL(string: "https://www.instagram.com/\(kind)/\(code)/embed/")
+    }
+
+    static func imageCandidates(in html: String) -> [String] {
+        var found: [String] = []
+        func add(_ value: String?) {
+            guard let value else { return }
+            let trimmed = decodeHTML(value)
+                .replacingOccurrences(of: "\\/", with: "/")
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty, !found.contains(trimmed) else { return }
+            if looksLikeLogo(trimmed) { return }
+            found.append(trimmed)
+        }
+
+        add(meta(html, property: "og:image"))
+        add(meta(html, property: "og:image:secure_url"))
+        add(meta(html, property: "og:image:url"))
+        add(meta(html, property: "og:video:poster"))
+        add(meta(html, name: "twitter:image"))
+        add(meta(html, name: "twitter:image:src"))
+        add(meta(html, itemprop: "image"))
+        add(jsonLDString(html, key: "image"))
+        add(jsonLDString(html, key: "thumbnailUrl"))
+        if let cover = firstMatch(
+            #""(?:originCover|dynamicCover|cover|thumbnail_url)"\s*:\s*"(https?://[^"]+)"#,
+            in: html,
+            group: 1
+        ) {
+            add(cover)
+        }
+        if let href = firstMatch(
+            #"<link[^>]+rel\s*=\s*["']image_src["'][^>]+href\s*=\s*["']([^"']+)["']"#,
+            in: html,
+            group: 1
+        ) {
+            add(href)
+        }
+        if let href = firstMatch(
+            #"<link[^>]+href\s*=\s*["']([^"']+)["'][^>]+rel\s*=\s*["']image_src["']"#,
+            in: html,
+            group: 1
+        ) {
+            add(href)
+        }
+        if let cdn = firstMatch(
+            #"https?://[^"'\\\s]+(?:cdninstagram\.com|fbcdn\.net|scontent)[^"'\\\s]+\.(?:jpe?g|png|webp)"#,
+            in: html,
+            group: 0
+        ) {
+            add(cdn)
+        }
+        return found
+    }
+
+    static func downloadImageURL(_ string: String, referer: URL? = nil) async -> UIImage? {
+        guard let url = URL(string: string), let scheme = url.scheme, scheme.hasPrefix("http") else {
+            return nil
+        }
+        return await downloadImage(url, referer: referer ?? url)
+    }
+
+    private static func fetchPage(_ url: URL) async -> Result {
         do {
-            var request = URLRequest(url: url, timeoutInterval: 8)
+            var request = URLRequest(url: url, timeoutInterval: 12)
             request.setValue(safariUA, forHTTPHeaderField: "User-Agent")
             request.setValue("text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8", forHTTPHeaderField: "Accept")
             request.setValue("en-US,en;q=0.9", forHTTPHeaderField: "Accept-Language")
@@ -38,16 +168,11 @@ enum PageMetadata {
                 meta(html, name: "description"),
             ]).map(clean)
 
-            let imageURLString = firstNonEmpty([
-                meta(html, property: "og:image"),
-                meta(html, property: "og:image:secure_url"),
-                meta(html, name: "twitter:image"),
-                jsonLDString(html, key: "image"),
-            ])
-
             var image: UIImage?
-            if let imageURLString, let imageURL = resolvedURL(imageURLString, relativeTo: url) {
-                image = await downloadImage(imageURL)
+            for candidate in imageCandidates(in: html) {
+                guard let imageURL = resolvedURL(candidate, relativeTo: url) else { continue }
+                image = await downloadImage(imageURL, referer: url)
+                if image != nil { break }
             }
 
             return Result(title: title, description: description, image: image)
@@ -56,35 +181,93 @@ enum PageMetadata {
         }
     }
 
-    static func isPlaceholderTitle(_ title: String) -> Bool {
-        let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        if trimmed.isEmpty { return true }
-        let placeholders: Set<String> = [
-            "shared item",
-            "airbnb stay",
-            "instagram",
-            "x post",
-            "facebook",
-            "airbnb.com",
-            "www.airbnb.com",
-            "instagram.com",
-            "www.instagram.com",
-        ]
-        if placeholders.contains(trimmed) { return true }
-        if trimmed.hasSuffix(".com") && !trimmed.contains(" ") { return true }
+    private static func downloadImage(_ url: URL, referer: URL) async -> UIImage? {
+        do {
+            var request = URLRequest(url: url, timeoutInterval: 12)
+            request.setValue(safariUA, forHTTPHeaderField: "User-Agent")
+            request.setValue("image/avif,image/webp,image/apng,image/jpeg,image/png,*/*;q=0.8", forHTTPHeaderField: "Accept")
+            request.setValue(cdnReferer(for: url, fallback: referer).absoluteString, forHTTPHeaderField: "Referer")
+            let (data, _) = try await URLSession.shared.data(for: request)
+            return UIImage(data: data)
+        } catch {
+            return nil
+        }
+    }
+
+    private static func cdnReferer(for imageURL: URL, fallback: URL) -> URL {
+        let host = imageURL.host?.lowercased() ?? ""
+        if host.contains("cdninstagram") || host.contains("fbcdn") || host.contains("scontent") {
+            return URL(string: "https://www.instagram.com/") ?? fallback
+        }
+        if host.contains("tiktokcdn") || host.contains("muscdn") || host.contains("tiktok.com") {
+            return URL(string: "https://www.tiktok.com/") ?? fallback
+        }
+        return fallback
+    }
+
+    private static func looksLikeLogo(_ url: String) -> Bool {
+        let lower = url.lowercased()
+        if lower.contains("favicon") { return true }
+        if lower.contains("apple-touch-icon") { return true }
+        if lower.contains("/static/") && (lower.contains("/images/") || lower.contains("/rsrc") || lower.contains("/ico/")) {
+            return true
+        }
+        if lower.contains("logo") && (lower.contains("instagram") || lower.contains("facebook") || lower.contains("tiktok")) {
+            return true
+        }
+        if (lower.contains("tiktokcdn") || lower.contains("muscdn"))
+            && (lower.contains("static") || lower.contains(".js") || lower.contains(".css") || lower.contains("obj/tiktok-web")) {
+            return true
+        }
         return false
     }
 
-    private static func downloadImage(_ url: URL) async -> UIImage? {
-        var request = URLRequest(url: url, timeoutInterval: 8)
-        request.setValue(safariUA, forHTTPHeaderField: "User-Agent")
-        guard let (data, _) = try? await URLSession.shared.data(for: request) else { return nil }
-        return UIImage(data: data)
+    private static func fetchTikTokOEmbed(_ url: URL) async -> Result {
+        var result = await requestTikTokOEmbed(url)
+        if result.image == nil, let resolved = await finalURL(afterRedirects: url),
+           resolved.absoluteString != url.absoluteString {
+            let retry = await requestTikTokOEmbed(resolved)
+            if result.title == nil { result.title = retry.title }
+            if result.image == nil { result.image = retry.image }
+        }
+        return result
     }
 
-    private static func meta(_ html: String, property: String? = nil, name: String? = nil) -> String? {
-        let key = property ?? name ?? ""
-        let attribute = property != nil ? "property" : "name"
+    private static func requestTikTokOEmbed(_ url: URL) async -> Result {
+        guard let oembedURL = oembedURL(for: url) else { return Result() }
+        do {
+            var request = URLRequest(url: oembedURL, timeoutInterval: 12)
+            request.setValue(safariUA, forHTTPHeaderField: "User-Agent")
+            request.setValue("application/json", forHTTPHeaderField: "Accept")
+            let (data, _) = try await URLSession.shared.data(for: request)
+            guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+                return Result()
+            }
+            let title = (json["title"] as? String).map(clean)
+            var image: UIImage?
+            if let thumb = json["thumbnail_url"] as? String, !thumb.isEmpty {
+                image = await downloadImageURL(thumb, referer: URL(string: "https://www.tiktok.com/"))
+            }
+            return Result(title: title, description: nil, image: image)
+        } catch {
+            return Result()
+        }
+    }
+
+    private static func finalURL(afterRedirects url: URL) async -> URL? {
+        var request = URLRequest(url: url, timeoutInterval: 12)
+        request.setValue(safariUA, forHTTPHeaderField: "User-Agent")
+        do {
+            let (_, response) = try await URLSession.shared.data(for: request)
+            return response.url
+        } catch {
+            return nil
+        }
+    }
+
+    private static func meta(_ html: String, property: String? = nil, name: String? = nil, itemprop: String? = nil) -> String? {
+        let key = property ?? name ?? itemprop ?? ""
+        let attribute = property != nil ? "property" : (itemprop != nil ? "itemprop" : "name")
         let patterns = [
             #"\#(attribute)\s*=\s*["']\#(NSRegularExpression.escapedPattern(for: key))["'][^>]*content\s*=\s*["']([^"']+)["']"#,
             #"content\s*=\s*["']([^"']+)["'][^>]*\#(attribute)\s*=\s*["']\#(NSRegularExpression.escapedPattern(for: key))["']"#,
@@ -159,7 +342,9 @@ enum PageMetadata {
     }
 
     private static func resolvedURL(_ string: String, relativeTo base: URL) -> URL? {
-        let trimmed = decodeHTML(string).trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmed = decodeHTML(string)
+            .replacingOccurrences(of: "\\/", with: "/")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
         if let absolute = URL(string: trimmed), absolute.scheme != nil {
             return absolute
         }
