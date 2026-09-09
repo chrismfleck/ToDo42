@@ -231,7 +231,7 @@ final class CloudSync {
             record = try await database.record(for: CKRecord.ID(recordName: "code-\(trimmed)"))
         } catch {
             if let ck = error as? CKError, ck.code == .unknownItem {
-                throw SyncError.message("That code was not found. Chris must tap “New invite code” in the TestFlight app (not the copy installed from Xcode), then send you the new 6-digit code.")
+                throw SyncError.message("That code was not found. The person who sent the invite must tap “New invite code”, then send the new 6-digit code.")
             }
             throw SyncError.message(Self.friendlyMessage(error))
         }
@@ -386,7 +386,7 @@ final class CloudSync {
         """
         Join \(PairSession.shared.trimmedMyName.isEmpty ? "me" : PairSession.shared.trimmedMyName) on Save4Two.
 
-        1. Both of us install Save4Two from TestFlight (not from Xcode).
+        1. Both of us install Save4Two from the App Store.
         2. Open the app and tap the two-person icon.
         3. Choose “I have a code” and enter: \(code)
 
