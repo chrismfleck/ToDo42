@@ -10,8 +10,7 @@ Photos 1 and 2 were staged on the `appstore` agent and were not committed. Re-se
 | 2 | Places | Eco-Luxurious Lakefront haven (Fire pit & Hot Tub) | missing |
 | 3 | Eats | Le Colonial Delray Beach | `03-eats-le-colonial.png` |
 | 4 | Eats | Easy Homemade Sauerkraut (Fermented Cabbage) | `04-eats-sauerkraut.png` |
-
-No Fun examples yet.
+| 5 | Fun | Intermediate Pickleball Clinic by the Palm Beach Royals x Nikki Roth | `05-fun-pickleball-clinic.png` |
 
 ## 1. Places — Luxury private lakefront Barn Loft + Silo Jacuzzi
 
@@ -57,3 +56,10 @@ Instructions
 6. Leave the jar on the counter to ferment for 4 days, releasing trapped air once a day.
 7. Move it to the fridge and enjoy your homemade sauerkraut.
 #sauerkraut #fermentedfoods #guthealthrecipes
+
+## 5. Fun — Intermediate Pickleball Clinic by the Palm Beach Royals x Nikki Roth
+
+- **Link:** https://www.palmbeachroyals.com/events
+- **Photo:** `05-fun-pickleball-clinic.png`
+
+Join us for an exciting event that you won't want to miss. Experience the thrill and be part of our community.
