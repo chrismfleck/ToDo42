@@ -47,7 +47,7 @@ struct ContentView: View {
     @State private var category: ItemCategory = .places
     @State private var showAdd = false
     @State private var showPairing = false
-    @State private var showHelp = false
+    @State private var showHelp = !UserDefaults.standard.bool(forKey: Self.hasSeenHelpKey)
     @Environment(PairSession.self) private var pairSession
     @State private var swipingItemID: UUID?
     @State private var selectedItem: TodoItem?
@@ -56,6 +56,7 @@ struct ContentView: View {
     @State private var rowHeights: [UUID: CGFloat] = [:]
 
     private static let hasLeftListEditKey = "todo42.hasLeftListEditMode"
+    private static let hasSeenHelpKey = "todo42.hasSeenHelp.v2"
 
     private var filtered: [TodoItem] {
         items
@@ -230,7 +231,9 @@ struct ContentView: View {
             PairingView()
                 .environment(PairSession.shared)
         }
-        .sheet(isPresented: $showHelp) {
+        .sheet(isPresented: $showHelp, onDismiss: {
+            UserDefaults.standard.set(true, forKey: Self.hasSeenHelpKey)
+        }) {
             HelpView()
         }
         .onAppear {

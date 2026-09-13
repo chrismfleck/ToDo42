@@ -16,30 +16,34 @@ struct HelpView: View {
                     VStack(alignment: .leading, spacing: 18) {
                         HelpStep(
                             number: 1,
-                            spoken: "Tap the pair icon. Enter names, send invite to partner. Or enter a code if you are sent one."
+                            spoken: "To enter a new item manually, tap plus and fill in the detail fields, then tap Save. Tap check for home page."
                         ) {
-                            helpText("Tap ")
-                            + chrome("person.2")
-                            + helpText(" Enter names, send invite to partner. Or enter a code if you are sent one.")
+                            helpText("To enter a new item manually, tap ")
+                            + chrome("plus.circle.fill")
+                            + helpText(" and fill in the detail fields, then tap Save. Tap ")
+                            + chrome("checkmark")
+                            + helpText(" for home page.")
                         }
 
                         HelpStep(
                             number: 2,
-                            spoken: "From a page on Instagram or TikTok, tap Share, then Share to."
+                            spoken: "To add a partner tap the pair icon. Enter names, send invite to partner. Or enter a code if you are sent one."
                         ) {
-                            helpText("From a page on Instagram or TikTok etc, tap ")
-                            + chrome("paperplane")
-                            + helpText(" then ")
-                            + chrome("square.and.arrow.up")
-                            + helpText(".")
+                            helpText("To add a partner tap ")
+                            + chrome("person.2")
+                            + helpText(". Enter names, send invite to partner. Or enter a code if you are sent one.")
                         }
 
                         HelpStep(
                             number: 3,
-                            spoken: "Look for the Save4Two app icon. You may need to swipe left."
+                            spoken: "From a page on Instagram or TikTok, tap Share, then Share to. Look for the Save4Two app icon. You may need to swipe left."
                         ) {
                             VStack(alignment: .leading, spacing: 10) {
-                                helpText("Look for ")
+                                helpText("From a page on Instagram or TikTok etc, tap ")
+                                + chrome("paperplane")
+                                + helpText(" then ")
+                                + chrome("square.and.arrow.up")
+                                + helpText(". Look for ")
                                 + helpText("Save4Two")
                                     .fontWeight(.semibold)
                                 + helpText(" — you may need to swipe left.")
@@ -74,22 +78,26 @@ struct HelpView: View {
 
                         HelpStep(
                             number: 6,
-                            spoken: "To enter a new item manually, tap plus, fill in the detail fields, then tap Save."
-                        ) {
-                            helpText("To enter a new item manually, tap ")
-                            + chrome("plus.circle.fill")
-                            + helpText(" and fill in the detail fields, then tap Save.")
-                        }
-
-                        HelpStep(
-                            number: 7,
-                            spoken: "To edit an item, tap it in the list, then tap the gear on that page. Details can be edited and an extra photo can be added and saved for a fun memory. Tap the check when you are done. If you see red minus buttons, tap the check first so items can be opened."
+                            spoken: "To edit an item, tap it in the list, then tap the gear on that page. Details can be edited and an extra photo can be added and saved for a fun memory. Tap the check when you are done."
                         ) {
                             helpText("To edit an item, tap it in the list, then tap ")
                             + chrome("gearshape")
                             + helpText(" on that page. Details can be edited and an extra photo can be added and saved for a fun memory. Tap ")
                             + chrome("checkmark")
-                            + helpText(" when you are done. If you see red minus buttons, tap the check first so items can be opened.")
+                            + helpText(" when you are done.")
+                        }
+
+                        HelpStep(
+                            number: 7,
+                            spoken: "To delete an item from the home page, tap the gear, tap the red minus, then tap the check to save."
+                        ) {
+                            helpText("To delete item from home page, tap ")
+                            + chrome("gearshape")
+                            + helpText(", tap ")
+                            + redChrome("minus.circle.fill")
+                            + helpText(", tap ")
+                            + chrome("checkmark")
+                            + helpText(" to save.")
                         }
                     }
 
@@ -162,6 +170,12 @@ struct HelpView: View {
         Text(Image(systemName: systemName))
             .font(.body.weight(.semibold))
             .foregroundColor(Palette.brandBlue(colorScheme))
+    }
+
+    private func redChrome(_ systemName: String) -> Text {
+        Text(Image(systemName: systemName))
+            .font(.body.weight(.semibold))
+            .foregroundColor(.red)
     }
 }
 
