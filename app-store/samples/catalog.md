@@ -11,6 +11,7 @@ Photos 1 and 2 were staged on the `appstore` agent and were not committed. Re-se
 | 3 | Eats | Le Colonial Delray Beach | `03-eats-le-colonial.png` |
 | 4 | Eats | Easy Homemade Sauerkraut (Fermented Cabbage) | `04-eats-sauerkraut.png` |
 | 5 | Fun | Intermediate Pickleball Clinic by the Palm Beach Royals x Nikki Roth | `05-fun-pickleball-clinic.png` |
+| 6 | Fun | Yoga Community in Boca Raton | `06-fun-yoga-journey.png` |
 
 ## 1. Places — Luxury private lakefront Barn Loft + Silo Jacuzzi
 
@@ -63,3 +64,10 @@ Instructions
 - **Photo:** `05-fun-pickleball-clinic.png`
 
 Join us for an exciting event that you won't want to miss. Experience the thrill and be part of our community.
+
+## 6. Fun — Yoga Community in Boca Raton
+
+- **Link:** https://yogajourney.com/yjcommunity
+- **Photo:** `06-fun-yoga-journey.png`
+
+Yoga Journey has always been about community, and we're grateful for everyone who has been part of ours. If you've practiced with us, we'd love to hear about your experience.
