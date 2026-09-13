@@ -2,12 +2,10 @@
 
 Collected from Chris. Do not seed these into the live app until the set is complete.
 
-Photos 1 and 2 were staged on the `appstore` agent and were not committed. Re-send those photos if they should ship.
-
 | # | Category | Title | Photo |
 |---|---|---|---|
-| 1 | Places | Luxury private lakefront Barn Loft + Silo Jacuzzi | missing |
-| 2 | Places | Eco-Luxurious Lakefront haven (Fire pit & Hot Tub) | missing |
+| 1 | Places | Luxury private lakefront Barn Loft + Silo Jacuzzi | `01-places-barn-loft.png` |
+| 2 | Places | Eco-Luxurious Lakefront haven (Fire pit & Hot Tub) | `02-places-eco-lux.png` |
 | 3 | Eats | Le Colonial Delray Beach | `03-eats-le-colonial.png` |
 | 4 | Eats | Easy Homemade Sauerkraut (Fermented Cabbage) | `04-eats-sauerkraut.png` |
 | 5 | Fun | Intermediate Pickleball Clinic by the Palm Beach Royals x Nikki Roth | `05-fun-pickleball-clinic.png` |
@@ -16,14 +14,14 @@ Photos 1 and 2 were staged on the `appstore` agent and were not committed. Re-se
 ## 1. Places — Luxury private lakefront Barn Loft + Silo Jacuzzi
 
 - **Link:** https://www.airbnb.com/rooms/1660244481236892848?guests=1&adults=1&s=67&unique_share_id=5661229e-e8c6-4e11-8e7f-277755cb63ad&source_impression_id=p3_1789326720_P3s9gNohwU3CVQDm
-- **Photo:** couple at the fence, black barn + silo (not in this repo)
+- **Photo:** `01-places-barn-loft.png`
 
 Escape to a one-of-a-kind private lakefront barn loft on peaceful farmland in Dade City. Designed with dreamy Victorian style, antique character, and a romantic high-end boutique feel, this stay blends rustic charm with elevated comfort. Unwind in the silo jacuzzi, enjoy slow mornings on the deck beneath the trees, watch movies on the large-screen projector, and meet our friendly farm animals for a magical agritourism escape that feels private, special, and luxurious.
 
 ## 2. Places — Eco-Luxurious Lakefront haven (Fire pit & Hot Tub)
 
 - **Link:** https://www.airbnb.com/rooms/976091434015163591?guests=1&adults=1&s=67&unique_share_id=a44a02db-6b0b-4827-9cf5-b54bd6422955&source_impression_id=p3_1789326918_P3ns_i-_2TQK7qY2
-- **Photo:** couple in the hot tub at sunset (not in this repo)
+- **Photo:** `02-places-eco-lux.png`
 
 Experience the perfect blend of an eco-friendly retreat and modern luxury of our lakefront container home. Nestled in the heart of nature, this stylish oasis promises an unforgettable experience where you can immerse yourself amidst the beauty of the countryside without sacrificing comfort. Plus, enjoy the opportunity to interact with our farm animals, adding a touch of rural charm to your agritourism escape.
 
