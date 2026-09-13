@@ -71,9 +71,9 @@ Join us for an exciting event that you won't want to miss. Experience the thrill
 
 Yoga Journey has always been about community, and we're grateful for everyone who has been part of ours. If you've practiced with us, we'd love to hear about your experience.
 
-## 7. Fun — Sail Greece as a Traveler, Not a Tourist
+## 7. Places — Sail Greece as a Traveler, Not a Tourist
 
 - **Link:** https://greekseas.com/
-- **Photo:** `07-fun-greek-seas.png`
+- **Photo:** `07-places-greek-seas.png`
 
 The Lagoon 450 is where comfort meets performance. This spacious luxury catamaran is designed for groups who want to experience the Greek islands without compromising on space or amenities. With room for up to eight guests, everyone has their own private retreat onboard.
