@@ -9,7 +9,8 @@ Collected from Chris. Do not seed these into the live app until the set is compl
 | 3 | Eats | Le Colonial Delray Beach | `03-eats-le-colonial.png` |
 | 4 | Eats | Easy Homemade Sauerkraut (Fermented Cabbage) | `04-eats-sauerkraut.png` |
 | 5 | Fun | Intermediate Pickleball Clinic by the Palm Beach Royals x Nikki Roth | `05-fun-pickleball-clinic.png` |
-| 6 | Fun | Yoga Community in Boca Raton | `06-fun-yoga-journey.png` |
+| 6 | Places | Yoga Community in Boca Raton | `06-places-yoga-journey.png` |
+| 7 | Fun | Sail Greece as a Traveler, Not a Tourist | `07-fun-greek-seas.png` |
 
 ## 1. Places — Luxury private lakefront Barn Loft + Silo Jacuzzi
 
@@ -63,9 +64,16 @@ Instructions
 
 Join us for an exciting event that you won't want to miss. Experience the thrill and be part of our community.
 
-## 6. Fun — Yoga Community in Boca Raton
+## 6. Places — Yoga Community in Boca Raton
 
 - **Link:** https://yogajourney.com/yjcommunity
-- **Photo:** `06-fun-yoga-journey.png`
+- **Photo:** `06-places-yoga-journey.png`
 
 Yoga Journey has always been about community, and we're grateful for everyone who has been part of ours. If you've practiced with us, we'd love to hear about your experience.
+
+## 7. Fun — Sail Greece as a Traveler, Not a Tourist
+
+- **Link:** https://greekseas.com/
+- **Photo:** `07-fun-greek-seas.png`
+
+The Lagoon 450 is where comfort meets performance. This spacious luxury catamaran is designed for groups who want to experience the Greek islands without compromising on space or amenities. With room for up to eight guests, everyone has their own private retreat onboard.
