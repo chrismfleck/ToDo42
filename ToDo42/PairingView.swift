@@ -148,6 +148,9 @@ struct PairingView: View {
                 .foregroundStyle(Palette.brandBlue(colorScheme))
             Text("This phone is \(session.myHeartLabel). Hearts and new items sync to \(session.partnerHeartLabel).")
                 .foregroundStyle(.secondary)
+            Text("Lock-screen banners need the TestFlight or App Store build on both phones. An Xcode Play install can sync the list but Apple will not deliver those pushes.")
+                .font(.footnote)
+                .foregroundStyle(.secondary)
             if let code = session.inviteCode, session.role == .chris {
                 Text("Invite code: \(code)")
                     .font(.headline)

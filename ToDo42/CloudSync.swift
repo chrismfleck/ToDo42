@@ -892,7 +892,7 @@ final class CloudSync {
         let info = Self.alertNotificationInfo()
         let newID = "todo42-alert-\(pairID.prefix(8))-\(myRole.rawValue)"
 
-        let migrateKey = "todo42.pushSub.v2.\(pairID.prefix(8))"
+        let migrateKey = "todo42.pushSub.v3.\(pairID.prefix(8))"
         if !UserDefaults.standard.bool(forKey: migrateKey) {
             for oldID in [
                 "todo42-tditem-\(pairID.prefix(8))",
@@ -932,9 +932,6 @@ final class CloudSync {
         info.soundName = "default"
         info.title = "Save 4 Two"
         info.alertBody = "Your list was updated"
-        info.alertLocalizationKey = "CK_NOTIFY_BODY"
-        info.alertLocalizationArgs = ["notifyText"]
-        info.desiredKeys = ["notifyText", "title", "lastEditor"]
         return info
     }
 
