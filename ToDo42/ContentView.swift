@@ -235,6 +235,7 @@ struct ContentView: View {
         }
         .onAppear {
             importSharedDrafts()
+            seedIfNeeded()
             normalizeStoredText()
             Task { await refreshFromCloud() }
         }
@@ -374,6 +375,16 @@ struct ContentView: View {
                 }
             }
             reorderDrag = nil
+        }
+    }
+
+    private func seedIfNeeded() {
+        let key = "todo42.seeded.v3"
+        guard !UserDefaults.standard.bool(forKey: key) else { return }
+        defer { UserDefaults.standard.set(true, forKey: key) }
+        guard items.isEmpty else { return }
+        for (index, seed) in SampleData.seeds.enumerated() {
+            modelContext.insert(SampleData.makeItem(seed, sortOrder: index))
         }
     }
 
@@ -1000,17 +1011,16 @@ struct ItemDetailView: View {
             }
         } else if isEditing {
             PhotosPicker(selection: $extraPhotoItem, matching: .images) {
-                VStack(spacing: 10) {
+                HStack(spacing: 10) {
                     Image(systemName: "photo.badge.plus")
-                        .font(.system(size: 28, weight: .medium))
+                        .font(.system(size: 22, weight: .semibold))
                     Text("Add photo")
-                        .font(.subheadline.weight(.semibold))
+                        .font(.headline)
                 }
                 .foregroundStyle(Palette.brandBlue(colorScheme))
                 .frame(maxWidth: .infinity)
-                .frame(height: 280)
-                .background(Palette.canvas(colorScheme))
-                .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+                .padding(.vertical, 18)
+                .appCard(cornerRadius: 12, scheme: colorScheme)
             }
             .buttonStyle(.plain)
             .accessibilityLabel("Add extra photo")

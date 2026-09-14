@@ -46,8 +46,8 @@ final class PairSession {
         !trimmedMyName.isEmpty && !trimmedPartnerName.isEmpty
     }
 
-    var myHeartLabel: String { trimmedMyName.isEmpty ? "Me" : trimmedMyName }
-    var partnerHeartLabel: String { trimmedPartnerName.isEmpty ? "Partner" : trimmedPartnerName }
+    var myHeartLabel: String { trimmedMyName.isEmpty ? "YourName" : trimmedMyName }
+    var partnerHeartLabel: String { trimmedPartnerName.isEmpty ? "PartnerName" : trimmedPartnerName }
     var revealCategoryRaw: String?
 
     func takeRevealCategory() -> ItemCategory? {
