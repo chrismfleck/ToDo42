@@ -47,7 +47,7 @@ struct ContentView: View {
     @State private var category: ItemCategory = .places
     @State private var showAdd = false
     @State private var showPairing = false
-    @State private var showHelp = false
+    @State private var showHelp = !UserDefaults.standard.bool(forKey: Self.hasSeenHelpKey)
     @Environment(PairSession.self) private var pairSession
     @State private var swipingItemID: UUID?
     @State private var selectedItem: TodoItem?
@@ -56,6 +56,7 @@ struct ContentView: View {
     @State private var rowHeights: [UUID: CGFloat] = [:]
 
     private static let hasLeftListEditKey = "todo42.hasLeftListEditMode"
+    private static let hasSeenHelpKey = "todo42.hasSeenHelp.v2"
 
     private var filtered: [TodoItem] {
         items
@@ -230,18 +231,26 @@ struct ContentView: View {
             PairingView()
                 .environment(PairSession.shared)
         }
-        .sheet(isPresented: $showHelp) {
+        .sheet(isPresented: $showHelp, onDismiss: {
+            UserDefaults.standard.set(true, forKey: Self.hasSeenHelpKey)
+        }) {
             HelpView()
         }
         .onAppear {
             importSharedDrafts()
             normalizeStoredText()
-            Task { await refreshFromCloud() }
+            Task {
+                await refreshFromCloud()
+                seedIfNeeded()
+            }
         }
         .onChange(of: scenePhase) { _, phase in
             if phase == .active {
                 importSharedDrafts()
-                Task { await refreshFromCloud() }
+                Task {
+                    await refreshFromCloud()
+                    seedIfNeeded()
+                }
             }
         }
         .onReceive(NotificationCenter.default.publisher(for: .todo42CloudPush)) { _ in
@@ -277,6 +286,19 @@ struct ContentView: View {
         if let cat = PairSession.shared.takeRevealCategory() {
             category = cat
         }
+    }
+
+    /// First-launch demos for a brand-new empty list. Skip paired phones and
+    /// any list that already has items so Chris/Deena keep their real data.
+    private func seedIfNeeded() {
+        let key = "todo42.seeded.v4"
+        guard !UserDefaults.standard.bool(forKey: key) else { return }
+        guard !pairSession.isPaired else { return }
+        guard ItemStore.allItems(in: modelContext).isEmpty else { return }
+        for (index, seed) in SampleData.seeds.enumerated() {
+            modelContext.insert(SampleData.makeItem(seed, sortOrder: index))
+        }
+        UserDefaults.standard.set(true, forKey: key)
     }
 
     private func normalizeSortOrders() {
