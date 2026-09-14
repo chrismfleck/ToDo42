@@ -77,3 +77,28 @@ Yoga Journey has always been about community, and we're grateful for everyone wh
 - **Photo:** `07-places-greek-seas.png`
 
 The Lagoon 450 is where comfort meets performance. This spacious luxury catamaran is designed for groups who want to experience the Greek islands without compromising on space or amenities. With room for up to eight guests, everyone has their own private retreat onboard.
+
+---
+
+# Held for next update (not in 1.0.1)
+
+These are cataloged only. They are not seeded in the current app.
+
+| # | Category | Title | Photo |
+|---|---|---|---|
+| 8 | Places | Boat in Jacksonville, Florida | `08-places-jacksonville-trawler.png` |
+| 9 | Places | Sunset on a Historic 1966 Sailboat | missing |
+
+## 8. Places — Boat in Jacksonville, Florida
+
+- **Link:** https://www.airbnb.com/rooms/1711681767125004425?guests=1&adults=1&s=67&unique_share_id=66aea4a7-23ae-41b9-a15e-afca068e8822
+- **Photo:** `08-places-jacksonville-trawler.png`
+
+Stay aboard a classic 1974 trawler on the beautiful St. Johns River. Relax on the spacious upper deck, enjoy stunning Florida sunsets, and experience a unique waterfront escape filled with charm, comfort, and unforgettable views.
+
+## 9. Places — Sunset on a Historic 1966 Sailboat
+
+- **Link:** https://www.airbnb.com/rooms/1690972441082730451?guests=1&adults=1&s=67&unique_share_id=a23c00a8-9138-4f6a-b85f-9df06f513cf8
+- **Photo:** missing
+
+Stay aboard a beautifully preserved 1966 sailboat in a peaceful marina setting. Enjoy river views, stunning sunsets, vintage charm, and a unique overnight experience. Guests also have access to a complimentary tandem kayak and a waterfront restaurant just steps away.
