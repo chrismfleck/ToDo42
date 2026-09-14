@@ -32,6 +32,7 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
         didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil
     ) -> Bool {
         UNUserNotificationCenter.current().delegate = self
+        application.registerForRemoteNotifications()
         return true
     }
 
@@ -48,7 +49,13 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
         _ center: UNUserNotificationCenter,
         willPresent notification: UNNotification
     ) async -> UNNotificationPresentationOptions {
-        [.banner, .sound]
+        // Avoid a double banner while the app is open: CloudKit already
+        // delivered this push, and the fetch posts a local notice next.
+        if notification.request.trigger is UNPushNotificationTrigger,
+           UIApplication.shared.applicationState == .active {
+            return []
+        }
+        return [.banner, .sound]
     }
 }
 

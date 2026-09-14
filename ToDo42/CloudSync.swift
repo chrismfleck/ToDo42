@@ -278,6 +278,8 @@ final class CloudSync {
         await enqueue {
             do {
                 try await self.ensureiCloud()
+                try? await self.subscribe()
+                try? await self.requestNotifications()
                 ItemStore.deduplicate(in: modelContext)
                 if allowCreate {
                     try await self.pushAll(ItemStore.allItems(in: modelContext), allowCreate: true)
@@ -755,6 +757,7 @@ final class CloudSync {
         record["lastEditor"] = item.lastEditor
         if !notifyKind.isEmpty {
             record["notifyKind"] = notifyKind
+            record["notifyText"] = Self.pushBody(kind: notifyKind, title: item.title)
         }
         if let data = item.imageData, !data.isEmpty {
             let url = FileManager.default.temporaryDirectory.appendingPathComponent("\(item.id.uuidString).jpg")
@@ -883,29 +886,66 @@ final class CloudSync {
     }
 
     private func subscribe() async throws {
-        guard let pairID = PairSession.shared.pairID else { return }
+        guard let pairID = PairSession.shared.pairID,
+              let myRole = PairSession.shared.role else { return }
+        let partnerRole = myRole == .chris ? PairRole.deena.rawValue : PairRole.chris.rawValue
+        let info = Self.alertNotificationInfo()
+        let newID = "todo42-alert-\(pairID.prefix(8))-\(myRole.rawValue)"
+
+        let migrateKey = "todo42.pushSub.v2.\(pairID.prefix(8))"
+        if !UserDefaults.standard.bool(forKey: migrateKey) {
+            for oldID in [
+                "todo42-tditem-\(pairID.prefix(8))",
+                "todo42-tditem-all",
+            ] {
+                try? await database.deleteSubscription(withID: oldID)
+            }
+            UserDefaults.standard.set(true, forKey: migrateKey)
+        }
+
+        let predicates = [
+            NSPredicate(format: "pairID == %@ AND lastEditor == %@ AND sortOrder >= 0", pairID, partnerRole),
+            NSPredicate(format: "pairID == %@ AND lastEditor == %@", pairID, partnerRole),
+            NSPredicate(format: "pairID == %@", pairID),
+        ]
+        for predicate in predicates {
+            let subscription = CKQuerySubscription(
+                recordType: "TDItem",
+                predicate: predicate,
+                subscriptionID: newID,
+                options: [.firesOnRecordCreation, .firesOnRecordUpdate]
+            )
+            subscription.notificationInfo = info
+            do {
+                _ = try await database.save(subscription)
+                return
+            } catch {
+                continue
+            }
+        }
+    }
+
+    private static func alertNotificationInfo() -> CKSubscription.NotificationInfo {
         let info = CKSubscription.NotificationInfo()
         info.shouldSendContentAvailable = true
         info.shouldBadge = false
+        info.soundName = "default"
+        info.title = "Save 4 Two"
+        info.alertBody = "Your list was updated"
+        info.alertLocalizationKey = "CK_NOTIFY_BODY"
+        info.alertLocalizationArgs = ["notifyText"]
+        info.desiredKeys = ["notifyText", "title", "lastEditor"]
+        return info
+    }
 
-        let subscription = CKQuerySubscription(
-            recordType: "TDItem",
-            predicate: NSPredicate(format: "pairID == %@", pairID),
-            subscriptionID: "todo42-tditem-\(pairID.prefix(8))",
-            options: [.firesOnRecordCreation, .firesOnRecordUpdate, .firesOnRecordDeletion]
-        )
-        subscription.notificationInfo = info
-        do {
-            _ = try await database.save(subscription)
-        } catch {
-            let fallback = CKQuerySubscription(
-                recordType: "TDItem",
-                predicate: NSPredicate(value: true),
-                subscriptionID: "todo42-tditem-all",
-                options: [.firesOnRecordCreation, .firesOnRecordUpdate, .firesOnRecordDeletion]
-            )
-            fallback.notificationInfo = info
-            _ = try? await database.save(fallback)
+    private static func pushBody(kind: String, title: String) -> String {
+        let who = PairSession.shared.myHeartLabel
+        let item = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        let label = item.isEmpty ? "an item" : item
+        switch kind {
+        case "heart": return "\(who) hearted \(label)"
+        case "add": return "\(who) added \(label)"
+        default: return "\(who) updated \(label)"
         }
     }
 
@@ -945,6 +985,9 @@ final class CloudSync {
     }
 
     private func postNotice(title: String, body: String) {
+        // Lock-screen banners for a closed app come from CloudKit. Local
+        // notices are only for when this phone is already open.
+        guard UIApplication.shared.applicationState == .active else { return }
         let content = UNMutableNotificationContent()
         content.title = title
         content.body = body
