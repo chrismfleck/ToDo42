@@ -16,11 +16,11 @@ struct HelpView: View {
                     VStack(alignment: .leading, spacing: 18) {
                         HelpStep(
                             number: 1,
-                            spoken: "To add an item, tap plus, paste a link, then tap Go or Save. Title, photo, and notes fill in. Or skip the link and type the details. Tap check for home page."
+                            spoken: "To add an item, tap plus paste a link. Title, photo, and notes auto fill in. Or skip the link and type the details and save. Then tap check for home page."
                         ) {
                             helpText("To add an item, tap ")
                             + chrome("plus.circle.fill")
-                            + helpText(" paste a link, then tap Go or Save. Title, photo, and notes fill in. Or skip the link and type the details. Tap ")
+                            + helpText(" paste a link. Title, photo, and notes auto fill in. Or skip the link and type the details and save. Then tap ")
                             + chrome("checkmark")
                             + helpText(" for home page.")
                         }
