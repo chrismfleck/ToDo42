@@ -20,14 +20,23 @@ struct HelpView: View {
                         ) {
                             helpText("Tap ")
                             + chrome("person.2")
-                            + helpText(" Enter names, send invite to partner. Or enter a code if you are sent one.")
+                            + helpText(" Enter names, send invite to partner. Or enter a code if you are sent one. Both phones need iCloud.")
                         }
 
                         HelpStep(
                             number: 2,
+                            spoken: "To add from a link, tap plus, paste the URL, then tap Go or Save. Title, photo, and notes fill in. Edit if you want, pick a category, tap Save."
+                        ) {
+                            helpText("To add from a link, tap ")
+                            + chrome("plus.circle.fill")
+                            + helpText(" paste the URL, then tap Go or Save. Title, photo, and notes fill in. Edit if you want, pick Places, Fun, or Eats, then tap Save.")
+                        }
+
+                        HelpStep(
+                            number: 3,
                             spoken: "From a page on Instagram or TikTok, tap Share, then Share to."
                         ) {
-                            helpText("From a page on Instagram or TikTok etc, tap ")
+                            helpText("Or from a page on Instagram or TikTok etc, tap ")
                             + chrome("paperplane")
                             + helpText(" then ")
                             + chrome("square.and.arrow.up")
@@ -35,12 +44,12 @@ struct HelpView: View {
                         }
 
                         HelpStep(
-                            number: 3,
-                            spoken: "Look for the Save4Two app icon. You may need to swipe left."
+                            number: 4,
+                            spoken: "Look for the Save 4 Two app icon. You may need to swipe left."
                         ) {
                             VStack(alignment: .leading, spacing: 10) {
                                 helpText("Look for ")
-                                + helpText("Save4Two")
+                                + helpText("Save 4 Two")
                                     .fontWeight(.semibold)
                                 + helpText(" — you may need to swipe left.")
                                 Image("HelpAppIcon")
@@ -53,14 +62,14 @@ struct HelpView: View {
                         }
 
                         HelpStep(
-                            number: 4,
+                            number: 5,
                             spoken: "Wait for the photo if it is still loading. Review or edit the page, select a category, tap Save."
                         ) {
                             helpText("Wait for the photo if it is still loading. Review or edit the page, select a category, tap Save.")
                         }
 
                         HelpStep(
-                            number: 5,
+                            number: 6,
                             spoken: "In list view, items can be reordered by tapping the gear and dragging the hamburger handle up or down. Then tap the check."
                         ) {
                             helpText("In list view, items can be reordered by tapping ")
@@ -73,23 +82,30 @@ struct HelpView: View {
                         }
 
                         HelpStep(
-                            number: 6,
-                            spoken: "To enter a new item manually, tap plus, fill in the detail fields, then tap Save."
+                            number: 7,
+                            spoken: "You can also add an item by typing. Tap plus and fill in the detail fields, then tap Save."
                         ) {
-                            helpText("To enter a new item manually, tap ")
+                            helpText("You can also add by typing. Tap ")
                             + chrome("plus.circle.fill")
-                            + helpText(" and fill in the detail fields, then tap Save.")
+                            + helpText(" skip the link, fill in title and notes, then tap Save.")
                         }
 
                         HelpStep(
-                            number: 7,
-                            spoken: "To edit an item, tap it in the list, then tap the gear on that page. Details can be edited and an extra photo can be added and saved for a fun memory. Tap the check when you are done. If you see red minus buttons, tap the check first so items can be opened."
+                            number: 8,
+                            spoken: "To edit an item, tap it in the list, then tap the gear on that page. Details can be edited and an extra photo can be added and saved for a fun memory. Tap your heart so your partner sees you like it. Tap the check when you are done. If you see red minus buttons, tap the check first so items can be opened."
                         ) {
                             helpText("To edit an item, tap it in the list, then tap ")
                             + chrome("gearshape")
-                            + helpText(" on that page. Details can be edited and an extra photo can be added and saved for a fun memory. Tap ")
+                            + helpText(" on that page. Details can be edited and an extra photo can be added and saved for a fun memory. Tap your heart so your partner sees you like it. Tap ")
                             + chrome("checkmark")
                             + helpText(" when you are done. If you see red minus buttons, tap the check first so items can be opened.")
+                        }
+
+                        HelpStep(
+                            number: 9,
+                            spoken: "When your partner adds, hearts, or edits, a lock-screen banner says Save 4 Two, Your list was updated. Allow notifications when asked."
+                        ) {
+                            helpText("When your partner adds, hearts, or edits, a lock-screen banner says Save 4 Two — Your list was updated. Allow notifications when asked.")
                         }
                     }
 
