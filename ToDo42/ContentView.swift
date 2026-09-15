@@ -1279,7 +1279,11 @@ struct AddItemView: View {
             .onChange(of: urlString) { _, _ in
                 let link = normalizedLink
                 guard link.hasPrefix("http"), link != lastFetchedLink else { return }
-                Task { await enrichFromPage(saveIfReady: false) }
+                Task {
+                    try? await Task.sleep(for: .milliseconds(700))
+                    guard Self.normalizedURL(urlString) == link else { return }
+                    await enrichFromPage(saveIfReady: false)
+                }
             }
         }
         .tint(Palette.brandBlue(colorScheme))
