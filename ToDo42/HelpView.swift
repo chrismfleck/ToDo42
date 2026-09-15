@@ -16,39 +16,34 @@ struct HelpView: View {
                     VStack(alignment: .leading, spacing: 18) {
                         HelpStep(
                             number: 1,
-                            spoken: "Tap the pair icon. Enter names, send invite to partner. Or enter a code if you are sent one."
+                            spoken: "To add an item, tap plus, paste a link, then tap Go or Save. Title, photo, and notes fill in. Or skip the link and type the details. Tap check for home page."
                         ) {
-                            helpText("Tap ")
-                            + chrome("person.2")
-                            + helpText(" Enter names, send invite to partner. Or enter a code if you are sent one. Both phones need iCloud.")
+                            helpText("To add an item, tap ")
+                            + chrome("plus.circle.fill")
+                            + helpText(" paste a link, then tap Go or Save. Title, photo, and notes fill in. Or skip the link and type the details. Tap ")
+                            + chrome("checkmark")
+                            + helpText(" for home page.")
                         }
 
                         HelpStep(
                             number: 2,
-                            spoken: "To add from a link, tap plus, paste the URL, then tap Go or Save. Title, photo, and notes fill in. Edit if you want, pick a category, tap Save."
+                            spoken: "To add a partner tap the pair icon. Enter names, send invite to partner. Or enter a code if you are sent one."
                         ) {
-                            helpText("To add from a link, tap ")
-                            + chrome("plus.circle.fill")
-                            + helpText(" paste the URL, then tap Go or Save. Title, photo, and notes fill in. Edit if you want, pick Places, Fun, or Eats, then tap Save.")
+                            helpText("To add a partner tap ")
+                            + chrome("person.2")
+                            + helpText(". Enter names, send invite to partner. Or enter a code if you are sent one.")
                         }
 
                         HelpStep(
                             number: 3,
-                            spoken: "From a page on Instagram or TikTok, tap Share, then Share to."
-                        ) {
-                            helpText("Or from a page on Instagram or TikTok etc, tap ")
-                            + chrome("paperplane")
-                            + helpText(" then ")
-                            + chrome("square.and.arrow.up")
-                            + helpText(".")
-                        }
-
-                        HelpStep(
-                            number: 4,
-                            spoken: "Look for the Save 4 Two app icon. You may need to swipe left."
+                            spoken: "From a page on Instagram or TikTok, tap Share, then Share to. Look for the Save 4 Two app icon. You may need to swipe left."
                         ) {
                             VStack(alignment: .leading, spacing: 10) {
-                                helpText("Look for ")
+                                helpText("From a page on Instagram or TikTok etc, tap ")
+                                + chrome("paperplane")
+                                + helpText(" then ")
+                                + chrome("square.and.arrow.up")
+                                + helpText(". Look for ")
                                 + helpText("Save 4 Two")
                                     .fontWeight(.semibold)
                                 + helpText(" — you may need to swipe left.")
@@ -62,14 +57,14 @@ struct HelpView: View {
                         }
 
                         HelpStep(
-                            number: 5,
+                            number: 4,
                             spoken: "Wait for the photo if it is still loading. Review or edit the page, select a category, tap Save."
                         ) {
                             helpText("Wait for the photo if it is still loading. Review or edit the page, select a category, tap Save.")
                         }
 
                         HelpStep(
-                            number: 6,
+                            number: 5,
                             spoken: "In list view, items can be reordered by tapping the gear and dragging the hamburger handle up or down. Then tap the check."
                         ) {
                             helpText("In list view, items can be reordered by tapping ")
@@ -82,27 +77,31 @@ struct HelpView: View {
                         }
 
                         HelpStep(
-                            number: 7,
-                            spoken: "You can also add an item by typing. Tap plus and fill in the detail fields, then tap Save."
-                        ) {
-                            helpText("You can also add by typing. Tap ")
-                            + chrome("plus.circle.fill")
-                            + helpText(" skip the link, fill in title and notes, then tap Save.")
-                        }
-
-                        HelpStep(
-                            number: 8,
-                            spoken: "To edit an item, tap it in the list, then tap the gear on that page. Details can be edited and an extra photo can be added and saved for a fun memory. Tap your heart so your partner sees you like it. Tap the check when you are done. If you see red minus buttons, tap the check first so items can be opened."
+                            number: 6,
+                            spoken: "To edit an item, tap it in the list, then tap the gear on that page. Details can be edited and an extra photo can be added and saved for a fun memory. Tap your heart so your partner sees you like it. Tap the check when you are done."
                         ) {
                             helpText("To edit an item, tap it in the list, then tap ")
                             + chrome("gearshape")
                             + helpText(" on that page. Details can be edited and an extra photo can be added and saved for a fun memory. Tap your heart so your partner sees you like it. Tap ")
                             + chrome("checkmark")
-                            + helpText(" when you are done. If you see red minus buttons, tap the check first so items can be opened.")
+                            + helpText(" when you are done.")
                         }
 
                         HelpStep(
-                            number: 9,
+                            number: 7,
+                            spoken: "To delete an item from the home page, tap the gear, tap the red minus, then tap the check to save."
+                        ) {
+                            helpText("To delete item from home page, tap ")
+                            + chrome("gearshape")
+                            + helpText(", tap ")
+                            + redChrome("minus.circle.fill")
+                            + helpText(", tap ")
+                            + chrome("checkmark")
+                            + helpText(" to save.")
+                        }
+
+                        HelpStep(
+                            number: 8,
                             spoken: "When your partner adds, hearts, or edits, a lock-screen banner says Save 4 Two, Your list was updated. Allow notifications when asked."
                         ) {
                             helpText("When your partner adds, hearts, or edits, a lock-screen banner says Save 4 Two — Your list was updated. Allow notifications when asked.")
@@ -127,23 +126,18 @@ struct HelpView: View {
     }
 
     private var openingScreenshot: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text("Opening page")
-                .font(.caption.weight(.semibold))
-                .foregroundStyle(.secondary)
-            Image("HelpOpening")
-                .resizable()
-                .scaledToFit()
-                .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
-                .overlay {
-                    RoundedRectangle(cornerRadius: 18, style: .continuous)
-                        .strokeBorder(
-                            Palette.isDark(colorScheme) ? Color.white.opacity(0.16) : Color.black.opacity(0.08),
-                            lineWidth: 1
-                        )
-                }
-                .accessibilityLabel("Screenshot of the opening list page in edit mode")
-        }
+        Image("HelpOpening")
+            .resizable()
+            .scaledToFit()
+            .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+            .overlay {
+                RoundedRectangle(cornerRadius: 18, style: .continuous)
+                    .strokeBorder(
+                        Palette.isDark(colorScheme) ? Color.white.opacity(0.16) : Color.black.opacity(0.08),
+                        lineWidth: 1
+                    )
+            }
+            .accessibilityLabel("Screenshot of the home list in edit mode")
     }
 
     private var footer: some View {
@@ -178,6 +172,12 @@ struct HelpView: View {
         Text(Image(systemName: systemName))
             .font(.body.weight(.semibold))
             .foregroundColor(Palette.brandBlue(colorScheme))
+    }
+
+    private func redChrome(_ systemName: String) -> Text {
+        Text(Image(systemName: systemName))
+            .font(.body.weight(.semibold))
+            .foregroundColor(.red)
     }
 }
 
