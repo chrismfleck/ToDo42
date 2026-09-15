@@ -18,6 +18,33 @@ enum ItemCategory: String, CaseIterable, Identifiable {
         case .eats: "fork.knife"
         }
     }
+
+    static func guessed(urlString: String, title: String) -> ItemCategory {
+        let haystack = "\(urlString) \(title)".lowercased()
+        if haystack.contains("airbnb") || haystack.contains("vrbo") || haystack.contains("hotel") || haystack.contains("maps.apple") {
+            return .places
+        }
+        if haystack.contains("allrecipes")
+            || haystack.contains("nytimes.com/cooking")
+            || haystack.contains("yelp")
+            || haystack.contains("opentable")
+            || haystack.contains("recipe")
+            || haystack.contains("ingredients") {
+            return .eats
+        }
+        if haystack.contains("instagram")
+            || haystack.contains("youtube")
+            || haystack.contains("tiktok")
+            || haystack.contains("x.com")
+            || haystack.contains("twitter.com")
+            || haystack.contains("t.co")
+            || haystack.contains("facebook.com")
+            || haystack.contains("fb.com")
+            || haystack.contains("fb.watch") {
+            return .fun
+        }
+        return .places
+    }
 }
 
 @Model

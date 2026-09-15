@@ -1183,10 +1183,41 @@ struct AddItemView: View {
     @State private var selectedCategory: ItemCategory = .places
     @State private var photoItem: PhotosPickerItem?
     @State private var photoData: Data?
+    @State private var isLoadingMeta = false
+    @State private var lastFetchedLink = ""
+
+    private var normalizedLink: String {
+        Self.normalizedURL(urlString)
+    }
+
+    private var canSave: Bool {
+        !isLoadingMeta && (
+            !title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            || normalizedLink.hasPrefix("http")
+        )
+    }
 
     var body: some View {
         NavigationStack {
             Form {
+                Section("Paste a link") {
+                    TextField("https://", text: $urlString)
+                        .textInputAutocapitalization(.never)
+                        .keyboardType(.URL)
+                        .autocorrectionDisabled()
+                        .submitLabel(.go)
+                        .onSubmit {
+                            Task { await enrichFromPage(saveIfReady: true) }
+                        }
+                    if isLoadingMeta {
+                        HStack(spacing: 10) {
+                            ProgressView()
+                            Text("Getting title, photo, and notes…")
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                }
+
                 Section("Details") {
                     PhotosPicker(selection: $photoItem, matching: .images) {
                         if let photoData, let uiImage = UIImage(data: photoData) {
@@ -1220,10 +1251,6 @@ struct AddItemView: View {
 
                     TextField("Title", text: $title, axis: .vertical)
                         .lineLimit(1...4)
-                    TextField("Link", text: $urlString)
-                        .textInputAutocapitalization(.never)
-                        .keyboardType(.URL)
-                        .autocorrectionDisabled()
                     TextField("Notes", text: $notes, axis: .vertical)
                         .lineLimit(3...6)
                     Picker("Category", selection: $selectedCategory) {
@@ -1239,13 +1266,20 @@ struct AddItemView: View {
                     Button("Cancel") { dismiss() }
                 }
                 ToolbarItem(placement: .confirmationAction) {
-                    Button("Save") { save() }
-                        .disabled(title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                    Button("Save") {
+                        Task { await enrichFromPage(saveIfReady: true) }
+                    }
+                    .disabled(!canSave)
                 }
             }
             .onAppear { selectedCategory = category }
             .onChange(of: photoItem) { _, newItem in
                 Task { await loadPickedPhoto(newItem) }
+            }
+            .onChange(of: urlString) { _, _ in
+                let link = normalizedLink
+                guard link.hasPrefix("http"), link != lastFetchedLink else { return }
+                Task { await enrichFromPage(saveIfReady: false) }
             }
         }
         .tint(Palette.brandBlue(colorScheme))
@@ -1259,23 +1293,95 @@ struct AddItemView: View {
         photoData = jpeg
     }
 
+    private func enrichFromPage(saveIfReady: Bool) async {
+        let link = normalizedLink
+        urlString = link
+        if !link.hasPrefix("http") {
+            if saveIfReady { save() }
+            return
+        }
+        if lastFetchedLink == link, !title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            if saveIfReady { save() }
+            return
+        }
+        isLoadingMeta = true
+        lastFetchedLink = link
+        let meta = await PageMetadata.fetch(from: link)
+        if InstagramShareText.isInstagramURL(link) {
+            let split = InstagramShareText.split(from: [
+                title,
+                notes,
+                meta.title ?? "",
+                meta.description ?? "",
+            ])
+            if !split.title.isEmpty {
+                title = split.title
+                selectedCategory = ItemCategory.guessed(urlString: link, title: split.title + " " + split.notes)
+            }
+            notes = split.notes
+        } else if FacebookShareText.isFacebookURL(link) {
+            if PageMetadata.isPlaceholderTitle(title), let pageTitle = meta.title, !pageTitle.isEmpty {
+                title = pageTitle
+            }
+            let split = FacebookShareText.split(from: [
+                title,
+                notes,
+                meta.title ?? "",
+                meta.description ?? "",
+            ])
+            if !split.title.isEmpty {
+                title = split.title
+                selectedCategory = ItemCategory.guessed(urlString: link, title: split.title + " " + split.notes)
+            }
+            notes = split.notes
+        } else {
+            if PageMetadata.isPlaceholderTitle(title), let pageTitle = meta.title, !pageTitle.isEmpty {
+                title = pageTitle
+                selectedCategory = ItemCategory.guessed(urlString: link, title: pageTitle)
+            }
+            if notes.isEmpty, let description = meta.description, !description.isEmpty {
+                notes = description
+            }
+        }
+        let cut = SharedText.cutTitle(title, notes: notes)
+        title = cut.title
+        notes = cut.notes
+        if photoData == nil, let image = meta.image, let jpeg = PhotoJPEG.compressed(image) {
+            photoData = jpeg
+        }
+        isLoadingMeta = false
+        if saveIfReady {
+            save()
+        }
+    }
+
     private func save() {
-        let cut = SharedText.cutTitle(SharedText.normalized(title), notes: SharedText.reflowNotes(notes))
-        let trimmedTitle = cut.title
-        let trimmedLink = urlString.trimmingCharacters(in: .whitespacesAndNewlines)
-        let trimmedNotes = cut.notes
+        var trimmedTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmedLink = normalizedLink
+        if trimmedTitle.isEmpty, trimmedLink.hasPrefix("http"), let url = URL(string: trimmedLink) {
+            trimmedTitle = url.host?.replacingOccurrences(of: "www.", with: "") ?? "Saved link"
+        }
+        guard !trimmedTitle.isEmpty else { return }
+        let cut = SharedText.cutTitle(SharedText.normalized(trimmedTitle), notes: SharedText.reflowNotes(notes))
         let nextSortOrder = (items.filter { $0.category == selectedCategory }.map(\.sortOrder).min() ?? 0) - 1
         let item = TodoItem(
-            title: trimmedTitle,
+            title: cut.title,
             category: selectedCategory,
-            urlString: trimmedLink.isEmpty ? nil : trimmedLink,
+            urlString: trimmedLink.hasPrefix("http") ? trimmedLink : nil,
             imageData: photoData,
-            notes: trimmedNotes,
+            notes: cut.notes,
             sortOrder: nextSortOrder
         )
         modelContext.insert(item)
         PairSession.shared.noteLocalEdit(item, kind: "add")
         dismiss()
+    }
+
+    private static func normalizedURL(_ raw: String) -> String {
+        var s = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        if s.hasPrefix("http://") || s.hasPrefix("https://") { return s }
+        if s.contains("."), !s.contains(" ") { return "https://\(s)" }
+        return s
     }
 }
 
