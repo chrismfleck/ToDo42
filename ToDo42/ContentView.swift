@@ -275,6 +275,7 @@ struct ContentView: View {
 
     private func refreshFromCloud() async {
         await CloudSync.shared.sync(modelContext: modelContext)
+        seedIfNeeded()
         if let cat = PairSession.shared.takeRevealCategory() {
             category = cat
         }
@@ -379,9 +380,8 @@ struct ContentView: View {
     }
 
     private func seedIfNeeded() {
-        let key = "todo42.seeded.v5"
-        guard !UserDefaults.standard.bool(forKey: key) else { return }
-        defer { UserDefaults.standard.set(true, forKey: key) }
+        // Paired phones use the shared iCloud list. Samples are only for a
+        // fresh local install so they can be shown in Simulator / App Store.
         if pairSession.isPaired { return }
 
         let oldThree = Set([
@@ -391,11 +391,15 @@ struct ContentView: View {
         ])
         let sampleTitles = Set(SampleData.seeds.map(\.title)).union(oldThree)
         let titles = Set(items.map(\.title))
-        let onlyOldPlaceholders = !items.isEmpty && titles.isSubset(of: oldThree)
-        let onlySamples = !items.isEmpty && titles.isSubset(of: sampleTitles)
-        guard items.isEmpty || onlyOldPlaceholders || onlySamples else { return }
 
-        if items.isEmpty || onlyOldPlaceholders {
+        if items.isEmpty {
+            for (index, seed) in SampleData.seeds.enumerated() {
+                modelContext.insert(SampleData.makeItem(seed, sortOrder: index))
+            }
+            return
+        }
+
+        if titles.isSubset(of: oldThree) {
             for item in items {
                 modelContext.delete(item)
             }
@@ -405,9 +409,9 @@ struct ContentView: View {
             return
         }
 
-        let existing = Set(items.map(\.title))
+        guard titles.isSubset(of: sampleTitles) else { return }
         var nextOrder = (items.map(\.sortOrder).min() ?? 0) - 1
-        for seed in SampleData.seeds where !existing.contains(seed.title) {
+        for seed in SampleData.seeds where !titles.contains(seed.title) {
             modelContext.insert(SampleData.makeItem(seed, sortOrder: nextOrder))
             nextOrder -= 1
         }
