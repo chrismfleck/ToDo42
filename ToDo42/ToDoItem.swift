@@ -219,6 +219,20 @@ enum SampleData {
             """
         ),
         Seed(
+            title: "Historic 1974 Trawler on the River",
+            category: .places,
+            urlString: "https://www.airbnb.com/rooms/1711681767125004425?unique_share_id=d056ee0a-c8c7-40c7-aa9f-a343947016ee&viralityEntryPoint=1&s=76&source_impression_id=p3_1789567442_P3qKxUqUrkrImx9t",
+            imageAssetName: "HistoricTrawler",
+            notes: "Stay aboard a classic 1974 trawler on the beautiful St. Johns River. Relax on the spacious upper deck, enjoy stunning Florida sunsets, and experience a unique waterfront escape filled with charm, comfort, and unforgettable views."
+        ),
+        Seed(
+            title: "Sunset on a Historic 1966 Sailboat",
+            category: .places,
+            urlString: "https://www.airbnb.com/rooms/1690972441082730451?unique_share_id=8c954171-bcff-4b21-8555-e06f5f57aaca&viralityEntryPoint=1&s=76&source_impression_id=p3_1789567479_P3UQMhY0D3dn29Ka",
+            imageAssetName: "HistoricSailboat",
+            notes: "Stay aboard a beautifully preserved 1966 sailboat in a peaceful marina setting. Enjoy river views, stunning sunsets, vintage charm, and a unique overnight experience. Guests also have access to a complimentary tandem kayak and a waterfront restaurant just steps away."
+        ),
+        Seed(
             title: "Sail Greece as a Traveler, Not a Tourist",
             category: .places,
             urlString: "https://greekseas.com/",

@@ -379,7 +379,7 @@ struct ContentView: View {
     }
 
     private func seedIfNeeded() {
-        let key = "todo42.seeded.v4"
+        let key = "todo42.seeded.v5"
         guard !UserDefaults.standard.bool(forKey: key) else { return }
         defer { UserDefaults.standard.set(true, forKey: key) }
         if pairSession.isPaired { return }
@@ -389,15 +389,27 @@ struct ContentView: View {
             "Greek Seas Charter Sailing",
             "Keto recipe",
         ])
+        let sampleTitles = Set(SampleData.seeds.map(\.title)).union(oldThree)
         let titles = Set(items.map(\.title))
         let onlyOldPlaceholders = !items.isEmpty && titles.isSubset(of: oldThree)
-        guard items.isEmpty || onlyOldPlaceholders else { return }
+        let onlySamples = !items.isEmpty && titles.isSubset(of: sampleTitles)
+        guard items.isEmpty || onlyOldPlaceholders || onlySamples else { return }
 
-        for item in items {
-            modelContext.delete(item)
+        if items.isEmpty || onlyOldPlaceholders {
+            for item in items {
+                modelContext.delete(item)
+            }
+            for (index, seed) in SampleData.seeds.enumerated() {
+                modelContext.insert(SampleData.makeItem(seed, sortOrder: index))
+            }
+            return
         }
-        for (index, seed) in SampleData.seeds.enumerated() {
-            modelContext.insert(SampleData.makeItem(seed, sortOrder: index))
+
+        let existing = Set(items.map(\.title))
+        var nextOrder = (items.map(\.sortOrder).min() ?? 0) - 1
+        for seed in SampleData.seeds where !existing.contains(seed.title) {
+            modelContext.insert(SampleData.makeItem(seed, sortOrder: nextOrder))
+            nextOrder -= 1
         }
     }
 
