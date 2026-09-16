@@ -380,19 +380,22 @@ struct ContentView: View {
     }
 
     private func seedIfNeeded() {
+        ItemStore.deduplicateSampleCopies(in: modelContext)
+
         // Paired phones use the shared iCloud list. Samples are only for a
         // fresh local install so they can be shown in Simulator / App Store.
         if pairSession.isPaired { return }
 
+        let stored = ItemStore.allItems(in: modelContext)
         let oldThree = Set([
             "Lake Escape 2",
             "Greek Seas Charter Sailing",
             "Keto recipe",
         ])
         let sampleTitles = Set(SampleData.seeds.map(\.title)).union(oldThree)
-        let titles = Set(items.map(\.title))
+        let titles = Set(stored.map(\.title))
 
-        if items.isEmpty {
+        if stored.isEmpty {
             for (index, seed) in SampleData.seeds.enumerated() {
                 modelContext.insert(SampleData.makeItem(seed, sortOrder: index))
             }
@@ -400,7 +403,7 @@ struct ContentView: View {
         }
 
         if titles.isSubset(of: oldThree) {
-            for item in items {
+            for item in stored {
                 modelContext.delete(item)
             }
             for (index, seed) in SampleData.seeds.enumerated() {
@@ -410,7 +413,7 @@ struct ContentView: View {
         }
 
         guard titles.isSubset(of: sampleTitles) else { return }
-        var nextOrder = (items.map(\.sortOrder).min() ?? 0) - 1
+        var nextOrder = (stored.map(\.sortOrder).min() ?? 0) - 1
         for seed in SampleData.seeds where !titles.contains(seed.title) {
             modelContext.insert(SampleData.makeItem(seed, sortOrder: nextOrder))
             nextOrder -= 1

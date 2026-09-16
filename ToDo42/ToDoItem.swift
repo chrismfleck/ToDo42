@@ -188,6 +188,49 @@ enum ItemStore {
         }
         try? context.save()
     }
+
+    static func deduplicateSampleCopies(in context: ModelContext) {
+        let sampleTitles = Set(SampleData.seeds.map(\.title)).union([
+            "Lake Escape 2",
+            "Greek Seas Charter Sailing",
+            "Keto recipe",
+        ])
+        let items = allItems(in: context)
+        var groups: [String: [TodoItem]] = [:]
+        for item in items {
+            let title = item.title.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard sampleTitles.contains(title) else { continue }
+            groups[title, default: []].append(item)
+        }
+        var didDelete = false
+        for copies in groups.values where copies.count > 1 {
+            let ranked = copies.sorted { lhs, rhs in
+                if lhs.hasPhoto != rhs.hasPhoto { return lhs.hasPhoto }
+                if lhs.notes.count != rhs.notes.count { return lhs.notes.count > rhs.notes.count }
+                return lhs.createdAt < rhs.createdAt
+            }
+            let keep = ranked[0]
+            for extra in ranked.dropFirst() {
+                keep.chrisHearted = keep.chrisHearted || extra.chrisHearted
+                keep.deenaHearted = keep.deenaHearted || extra.deenaHearted
+                if keep.imageData == nil, let data = extra.imageData, data.isEmpty == false {
+                    keep.imageData = data
+                }
+                if keep.extraImageData == nil, let data = extra.extraImageData, data.isEmpty == false {
+                    keep.extraImageData = data
+                }
+                if keep.imageAssetName == nil || keep.imageAssetName?.isEmpty == true,
+                   let name = extra.imageAssetName, name.isEmpty == false {
+                    keep.imageAssetName = name
+                }
+                context.delete(extra)
+                didDelete = true
+            }
+        }
+        if didDelete {
+            try? context.save()
+        }
+    }
 }
 
 enum SampleData {
