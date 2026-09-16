@@ -379,10 +379,23 @@ struct ContentView: View {
     }
 
     private func seedIfNeeded() {
-        let key = "todo42.seeded.v3"
+        let key = "todo42.seeded.v4"
         guard !UserDefaults.standard.bool(forKey: key) else { return }
         defer { UserDefaults.standard.set(true, forKey: key) }
-        guard items.isEmpty else { return }
+        if pairSession.isPaired { return }
+
+        let oldThree = Set([
+            "Lake Escape 2",
+            "Greek Seas Charter Sailing",
+            "Keto recipe",
+        ])
+        let titles = Set(items.map(\.title))
+        let onlyOldPlaceholders = !items.isEmpty && titles.isSubset(of: oldThree)
+        guard items.isEmpty || onlyOldPlaceholders else { return }
+
+        for item in items {
+            modelContext.delete(item)
+        }
         for (index, seed) in SampleData.seeds.enumerated() {
             modelContext.insert(SampleData.makeItem(seed, sortOrder: index))
         }

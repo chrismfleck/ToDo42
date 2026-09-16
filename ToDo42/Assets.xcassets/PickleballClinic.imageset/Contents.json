@@ -1,0 +1,12 @@
+{
+  "images" : [
+    {
+      "filename" : "pickleball-clinic.jpg",
+      "idiom" : "universal"
+    }
+  ],
+  "info" : {
+    "author" : "xcode",
+    "version" : 1
+  }
+}
