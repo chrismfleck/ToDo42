@@ -1,22 +1,73 @@
 import Foundation
 import SwiftData
+import SwiftUI
 
 enum ItemCategory: String, CaseIterable, Identifiable {
-    case places, fun, eats
+    case places, fun, eats, trip, recipe, health
     var id: String { rawValue }
-    var title: String {
+
+    static let primaryPage: [ItemCategory] = [.places, .fun, .eats]
+    static let extraPage: [ItemCategory] = [.trip, .recipe, .health]
+
+    var pageIndex: Int { Self.extraPage.contains(self) ? 1 : 0 }
+
+    var defaultTitle: String {
         switch self {
-        case .places: "Places"
-        case .fun: "Fun"
-        case .eats: "Eats"
+        case .places: "Bed 4 Two"
+        case .fun: "Fun 4 Two"
+        case .eats: "Table 4 Two"
+        case .trip: "Trip 4 Two"
+        case .recipe: "Recipe 4 Two"
+        case .health: "Health Tips 4 Two"
         }
     }
+
+    @MainActor
+    var title: String { CategoryNames.shared.title(for: self) }
+
     var systemImage: String {
         switch self {
-        case .places: "mappin.and.ellipse"
+        case .places: "bed.double.fill"
         case .fun: "sailboat.fill"
         case .eats: "fork.knife"
+        case .trip: "airplane"
+        case .recipe: "frying.pan.fill"
+        case .health: "heart.text.square.fill"
         }
+    }
+
+    var iconColor: Color {
+        switch self {
+        case .places, .health:
+            Color(red: 0.90, green: 0.20, blue: 0.22)
+        case .fun:
+            Color(red: 0.95, green: 0.76, blue: 0.08)
+        case .eats, .recipe:
+            Color(red: 0.16, green: 0.67, blue: 0.30)
+        case .trip:
+            Color(red: 0.56, green: 0.27, blue: 0.85)
+        }
+    }
+
+    static func parse(_ raw: String) -> [ItemCategory] {
+        var seen = Set<ItemCategory>()
+        var ordered: [ItemCategory] = []
+        for part in raw.split(separator: ",") {
+            let token = part.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard let cat = ItemCategory(rawValue: token), seen.insert(cat).inserted else { continue }
+            ordered.append(cat)
+        }
+        return ordered.isEmpty ? [.places] : ordered
+    }
+
+    static func encode(_ cats: [ItemCategory]) -> String {
+        var seen = Set<ItemCategory>()
+        var ordered: [ItemCategory] = []
+        for cat in cats where seen.insert(cat).inserted {
+            ordered.append(cat)
+        }
+        if ordered.isEmpty { ordered = [.places] }
+        return ordered.map(\.rawValue).joined(separator: ",")
     }
 
     static func guessed(urlString: String, title: String) -> ItemCategory {
@@ -26,11 +77,26 @@ enum ItemCategory: String, CaseIterable, Identifiable {
         }
         if haystack.contains("allrecipes")
             || haystack.contains("nytimes.com/cooking")
-            || haystack.contains("yelp")
-            || haystack.contains("opentable")
             || haystack.contains("recipe")
             || haystack.contains("ingredients") {
+            return .recipe
+        }
+        if haystack.contains("yelp")
+            || haystack.contains("opentable")
+            || haystack.contains("restaurant") {
             return .eats
+        }
+        if haystack.contains("webmd")
+            || haystack.contains("healthline")
+            || haystack.contains("health tip")
+            || haystack.contains("wellness") {
+            return .health
+        }
+        if haystack.contains("tripadvisor")
+            || haystack.contains("expedia")
+            || haystack.contains("kayak.com")
+            || haystack.contains("google.com/travel") {
+            return .trip
         }
         if haystack.contains("instagram")
             || haystack.contains("youtube")
@@ -56,6 +122,8 @@ final class TodoItem {
     var imageURLString: String?
     var imageData: Data?
     var extraImageData: Data?
+    var extraImageData2: Data? = nil
+    var extraImageData3: Data? = nil
     var notes: String = ""
     var chrisHearted: Bool = false
     var deenaHearted: Bool = false
@@ -65,26 +133,35 @@ final class TodoItem {
     var sortOrder: Int = 0
     var updatedAt: Date?
     var lastEditor: String = ""
+    var placeLatitude: Double?
+    var placeLongitude: Double?
+    var placeLocality: String?
+    var placeSource: String?
 
     init(
         title: String,
         category: ItemCategory,
+        categories: [ItemCategory]? = nil,
         urlString: String? = nil,
         imageAssetName: String? = nil,
         imageURLString: String? = nil,
         imageData: Data? = nil,
         extraImageData: Data? = nil,
+        extraImageData2: Data? = nil,
+        extraImageData3: Data? = nil,
         notes: String = "",
         sortOrder: Int = 0
     ) {
         self.id = UUID()
         self.title = title
-        self.categoryRaw = category.rawValue
+        self.categoryRaw = ItemCategory.encode(categories ?? [category])
         self.urlString = urlString
         self.imageAssetName = imageAssetName
         self.imageURLString = imageURLString
         self.imageData = imageData
         self.extraImageData = extraImageData
+        self.extraImageData2 = extraImageData2
+        self.extraImageData3 = extraImageData3
         self.notes = notes
         self.chrisHearted = false
         self.deenaHearted = false
@@ -96,8 +173,21 @@ final class TodoItem {
     }
 
     var category: ItemCategory {
-        get { ItemCategory(rawValue: categoryRaw) ?? .places }
-        set { categoryRaw = newValue.rawValue }
+        get { categories.first ?? .places }
+        set {
+            var next = categories.filter { $0 != newValue }
+            next.insert(newValue, at: 0)
+            categories = next
+        }
+    }
+
+    var categories: [ItemCategory] {
+        get { ItemCategory.parse(categoryRaw) }
+        set { categoryRaw = ItemCategory.encode(newValue) }
+    }
+
+    func belongs(to category: ItemCategory) -> Bool {
+        categories.contains(category)
     }
 
     var hasPhoto: Bool {
@@ -111,6 +201,22 @@ final class TodoItem {
         if let data = extraImageData, !data.isEmpty { return true }
         return false
     }
+
+    var hasExtraPhoto2: Bool {
+        if let data = extraImageData2, !data.isEmpty { return true }
+        return false
+    }
+
+    var hasExtraPhoto3: Bool {
+        if let data = extraImageData3, !data.isEmpty { return true }
+        return false
+    }
+
+    var photoCount: Int {
+        (hasPhoto ? 1 : 0) + (hasExtraPhoto ? 1 : 0) + (hasExtraPhoto2 ? 1 : 0) + (hasExtraPhoto3 ? 1 : 0)
+    }
+
+    var hasAnyPhotos: Bool { photoCount > 0 }
 }
 
 enum ItemStore {
@@ -184,6 +290,12 @@ enum ItemStore {
             if keep.extraImageData == nil, let data = extra.extraImageData, data.isEmpty == false {
                 keep.extraImageData = data
             }
+            if keep.extraImageData2 == nil, let data = extra.extraImageData2, data.isEmpty == false {
+                keep.extraImageData2 = data
+            }
+            if keep.extraImageData3 == nil, let data = extra.extraImageData3, data.isEmpty == false {
+                keep.extraImageData3 = data
+            }
             context.delete(extra)
         }
         try? context.save()
@@ -218,6 +330,12 @@ enum ItemStore {
                 }
                 if keep.extraImageData == nil, let data = extra.extraImageData, data.isEmpty == false {
                     keep.extraImageData = data
+                }
+                if keep.extraImageData2 == nil, let data = extra.extraImageData2, data.isEmpty == false {
+                    keep.extraImageData2 = data
+                }
+                if keep.extraImageData3 == nil, let data = extra.extraImageData3, data.isEmpty == false {
+                    keep.extraImageData3 = data
                 }
                 if keep.imageAssetName == nil || keep.imageAssetName?.isEmpty == true,
                    let name = extra.imageAssetName, name.isEmpty == false {

@@ -3,6 +3,8 @@ import SwiftUI
 struct HelpView: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.colorScheme) private var colorScheme
+    @Environment(CategoryNames.self) private var categoryNames
+    @Environment(HomeBase.self) private var homeBase
 
     var body: some View {
         NavigationStack {
@@ -27,11 +29,9 @@ struct HelpView: View {
 
                         HelpStep(
                             number: 2,
-                            spoken: "To add a partner tap the pair icon. Enter names, send invite to partner. Or enter a code if you are sent one."
+                            spoken: "To add a partner tap the red heart with a plus. Enter names, send invite to partner. Or enter a code if you are sent one."
                         ) {
-                            helpText("To add a partner tap ")
-                            + chrome("person.2")
-                            + helpText(". Enter names, send invite to partner. Or enter a code if you are sent one.")
+                            partnerHelpRow
                         }
 
                         HelpStep(
@@ -58,17 +58,17 @@ struct HelpView: View {
 
                         HelpStep(
                             number: 4,
-                            spoken: "Wait for the photo if it is still loading. Review or edit the page, select a category, tap Save."
+                            spoken: "Wait for the photo if it is still loading. Review or edit the page, tap every category where it should appear, tap Save."
                         ) {
-                            helpText("Wait for the photo if it is still loading. Review or edit the page, select a category, tap Save.")
+                            helpText("Wait for the photo if it is still loading. Review or edit the page, tap every category where it should appear, tap Save.")
                         }
 
                         HelpStep(
                             number: 5,
-                            spoken: "In list view, items can be reordered by tapping the gear and dragging the hamburger handle up or down. Then tap the check."
+                            spoken: "In list view, items can be reordered by tapping the pencil and dragging the hamburger handle up or down. Then tap the check."
                         ) {
                             helpText("In list view, items can be reordered by tapping ")
-                            + chrome("gearshape")
+                            + chrome("pencil")
                             + helpText(" and dragging ")
                             + chrome("line.3.horizontal")
                             + helpText(" up or down. Then tap ")
@@ -78,21 +78,21 @@ struct HelpView: View {
 
                         HelpStep(
                             number: 6,
-                            spoken: "To edit an item, tap it in the list, then tap the gear on that page. Details can be edited and an extra photo can be added and saved for a fun memory. Tap your heart so your partner sees you like it. Tap the check when you are done."
+                            spoken: "To edit an item, tap it in the list, then tap the pencil on that page. Details can be edited and the original plus three more photos can be added. Tap your heart so your partner sees you like it. Tap the check when you are done."
                         ) {
                             helpText("To edit an item, tap it in the list, then tap ")
-                            + chrome("gearshape")
-                            + helpText(" on that page. Details can be edited and an extra photo can be added and saved for a fun memory. Tap your heart so your partner sees you like it. Tap ")
+                            + chrome("pencil")
+                            + helpText(" on that page. Details can be edited and the original plus three more photos can be added. Tap your heart so your partner sees you like it. Tap ")
                             + chrome("checkmark")
                             + helpText(" when you are done.")
                         }
 
                         HelpStep(
                             number: 7,
-                            spoken: "To delete an item from the home page, tap the gear, tap the red minus, then tap the check to save."
+                            spoken: "To delete an item from the home page, tap the pencil, tap the red minus, then tap the check to save."
                         ) {
                             helpText("To delete item from home page, tap ")
-                            + chrome("gearshape")
+                            + chrome("pencil")
                             + helpText(", tap ")
                             + redChrome("minus.circle.fill")
                             + helpText(", tap ")
@@ -102,9 +102,29 @@ struct HelpView: View {
 
                         HelpStep(
                             number: 8,
+                            spoken: "Enter additional categories. Home tabs are Bed 4 Two, Fun 4 Two, and Table 4 Two. Swipe left for Trip 4 Two, Recipe 4 Two, and Health Tips 4 Two. You can rename all six.",
+                            isolatesAccessibility: false
+                        ) {
+                            VStack(alignment: .leading, spacing: 12) {
+                                helpText("Enter additional categories. Swipe left on the home list for the extra three. Names below are the tab titles — tap to edit.")
+                                categoryNameFields(ItemCategory.primaryPage)
+                                categoryNameFields(ItemCategory.extraPage)
+                            }
+                        }
+
+                        HelpStep(
+                            number: 9,
                             spoken: "When your partner adds, hearts, or edits, a lock-screen banner says Save 4 Two, Your list was updated. Allow notifications when asked."
                         ) {
                             helpText("When your partner adds, hearts, or edits, a lock-screen banner says Save 4 Two — Your list was updated. Allow notifications when asked.")
+                        }
+
+                        HelpStep(
+                            number: 10,
+                            spoken: "Set home base, optional. Tap Set home while you are at home so item pages can show the town and how many miles away they are.",
+                            isolatesAccessibility: false
+                        ) {
+                            homeBaseStep
                         }
                     }
 
@@ -113,6 +133,7 @@ struct HelpView: View {
                 .padding(20)
                 .padding(.bottom, 24)
             }
+            .scrollDismissesKeyboard(.interactively)
             .background(Palette.canvas(colorScheme).ignoresSafeArea())
             .navigationTitle("Help")
             .navigationBarTitleDisplayMode(.inline)
@@ -121,8 +142,70 @@ struct HelpView: View {
                     Button("Close") { dismiss() }
                 }
             }
+            .onDisappear {
+                categoryNames.flushUpload()
+            }
         }
         .tint(Palette.brandBlue(colorScheme))
+    }
+
+    private var partnerHelpRow: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 6) {
+                Text("To add a partner tap")
+                PairHeartPlusIcon(size: 18)
+            }
+            Text("Enter names, send invite to partner. Or enter a code if you are sent one.")
+        }
+        .font(.body)
+        .foregroundStyle(.primary)
+        .fixedSize(horizontal: false, vertical: true)
+    }
+
+    private func categoryNameFields(_ categories: [ItemCategory]) -> some View {
+        VStack(spacing: 8) {
+            ForEach(categories) { cat in
+                HStack(spacing: 10) {
+                    Image(systemName: cat.systemImage)
+                        .font(.body.weight(.semibold))
+                        .foregroundStyle(cat.iconColor)
+                        .frame(width: 22)
+                    TextField(cat.defaultTitle, text: categoryNames.binding(for: cat))
+                        .textInputAutocapitalization(.words)
+                        .padding(10)
+                        .appCard(cornerRadius: 10, scheme: colorScheme)
+                }
+            }
+        }
+    }
+
+    private var homeBaseStep: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Set home base (optional). Tap Set home while you are at home so item pages can show the town and how many miles away they are.")
+            HStack(spacing: 10) {
+                Image(systemName: "location.fill")
+                    .font(.body.weight(.semibold))
+                    .foregroundStyle(Palette.brandBlue(colorScheme))
+                Text(homeBase.isSet ? "Home: \(homeBase.displayLabel)" : "Home: not set")
+            }
+            Button {
+                Task { await homeBase.setFromCurrentLocation() }
+            } label: {
+                Text(homeBase.isSetting ? "Setting home…" : "Set home")
+                    .font(.headline)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 12)
+                    .appCard(cornerRadius: 12, scheme: colorScheme)
+            }
+            .buttonStyle(.plain)
+            .disabled(homeBase.isSetting)
+            .accessibilityLabel("Set home")
+            if !homeBase.statusMessage.isEmpty {
+                Text(homeBase.statusMessage)
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+            }
+        }
     }
 
     private var openingScreenshot: some View {
@@ -185,6 +268,7 @@ private struct HelpStep<Content: View>: View {
     @Environment(\.colorScheme) private var colorScheme
     let number: Int
     var spoken: String
+    var isolatesAccessibility = true
     @ViewBuilder var content: Content
 
     var body: some View {
@@ -199,14 +283,30 @@ private struct HelpStep<Content: View>: View {
                 .foregroundStyle(.primary)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .fixedSize(horizontal: false, vertical: true)
-                .accessibilityHidden(true)
+                .accessibilityHidden(isolatesAccessibility)
         }
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel("\(number). \(spoken)")
+        .modifier(HelpStepAccess(isolates: isolatesAccessibility, label: "\(number). \(spoken)"))
+    }
+}
+
+private struct HelpStepAccess: ViewModifier {
+    var isolates: Bool
+    var label: String
+
+    func body(content: Content) -> some View {
+        if isolates {
+            content
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel(label)
+        } else {
+            content
+        }
     }
 }
 
 #Preview {
     HelpView()
+        .environment(CategoryNames.shared)
+        .environment(HomeBase.shared)
         .preferredColorScheme(.dark)
 }

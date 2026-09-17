@@ -134,10 +134,10 @@ enum TDItemRecordKind: Equatable {
     case unknown
 
     static func classify(recordName: String, title: String?, sortOrder: Int?) -> TDItemRecordKind {
-        if recordName.hasPrefix("extra-") { return .extraPhoto }
+        if recordName.hasPrefix("extra3-") || recordName.hasPrefix("extra2-") || recordName.hasPrefix("extra-") { return .extraPhoto }
         if recordName.hasPrefix("item-") { return .listItem }
         let emptyTitle = (title ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-        if sortOrder == -1, emptyTitle { return .extraPhoto }
+        if let sortOrder, sortOrder <= -1, emptyTitle { return .extraPhoto }
         if emptyTitle { return .extraPhoto }
         return .listItem
     }
@@ -176,6 +176,12 @@ enum RemoteItemApply {
 
     static func extraItemID(recordName: String, itemID: String?) -> String? {
         if let itemID, !itemID.isEmpty { return itemID }
+        if recordName.hasPrefix("extra3-") {
+            return String(recordName.dropFirst("extra3-".count))
+        }
+        if recordName.hasPrefix("extra2-") {
+            return String(recordName.dropFirst("extra2-".count))
+        }
         if recordName.hasPrefix("extra-") {
             return String(recordName.dropFirst("extra-".count))
         }
@@ -297,6 +303,18 @@ expect(
 expect(
     RemoteItemApply.extraItemID(recordName: "extra-\(sampleID)", itemID: nil) == sampleID,
     "Companion photos map back to the item UUID"
+)
+expect(
+    RemoteItemApply.extraItemID(recordName: "extra3-\(sampleID)", itemID: nil) == sampleID,
+    "Fourth photos map back to the item UUID"
+)
+expect(
+    TDItemRecordKind.classify(recordName: "extra3-\(sampleID)", title: "", sortOrder: -3) == .extraPhoto,
+    "extra3- records are companion photos"
+)
+expect(
+    TDItemRecordKind.classify(recordName: "extra2-\(sampleID)", title: "", sortOrder: -2) == .extraPhoto,
+    "extra2- records are companion photos"
 )
 expect(
     TDItemRecordKind.classify(recordName: sampleID, title: "Lake House", sortOrder: -1) == .listItem,

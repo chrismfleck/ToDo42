@@ -85,10 +85,10 @@ enum TDItemRecordKind: Equatable {
     case unknown
 
     static func classify(recordName: String, title: String?, sortOrder: Int?) -> TDItemRecordKind {
-        if recordName.hasPrefix("extra-") { return .extraPhoto }
+        if recordName.hasPrefix("extra3-") || recordName.hasPrefix("extra2-") || recordName.hasPrefix("extra-") { return .extraPhoto }
         if recordName.hasPrefix("item-") { return .listItem }
         let emptyTitle = (title ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-        if sortOrder == -1, emptyTitle { return .extraPhoto }
+        if let sortOrder, sortOrder <= -1, emptyTitle { return .extraPhoto }
         if emptyTitle { return .extraPhoto }
         return .listItem
     }
@@ -128,9 +128,26 @@ enum RemoteItemApply {
 
     static func extraItemID(recordName: String, itemID: String?) -> String? {
         if let itemID, !itemID.isEmpty { return itemID }
+        if recordName.hasPrefix("extra3-") {
+            return String(recordName.dropFirst("extra3-".count))
+        }
+        if recordName.hasPrefix("extra2-") {
+            return String(recordName.dropFirst("extra2-".count))
+        }
         if recordName.hasPrefix("extra-") {
             return String(recordName.dropFirst("extra-".count))
         }
         return nil
+    }
+
+    static func extraSlot(recordName: String) -> Int? {
+        if recordName.hasPrefix("extra3-") { return 3 }
+        if recordName.hasPrefix("extra2-") { return 2 }
+        if recordName.hasPrefix("extra-") { return 1 }
+        return nil
+    }
+
+    static func isSecondExtraPhoto(recordName: String) -> Bool {
+        extraSlot(recordName: recordName) == 2
     }
 }
