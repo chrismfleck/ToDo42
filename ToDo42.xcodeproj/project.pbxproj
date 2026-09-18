@@ -47,11 +47,21 @@
 			);
 			target = 836C490C303F69920054E294 /* ShareExtension */;
 		};
+		836C4920303F69920054E294 /* Exceptions for "ToDo42" folder in "ToDo42" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Info.plist,
+			);
+			target = 836C487C303F69920054E294 /* ToDo42 */;
+		};
 /* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
 		836C487F303F69920054E294 /* ToDo42 */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				836C4920303F69920054E294 /* Exceptions for "ToDo42" folder in "ToDo42" target */,
+			);
 			path = ToDo42;
 			sourceTree = "<group>";
 		};
@@ -363,6 +373,7 @@
 				DEVELOPMENT_TEAM = Q392X463G9;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = ToDo42/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = Save4Two;
 				INFOPLIST_KEY_ITSAppUsesNonExemptEncryption = NO;
 				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = "Save4Two uses your location to set an optional home base so item pages can show how many miles away they are.";
@@ -402,6 +413,7 @@
 				DEVELOPMENT_TEAM = Q392X463G9;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = ToDo42/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = Save4Two;
 				INFOPLIST_KEY_ITSAppUsesNonExemptEncryption = NO;
 				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = "Save4Two uses your location to set an optional home base so item pages can show how many miles away they are.";

@@ -1428,7 +1428,17 @@ struct AddItemView: View {
     var body: some View {
         NavigationStack {
             Form {
-                Section("Paste a link") {
+                Section {
+                    NavigationLink {
+                        FindIdeasView { pageURL in
+                            urlString = pageURL
+                        }
+                    } label: {
+                        Label("Find Ideas", systemImage: "magnifyingglass")
+                    }
+                }
+
+                Section("Or Paste a link") {
                     TextField("https://", text: $urlString)
                         .textInputAutocapitalization(.never)
                         .keyboardType(.URL)

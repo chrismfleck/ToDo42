@@ -29,13 +29,22 @@ struct HelpView: View {
 
                         HelpStep(
                             number: 2,
+                            spoken: "To Find ideas and add items, tap plus, then tap Find Ideas. Then enter search keywords: location, features, guests, etc. Then select an item and tap Save 4 Two."
+                        ) {
+                            helpText("To Find ideas and add items, tap ")
+                            + chrome("plus.circle.fill")
+                            + helpText(", then tap Find Ideas. Then enter search keywords: location, features, guests, etc. Then select an item and tap Save 4 Two.")
+                        }
+
+                        HelpStep(
+                            number: 3,
                             spoken: "To add a partner tap the red heart with a plus. Enter names, send invite to partner. Or enter a code if you are sent one."
                         ) {
                             partnerHelpRow
                         }
 
                         HelpStep(
-                            number: 3,
+                            number: 4,
                             spoken: "From a page on Instagram or TikTok, tap Share, then Share to. Look for the Save 4 Two app icon. You may need to swipe left."
                         ) {
                             VStack(alignment: .leading, spacing: 10) {
@@ -57,14 +66,14 @@ struct HelpView: View {
                         }
 
                         HelpStep(
-                            number: 4,
+                            number: 5,
                             spoken: "Wait for the photo if it is still loading. Review or edit the page, tap every category where it should appear, tap Save."
                         ) {
                             helpText("Wait for the photo if it is still loading. Review or edit the page, tap every category where it should appear, tap Save.")
                         }
 
                         HelpStep(
-                            number: 5,
+                            number: 6,
                             spoken: "In list view, items can be reordered by tapping the pencil and dragging the hamburger handle up or down. Then tap the check."
                         ) {
                             helpText("In list view, items can be reordered by tapping ")
@@ -77,7 +86,7 @@ struct HelpView: View {
                         }
 
                         HelpStep(
-                            number: 6,
+                            number: 7,
                             spoken: "To edit an item, tap it in the list, then tap the pencil on that page. Details can be edited and the original plus three more photos can be added. Tap your heart so your partner sees you like it. Tap the check when you are done."
                         ) {
                             helpText("To edit an item, tap it in the list, then tap ")
@@ -88,7 +97,7 @@ struct HelpView: View {
                         }
 
                         HelpStep(
-                            number: 7,
+                            number: 8,
                             spoken: "To delete an item from the home page, tap the pencil, tap the red minus, then tap the check to save. Either person can delete."
                         ) {
                             helpText("To delete item from home page, tap ")
@@ -101,7 +110,7 @@ struct HelpView: View {
                         }
 
                         HelpStep(
-                            number: 8,
+                            number: 9,
                             spoken: "Enter additional categories. Home tabs are Bed 4 Two, Fun 4 Two, and Table 4 Two. Swipe left for Trip 4 Two, Recipe 4 Two, and Health Tips 4 Two. You can rename all six.",
                             isolatesAccessibility: false
                         ) {
@@ -113,14 +122,14 @@ struct HelpView: View {
                         }
 
                         HelpStep(
-                            number: 9,
+                            number: 10,
                             spoken: "When your partner adds, hearts, edits, reorders, or deletes, a lock-screen banner says Save 4 Two, Your list was updated. Allow notifications when asked."
                         ) {
                             helpText("When your partner adds, hearts, edits, reorders, or deletes, a lock-screen banner says Save 4 Two — Your list was updated. Allow notifications when asked.")
                         }
 
                         HelpStep(
-                            number: 10,
+                            number: 11,
                             spoken: "Set home base, optional. Tap Set home while you are at home so item pages can show the town and how many miles away they are.",
                             isolatesAccessibility: false
                         ) {
