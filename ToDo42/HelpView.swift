@@ -89,7 +89,7 @@ struct HelpView: View {
 
                         HelpStep(
                             number: 7,
-                            spoken: "To delete an item from the home page, tap the pencil, tap the red minus, then tap the check to save."
+                            spoken: "To delete an item from the home page, tap the pencil, tap the red minus, then tap the check to save. Either person can delete."
                         ) {
                             helpText("To delete item from home page, tap ")
                             + chrome("pencil")
@@ -97,7 +97,7 @@ struct HelpView: View {
                             + redChrome("minus.circle.fill")
                             + helpText(", tap ")
                             + chrome("checkmark")
-                            + helpText(" to save.")
+                            + helpText(" to save. Either person can delete.")
                         }
 
                         HelpStep(
@@ -114,9 +114,9 @@ struct HelpView: View {
 
                         HelpStep(
                             number: 9,
-                            spoken: "When your partner adds, hearts, or edits, a lock-screen banner says Save 4 Two, Your list was updated. Allow notifications when asked."
+                            spoken: "When your partner adds, hearts, edits, reorders, or deletes, a lock-screen banner says Save 4 Two, Your list was updated. Allow notifications when asked."
                         ) {
-                            helpText("When your partner adds, hearts, or edits, a lock-screen banner says Save 4 Two — Your list was updated. Allow notifications when asked.")
+                            helpText("When your partner adds, hearts, edits, reorders, or deletes, a lock-screen banner says Save 4 Two — Your list was updated. Allow notifications when asked.")
                         }
 
                         HelpStep(

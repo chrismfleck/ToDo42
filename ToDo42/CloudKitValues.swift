@@ -150,4 +150,45 @@ enum RemoteItemApply {
     static func isSecondExtraPhoto(recordName: String) -> Bool {
         extraSlot(recordName: recordName) == 2
     }
+
+    static func isTombstone(notifyKind: String?) -> Bool {
+        (notifyKind ?? "").trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == "delete"
+    }
+
+    static func shouldApplyRemoteSort(
+        myRole: String?,
+        lastEditor: String?,
+        notifyKind: String?,
+        localSort: Int,
+        remoteSort: Int?,
+        localUpdated: Date,
+        remoteUpdated: Date
+    ) -> Bool {
+        guard let remoteSort, remoteSort != localSort else { return false }
+        if lastEditor == myRole { return false }
+        if notifyKind == "reorder" { return true }
+        return remoteUpdated >= localUpdated
+    }
+}
+
+enum ListReorder {
+    static let spacing = 1000
+
+    static func slot(prev: Int?, next: Int?) -> Int? {
+        switch (prev, next) {
+        case (nil, nil):
+            return 0
+        case (nil, let next?):
+            return next - spacing
+        case (let prev?, nil):
+            return prev + spacing
+        case (let prev?, let next?):
+            guard next > prev + 1 else { return nil }
+            return prev + (next - prev) / 2
+        }
+    }
+
+    static func rebalanced(_ count: Int) -> [Int] {
+        (0..<count).map { $0 * spacing }
+    }
 }

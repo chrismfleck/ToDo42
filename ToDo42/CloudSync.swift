@@ -139,6 +139,18 @@ final class PairSession {
         item.lastEditor = role?.rawValue ?? ""
         Task { await CloudSync.shared.upload(item, notifyKind: kind) }
     }
+
+    func noteLocalReorder(moved: TodoItem, others: [TodoItem]) {
+        guard !isApplyingRemote else { return }
+        let now = Date()
+        moved.updatedAt = now
+        moved.lastEditor = role?.rawValue ?? ""
+        for item in others {
+            item.updatedAt = now
+            item.lastEditor = role?.rawValue ?? ""
+        }
+        Task { await CloudSync.shared.uploadReorder(moved: moved, others: others) }
+    }
 }
 
 @MainActor
@@ -325,6 +337,22 @@ final class CloudSync {
         }
     }
 
+    func uploadReorder(moved: TodoItem, others: [TodoItem]) async {
+        guard PairSession.shared.isPaired else { return }
+        await enqueue {
+            do {
+                for item in others {
+                    try await self.saveItem(item, notifyKind: "")
+                }
+                try await self.saveItem(moved, notifyKind: "reorder")
+                try? await self.registerItemIDs(([moved] + others).map(\.id.uuidString))
+                PairSession.shared.statusMessage = ""
+            } catch {
+                PairSession.shared.statusMessage = Self.friendlyMessage(error)
+            }
+        }
+    }
+
     func restoreFromCloud(modelContext: ModelContext, oldCode: String = "") async {
         await enqueue {
             do {
@@ -340,6 +368,13 @@ final class CloudSync {
                 let extraRecords = records.filter { self.recordKind($0) == .extraPhoto }
                 for record in itemRecords {
                     guard let itemID = record["itemID"] as? String, let uuid = UUID(uuidString: itemID) else { continue }
+                    if RemoteItemApply.isTombstone(notifyKind: record["notifyKind"] as? String) {
+                        if let local = localByID[itemID] {
+                            modelContext.delete(local)
+                            localByID.removeValue(forKey: itemID)
+                        }
+                        continue
+                    }
                     if let local = localByID[itemID] {
                         self.apply(record, to: local)
                         continue
@@ -386,16 +421,45 @@ final class CloudSync {
     func deleteRemote(_ id: UUID) async {
         guard PairSession.shared.isPaired else { return }
         await enqueue {
+            let itemRecordID = CKRecord.ID(recordName: "item-\(id.uuidString)")
             do {
-                try await self.database.deleteRecord(withID: CKRecord.ID(recordName: "item-\(id.uuidString)"))
+                _ = await self.tombstoneRemote(id)
+                try await self.database.deleteRecord(withID: itemRecordID)
                 try? await self.database.deleteRecord(withID: self.extraRecordID(for: id))
                 try? await self.database.deleteRecord(withID: self.extra2RecordID(for: id))
                 try? await self.database.deleteRecord(withID: self.extra3RecordID(for: id))
                 try await self.removeItemID(id.uuidString)
                 PairSession.shared.statusMessage = ""
+            } catch let error as CKError where error.code == .unknownItem {
+                try? await self.removeItemID(id.uuidString)
+                PairSession.shared.statusMessage = ""
             } catch {
-                PairSession.shared.statusMessage = Self.friendlyMessage(error)
+                // Partner is often not the CloudKit creator, so the record
+                // delete fails. The tombstone still syncs so both lists drop it.
+                if await self.tombstoneRemote(id) {
+                    PairSession.shared.statusMessage = ""
+                } else {
+                    PairSession.shared.statusMessage = Self.friendlyMessage(error)
+                }
             }
+        }
+    }
+
+    private func tombstoneRemote(_ id: UUID) async -> Bool {
+        let recordID = CKRecord.ID(recordName: "item-\(id.uuidString)")
+        guard let record = try? await database.record(for: recordID) else { return false }
+        record["notifyKind"] = "delete"
+        record["notifyText"] = Self.pushBody(kind: "delete", title: record["title"] as? String ?? "")
+        record["lastEditor"] = PairSession.shared.role?.rawValue ?? ""
+        record["updatedAt"] = Date()
+        do {
+            try await saveOverwriting(record)
+            try? await database.deleteRecord(withID: extraRecordID(for: id))
+            try? await database.deleteRecord(withID: extra2RecordID(for: id))
+            try? await database.deleteRecord(withID: extra3RecordID(for: id))
+            return true
+        } catch {
+            return false
         }
     }
 
@@ -438,6 +502,15 @@ final class CloudSync {
         var localByID = ItemStore.keyedByID(ItemStore.allItems(in: modelContext))
         for record in remote {
             guard let itemID = record["itemID"] as? String, let uuid = UUID(uuidString: itemID) else { continue }
+            let notifyKind = record["notifyKind"] as? String
+            if RemoteItemApply.isTombstone(notifyKind: notifyKind) {
+                if let local = localByID[itemID] {
+                    modelContext.delete(local)
+                    localByID.removeValue(forKey: itemID)
+                    notifyRemoved(record)
+                }
+                continue
+            }
             let remoteUpdated = record["updatedAt"] as? Date ?? .distantPast
             let local = localByID[itemID] ?? ItemStore.item(id: uuid, in: modelContext)
             if let local {
@@ -470,6 +543,18 @@ final class CloudSync {
                     notifyUpdate(record, heartChanged: justHearted)
                 } else if justHearted {
                     notifyUpdate(record, heartChanged: true)
+                } else if RemoteItemApply.shouldApplyRemoteSort(
+                    myRole: session.role?.rawValue,
+                    lastEditor: record["lastEditor"] as? String,
+                    notifyKind: notifyKind,
+                    localSort: local.sortOrder,
+                    remoteSort: CloudKitValues.intValue(record["sortOrder"]),
+                    localUpdated: local.updatedAt ?? local.createdAt,
+                    remoteUpdated: remoteUpdated
+                ) {
+                    local.sortOrder = CloudKitValues.intValue(record["sortOrder"]) ?? local.sortOrder
+                    local.updatedAt = remoteUpdated
+                    notifyUpdate(record, heartChanged: false)
                 }
             } else {
                 let title = RemoteItemApply.resolvedTitle(localTitle: "", remoteTitle: record["title"] as? String)
@@ -503,7 +588,10 @@ final class CloudSync {
             applyExtraPhoto(record, to: local)
         }
         if fetched.catalogComplete, !remote.isEmpty {
-            let remoteIDs = Set(remote.compactMap { $0["itemID"] as? String })
+            let remoteIDs = Set(remote.compactMap { record -> String? in
+                guard !RemoteItemApply.isTombstone(notifyKind: record["notifyKind"] as? String) else { return nil }
+                return record["itemID"] as? String
+            })
             let extrasByItemID = Set(extraRecords.compactMap { record -> String? in
                 guard RemoteItemApply.extraSlot(recordName: record.recordID.recordName) == 1 else { return nil }
                 return RemoteItemApply.extraItemID(
@@ -547,7 +635,10 @@ final class CloudSync {
                     }
                     continue
                 }
-                if Date().timeIntervalSince(local.createdAt) < 180 { continue }
+                if Date().timeIntervalSince(local.createdAt) < 180,
+                   local.lastEditor == session.role?.rawValue || local.lastEditor.isEmpty {
+                    continue
+                }
                 modelContext.delete(local)
             }
         }
@@ -809,8 +900,8 @@ final class CloudSync {
         record["createdAt"] = item.createdAt
         record["updatedAt"] = item.updatedAt ?? item.createdAt
         record["lastEditor"] = item.lastEditor
+        record["notifyKind"] = notifyKind
         if !notifyKind.isEmpty {
-            record["notifyKind"] = notifyKind
             record["notifyText"] = Self.pushBody(kind: notifyKind, title: item.title)
         }
         if let data = item.imageData, !data.isEmpty {
@@ -991,21 +1082,37 @@ final class CloudSync {
         guard let pairID = PairSession.shared.pairID,
               let myRole = PairSession.shared.role else { return }
         let partnerRole = myRole == .chris ? PairRole.deena.rawValue : PairRole.chris.rawValue
-        let info = Self.alertNotificationInfo()
-        let newID = "todo42-alert-\(pairID.prefix(8))-\(myRole.rawValue)"
+        let prefix = pairID.prefix(8)
+        let alertID = "todo42-alert-v4-\(prefix)-\(myRole.rawValue)"
+        let silentID = "todo42-silent-v4-\(prefix)-\(myRole.rawValue)"
 
-        let migrateKey = "todo42.pushSub.v3.\(pairID.prefix(8))"
+        let migrateKey = "todo42.pushSub.v4.\(prefix)"
         if !UserDefaults.standard.bool(forKey: migrateKey) {
             for oldID in [
-                "todo42-tditem-\(pairID.prefix(8))",
+                "todo42-tditem-\(prefix)",
                 "todo42-tditem-all",
+                "todo42-alert-\(prefix)-\(myRole.rawValue)",
             ] {
                 try? await database.deleteSubscription(withID: oldID)
             }
             UserDefaults.standard.set(true, forKey: migrateKey)
         }
 
+        let silentInfo = CKSubscription.NotificationInfo()
+        silentInfo.shouldSendContentAvailable = true
+        silentInfo.shouldBadge = false
+        let silent = CKQuerySubscription(
+            recordType: "TDItem",
+            predicate: NSPredicate(format: "pairID == %@", pairID),
+            subscriptionID: silentID,
+            options: [.firesOnRecordCreation, .firesOnRecordUpdate, .firesOnRecordDeletion]
+        )
+        silent.notificationInfo = silentInfo
+        try? await database.save(silent)
+
+        let notifyKinds = ["add", "heart", "edit", "reorder", "delete"]
         let predicates = [
+            NSPredicate(format: "pairID == %@ AND lastEditor == %@ AND notifyKind IN %@", pairID, partnerRole, notifyKinds),
             NSPredicate(format: "pairID == %@ AND lastEditor == %@ AND sortOrder >= 0", pairID, partnerRole),
             NSPredicate(format: "pairID == %@ AND lastEditor == %@", pairID, partnerRole),
             NSPredicate(format: "pairID == %@", pairID),
@@ -1014,10 +1121,10 @@ final class CloudSync {
             let subscription = CKQuerySubscription(
                 recordType: "TDItem",
                 predicate: predicate,
-                subscriptionID: newID,
-                options: [.firesOnRecordCreation, .firesOnRecordUpdate]
+                subscriptionID: alertID,
+                options: [.firesOnRecordCreation, .firesOnRecordUpdate, .firesOnRecordDeletion]
             )
-            subscription.notificationInfo = info
+            subscription.notificationInfo = Self.alertNotificationInfo()
             do {
                 _ = try await database.save(subscription)
                 return
@@ -1044,6 +1151,8 @@ final class CloudSync {
         switch kind {
         case "heart": return "\(who) hearted \(label)"
         case "add": return "\(who) added \(label)"
+        case "reorder": return "\(who) reordered the list"
+        case "delete": return "\(who) removed \(label)"
         default: return "\(who) updated \(label)"
         }
     }
@@ -1059,6 +1168,15 @@ final class CloudSync {
         guard status == .available else {
             throw SyncError.message("Sign in to iCloud on this iPhone (Settings → Apple Account → iCloud) so the lists can sync.")
         }
+    }
+
+    private func notifyRemoved(_ record: CKRecord) {
+        guard recordKind(record) == .listItem else { return }
+        let editor = record["lastEditor"] as? String ?? ""
+        guard editor != PairSession.shared.role?.rawValue else { return }
+        let who = PairSession.shared.displayName(forEditor: editor)
+        let title = record["title"] as? String ?? "an item"
+        postNotice(title: "\(who) removed an item", body: title)
     }
 
     private func notifyNew(_ record: CKRecord) {
@@ -1080,6 +1198,12 @@ final class CloudSync {
         let editor = record["lastEditor"] as? String ?? ""
         guard editor != PairSession.shared.role?.rawValue else { return }
         let who = PairSession.shared.displayName(forEditor: editor)
+        let kind = record["notifyKind"] as? String ?? ""
+        if kind == "reorder" {
+            postNotice(title: "\(who) reordered the list", body: title)
+            return
+        }
+        if kind.isEmpty { return }
         postNotice(title: "\(who) updated an item", body: title)
     }
 

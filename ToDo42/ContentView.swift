@@ -270,6 +270,8 @@ struct ContentView: View {
         .sheet(isPresented: $showPairing) {
             PairingView()
                 .environment(PairSession.shared)
+                .environment(CategoryNames.shared)
+                .environment(HomeBase.shared)
         }
         .sheet(isPresented: $showHelp) {
             HelpView()
@@ -435,8 +437,11 @@ struct ContentView: View {
                     }
                     return lhs.sortOrder < rhs.sortOrder
                 }
+            var seen = Set<Int>()
+            let hasClash = ordered.contains { !seen.insert($0.sortOrder).inserted }
+            guard hasClash else { continue }
             for (index, item) in ordered.enumerated() {
-                item.sortOrder = index
+                item.sortOrder = ListReorder.rebalanced(ordered.count)[index]
             }
         }
     }
@@ -515,8 +520,21 @@ struct ContentView: View {
         }
         withAnimation(.spring(response: 0.32, dampingFraction: 0.86)) {
             if from != to {
-                for (index, row) in ordered.enumerated() {
-                    row.sortOrder = index
+                let prev = to > 0 ? ordered[to - 1].sortOrder : nil
+                let next = to < ordered.count - 1 ? ordered[to + 1].sortOrder : nil
+                if let slot = ListReorder.slot(prev: prev, next: next) {
+                    ordered[to].sortOrder = slot
+                    PairSession.shared.noteLocalReorder(moved: ordered[to], others: [])
+                } else {
+                    let orders = ListReorder.rebalanced(ordered.count)
+                    for (index, row) in ordered.enumerated() {
+                        row.sortOrder = orders[index]
+                    }
+                    let moved = ordered[to]
+                    PairSession.shared.noteLocalReorder(
+                        moved: moved,
+                        others: ordered.filter { $0.id != moved.id }
+                    )
                 }
             }
             reorderDrag = nil

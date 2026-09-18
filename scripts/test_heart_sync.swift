@@ -187,6 +187,47 @@ enum RemoteItemApply {
         }
         return nil
     }
+
+    static func isTombstone(notifyKind: String?) -> Bool {
+        (notifyKind ?? "").trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == "delete"
+    }
+
+    static func shouldApplyRemoteSort(
+        myRole: String?,
+        lastEditor: String?,
+        notifyKind: String?,
+        localSort: Int,
+        remoteSort: Int?,
+        localUpdated: Date,
+        remoteUpdated: Date
+    ) -> Bool {
+        guard let remoteSort, remoteSort != localSort else { return false }
+        if lastEditor == myRole { return false }
+        if notifyKind == "reorder" { return true }
+        return remoteUpdated >= localUpdated
+    }
+}
+
+enum ListReorder {
+    static let spacing = 1000
+
+    static func slot(prev: Int?, next: Int?) -> Int? {
+        switch (prev, next) {
+        case (nil, nil):
+            return 0
+        case (nil, let next?):
+            return next - spacing
+        case (let prev?, nil):
+            return prev + spacing
+        case (let prev?, let next?):
+            guard next > prev + 1 else { return nil }
+            return prev + (next - prev) / 2
+        }
+    }
+
+    static func rebalanced(_ count: Int) -> [Int] {
+        (0..<count).map { $0 * spacing }
+    }
 }
 
 let older = Date(timeIntervalSince1970: 1)
@@ -331,6 +372,54 @@ expect(
 expect(
     RemoteItemApply.shouldCreateMissingRecord(allowCreate: false, notifyKind: "add", title: "Lake House"),
     "An add upload creates the iCloud record"
+)
+expect(
+    RemoteItemApply.isTombstone(notifyKind: "delete"),
+    "delete notifyKind is a tombstone so either person can remove an item"
+)
+expect(
+    RemoteItemApply.isTombstone(notifyKind: "edit") == false,
+    "Edits are not tombstones"
+)
+expect(
+    ListReorder.slot(prev: 0, next: 1000) == 500,
+    "Reorder fits the moved item between neighbors without rewriting the list"
+)
+expect(
+    ListReorder.slot(prev: 0, next: 1) == nil,
+    "A tight list has no integer gap and must rebalance"
+)
+expect(
+    ListReorder.slot(prev: nil, next: 0) == -1000,
+    "Moving an item to the top uses a lower sortOrder"
+)
+expect(
+    ListReorder.rebalanced(3) == [0, 1000, 2000],
+    "Rebalance leaves gaps for later moves"
+)
+expect(
+    RemoteItemApply.shouldApplyRemoteSort(
+        myRole: "chris",
+        lastEditor: "deena",
+        notifyKind: "reorder",
+        localSort: 0,
+        remoteSort: 500,
+        localUpdated: newer,
+        remoteUpdated: older
+    ),
+    "Partner reorder applies even if this phone has a newer local edit"
+)
+expect(
+    RemoteItemApply.shouldApplyRemoteSort(
+        myRole: "chris",
+        lastEditor: "chris",
+        notifyKind: "reorder",
+        localSort: 0,
+        remoteSort: 500,
+        localUpdated: older,
+        remoteUpdated: newer
+    ) == false,
+    "Do not apply our own reorder echo"
 )
 
 if failed > 0 {
