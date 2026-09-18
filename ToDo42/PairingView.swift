@@ -13,50 +13,46 @@ struct PairingView: View {
 
     var body: some View {
         NavigationStack {
-            GeometryReader { geo in
-                ScrollView {
-                    VStack(alignment: .leading, spacing: 20) {
-                        nameFields
-                        if session.isPaired {
-                            connected
-                        } else {
-                            unpaired
-                        }
-                        restoreButton
-                        if !errorText.isEmpty {
-                            Text(errorText)
-                                .font(.footnote)
-                                .foregroundStyle(.red)
-                        }
-                        if !session.statusMessage.isEmpty {
-                            Text(session.statusMessage)
-                                .font(.footnote)
-                                .foregroundStyle(.secondary)
-                        }
-
-                        Spacer(minLength: 32)
-
-                        Link(destination: URL(string: "https://save4two.com")!) {
-                            Text("save4two.com")
-                                .font(.subheadline.weight(.semibold))
-                                .frame(maxWidth: .infinity)
-                        }
-                        .padding(.bottom, 8)
-                        .accessibilityLabel("Open save4two.com")
+            ScrollView {
+                VStack(alignment: .leading, spacing: 12) {
+                    header
+                    hero
+                    namesCard
+                    if session.isPaired {
+                        connectedCard
+                    } else {
+                        inviteCard
+                        orDivider
+                        joinCard
                     }
-                    .frame(maxWidth: .infinity, minHeight: geo.size.height, alignment: .topLeading)
-                    .padding(24)
+                    restoreCard
+                    if !errorText.isEmpty {
+                        Text(errorText)
+                            .font(.footnote)
+                            .foregroundStyle(.red)
+                            .padding(.horizontal, 4)
+                    }
+                    if !session.statusMessage.isEmpty {
+                        Text(session.statusMessage)
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                            .padding(.horizontal, 4)
+                    }
+                    Link(destination: URL(string: "https://save4two.com")!) {
+                        Text("save4two.com")
+                            .font(.caption.weight(.semibold))
+                            .frame(maxWidth: .infinity)
+                    }
+                    .padding(.top, 8)
+                    .padding(.bottom, 12)
+                    .accessibilityLabel("Open save4two.com")
                 }
-                .scrollDismissesKeyboard(.interactively)
+                .padding(.horizontal, 20)
+                .padding(.top, 8)
             }
+            .scrollDismissesKeyboard(.interactively)
             .background(Palette.canvas(colorScheme).ignoresSafeArea())
-            .navigationTitle("Pair phones")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Close") { dismiss() }
-                }
-            }
+            .toolbar(.hidden, for: .navigationBar)
             .sheet(isPresented: $showShare) {
                 if let code = session.inviteCode {
                     ShareSheet(text: CloudSync.shared.inviteText(code: code))
@@ -69,20 +65,222 @@ struct PairingView: View {
         .tint(Palette.brandBlue(colorScheme))
     }
 
-    private var nameFields: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text("Names")
-                .font(.title2.bold())
-            Text("These show on hearts and in notifications.")
-                .font(.footnote)
-                .foregroundStyle(.secondary)
-            TextField("Your name", text: myNameBinding)
-                .textInputAutocapitalization(.words)
-                .textFieldStyle(.roundedBorder)
-            TextField("Partner’s name", text: partnerNameBinding)
-                .textInputAutocapitalization(.words)
-                .textFieldStyle(.roundedBorder)
+    private var header: some View {
+        HStack {
+            Button("Close") { dismiss() }
+                .font(.subheadline.weight(.semibold))
+                .padding(.horizontal, 14)
+                .padding(.vertical, 6)
+                .background(pillFill, in: Capsule())
+            Spacer()
         }
+        .foregroundStyle(.primary)
+        .buttonStyle(.plain)
+    }
+
+    private var hero: some View {
+        HStack(alignment: .top, spacing: 10) {
+            VStack(alignment: .leading, spacing: 4) {
+                HStack(spacing: 6) {
+                    PairBrandMark()
+                    Text("Save 4 Two")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                }
+                Text("Pair phones")
+                    .font(.title2.bold())
+                Text("Share your list with someone you trust. Both phones must be signed in to iCloud.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            Spacer(minLength: 0)
+            PairPhonesArt()
+                .frame(width: 118, height: 100)
+                .accessibilityHidden(true)
+        }
+        .padding(.top, 2)
+    }
+
+    private var namesCard: some View {
+        pairCard {
+            cardTitle("Add names", number: 1, icon: "person.fill", tint: Color(red: 0.20, green: 0.48, blue: 0.98))
+            Text("These show on hearts and notifications.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            pairField("Your name", text: myNameBinding)
+            pairField("Partner’s name", text: partnerNameBinding)
+        }
+    }
+
+    private var inviteCard: some View {
+        pairCard {
+            cardTitle("Share one list", number: 2, icon: "link", tint: Color(red: 0.22, green: 0.78, blue: 0.48))
+            Text("Invite your partner with a code. They install Save4Two, then enter the code.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            Button {
+                Task { await createInvite() }
+            } label: {
+                Label(
+                    session.inviteCode == nil ? "Invite Partner" : "Show my code",
+                    systemImage: "square.and.arrow.up"
+                )
+                .font(.subheadline.weight(.semibold))
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 10)
+                .foregroundStyle(.white)
+                .background(Palette.brandBlue(colorScheme), in: Capsule())
+            }
+            .buttonStyle(.plain)
+            .disabled(session.isBusy || !session.hasNames)
+            .opacity(session.isBusy || !session.hasNames ? 0.55 : 1)
+
+            if let code = session.inviteCode {
+                Text(code)
+                    .font(.system(size: 26, weight: .bold, design: .rounded))
+                    .frame(maxWidth: .infinity)
+                Button("Send \(session.partnerHeartLabel) the code") { showShare = true }
+                    .font(.subheadline.weight(.semibold))
+                    .frame(maxWidth: .infinity)
+            }
+        }
+    }
+
+    private var joinCard: some View {
+        pairCard {
+            cardTitle("I have a code", number: 3, icon: "key.fill", tint: Color(red: 0.62, green: 0.38, blue: 0.98))
+            Text("Enter the 6-digit code from your partner.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            pairField("6-digit code", text: $joinCode)
+                .keyboardType(.numberPad)
+                .textInputAutocapitalization(.never)
+            Button {
+                Task { await join() }
+            } label: {
+                Text("Join Partner")
+                    .font(.subheadline.weight(.semibold))
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 10)
+                    .foregroundStyle(Palette.brandBlue(colorScheme))
+                    .background(softButtonFill, in: Capsule())
+            }
+            .buttonStyle(.plain)
+            .disabled(session.isBusy || !session.hasNames || joinCode.trimmingCharacters(in: .whitespaces).count != 6)
+            .opacity(session.isBusy || !session.hasNames || joinCode.trimmingCharacters(in: .whitespaces).count != 6 ? 0.55 : 1)
+        }
+    }
+
+    private var connectedCard: some View {
+        pairCard {
+            Label("Phones are paired", systemImage: "checkmark.circle.fill")
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(Palette.brandBlue(colorScheme))
+            Text("This phone is \(session.myHeartLabel). Hearts and new items sync to \(session.partnerHeartLabel).")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            if let code = session.inviteCode, session.role == .chris {
+                Text("Invite code: \(code)")
+                    .font(.subheadline.weight(.semibold))
+                Button("Send the code again") { showShare = true }
+                    .font(.subheadline.weight(.semibold))
+                Button("New invite code") {
+                    Task { await createInvite() }
+                }
+                .font(.subheadline)
+                .disabled(session.isBusy || !session.hasNames)
+            }
+            Button {
+                session.unpair()
+            } label: {
+                Label("Unpair phones", systemImage: "heart.slash.fill")
+                    .font(.subheadline.weight(.semibold))
+            }
+            .foregroundStyle(.red)
+            .accessibilityLabel("Unpair phones")
+        }
+    }
+
+    private var restoreCard: some View {
+        pairCard {
+            cardTitle("Restore from iCloud", icon: "clock.fill", tint: Color(red: 0.98, green: 0.72, blue: 0.20))
+            Text("Lost the list after a new invite? Enter an older 6-digit code from Messages, then restore.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            pairField("Older 6-digit code", text: $restoreCode)
+                .keyboardType(.numberPad)
+                .textInputAutocapitalization(.never)
+            Button {
+                Task { await restore() }
+            } label: {
+                Label("Restore my list from iCloud", systemImage: "arrow.clockwise")
+                    .font(.subheadline.weight(.semibold))
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 10)
+                    .foregroundStyle(Palette.brandBlue(colorScheme))
+                    .background(softButtonFill, in: Capsule())
+            }
+            .buttonStyle(.plain)
+            .disabled(session.isBusy)
+        }
+    }
+
+    private var orDivider: some View {
+        HStack(spacing: 12) {
+            Rectangle().frame(height: 1).foregroundStyle(.secondary.opacity(0.25))
+            Text("OR")
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.secondary)
+            Rectangle().frame(height: 1).foregroundStyle(.secondary.opacity(0.25))
+        }
+        .padding(.horizontal, 8)
+    }
+
+    private func pairCard<Content: View>(@ViewBuilder content: () -> Content) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            content()
+        }
+        .padding(12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Palette.card(colorScheme), in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .strokeBorder(Palette.isDark(colorScheme) ? Color.white.opacity(0.16) : Color.clear, lineWidth: 1)
+        }
+        .shadow(color: Color.black.opacity(Palette.isDark(colorScheme) ? 0 : 0.06), radius: 12, y: 4)
+    }
+
+    private func cardTitle(_ title: String, number: Int? = nil, icon: String, tint: Color) -> some View {
+        HStack(spacing: 8) {
+            Image(systemName: icon)
+                .font(.caption.weight(.bold))
+                .foregroundStyle(.white)
+                .frame(width: 22, height: 22)
+                .background(tint, in: Circle())
+            Text(number.map { "\($0). \(title)" } ?? title)
+                .font(.subheadline.weight(.semibold))
+        }
+    }
+
+    private func pairField(_ title: String, text: Binding<String>) -> some View {
+        TextField(title, text: text)
+            .font(.subheadline)
+            .textInputAutocapitalization(.words)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 8)
+            .background(
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .strokeBorder(Color.primary.opacity(0.12), lineWidth: 1)
+            )
+    }
+
+    private var pillFill: Color {
+        Palette.isDark(colorScheme) ? Color.white.opacity(0.12) : Color.white.opacity(0.92)
+    }
+
+    private var softButtonFill: Color {
+        Palette.brandBlue(colorScheme).opacity(Palette.isDark(colorScheme) ? 0.22 : 0.12)
     }
 
     private var myNameBinding: Binding<String> {
@@ -97,93 +295,6 @@ struct PairingView: View {
             get: { session.partnerName },
             set: { session.partnerName = $0 }
         )
-    }
-
-    private var unpaired: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            Text("Share one list")
-                .font(.title2.bold())
-            Text("Invite \(session.partnerHeartLabel) with a code. They install Save4Two from TestFlight, then enter the code. Both phones must be signed in to iCloud.")
-                .foregroundStyle(.secondary)
-
-            Button {
-                Task { await createInvite() }
-            } label: {
-                Label(
-                    session.inviteCode == nil ? "Invite \(session.partnerHeartLabel)" : "Show my code",
-                    systemImage: "person.badge.plus"
-                )
-                .frame(maxWidth: .infinity)
-            }
-            .buttonStyle(.borderedProminent)
-            .disabled(session.isBusy || !session.hasNames)
-
-            if let code = session.inviteCode {
-                Text(code)
-                    .font(.system(size: 36, weight: .bold, design: .rounded))
-                    .frame(maxWidth: .infinity)
-                Button("Send \(session.partnerHeartLabel) the code") { showShare = true }
-                    .frame(maxWidth: .infinity)
-            }
-
-            Divider()
-
-            Text("I have a code")
-                .font(.headline)
-            TextField("6-digit code", text: $joinCode)
-                .keyboardType(.numberPad)
-                .textFieldStyle(.roundedBorder)
-            Button("Join \(session.partnerHeartLabel)") {
-                Task { await join() }
-            }
-            .buttonStyle(.bordered)
-            .disabled(session.isBusy || !session.hasNames || joinCode.trimmingCharacters(in: .whitespaces).count != 6)
-        }
-    }
-
-    private var connected: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Label("Phones are paired", systemImage: "checkmark.circle.fill")
-                .font(.title3.bold())
-                .foregroundStyle(Palette.brandBlue(colorScheme))
-            Text("This phone is \(session.myHeartLabel). Hearts and new items sync to \(session.partnerHeartLabel).")
-                .foregroundStyle(.secondary)
-            Text("Lock-screen banners need the TestFlight or App Store build on both phones. An Xcode Play install can sync the list but Apple will not deliver those pushes.")
-                .font(.footnote)
-                .foregroundStyle(.secondary)
-            if let code = session.inviteCode, session.role == .chris {
-                Text("Invite code: \(code)")
-                    .font(.headline)
-                Button("Send the code again") { showShare = true }
-                Button("New invite code") {
-                    Task { await createInvite() }
-                }
-                .disabled(session.isBusy || !session.hasNames)
-            }
-            Button("Unpair phones") {
-                session.unpair()
-            }
-            .foregroundStyle(.secondary)
-        }
-    }
-
-    private var restoreButton: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Text("Lost the list after a new invite? Enter an older 6-digit code from Messages, then restore.")
-                .font(.footnote)
-                .foregroundStyle(.secondary)
-            TextField("Older 6-digit code", text: $restoreCode)
-                .keyboardType(.numberPad)
-                .textFieldStyle(.roundedBorder)
-            Button {
-                Task { await restore() }
-            } label: {
-                Label("Restore my list from iCloud", systemImage: "arrow.clockwise")
-                    .frame(maxWidth: .infinity)
-            }
-            .buttonStyle(.bordered)
-            .disabled(session.isBusy)
-        }
     }
 
     private func createInvite() async {
@@ -221,6 +332,83 @@ struct PairingView: View {
         } catch {
             errorText = error.localizedDescription
         }
+    }
+}
+
+private struct PairBrandMark: View {
+    var body: some View {
+        ZStack {
+            Image(systemName: "heart.fill")
+                .font(.system(size: 14, weight: .bold))
+                .foregroundStyle(Color(red: 0.20, green: 0.48, blue: 0.98))
+                .offset(x: 4, y: 2)
+            Image(systemName: "heart.fill")
+                .font(.system(size: 14, weight: .bold))
+                .foregroundStyle(Color(red: 0.22, green: 0.78, blue: 0.55))
+                .offset(x: -4, y: -2)
+        }
+        .frame(width: 22, height: 18)
+        .accessibilityHidden(true)
+    }
+}
+
+private struct PairPhonesArt: View {
+    private let bezel = Color(red: 0.12, green: 0.20, blue: 0.38)
+    private let sparkle = Color(red: 0.45, green: 0.62, blue: 0.95)
+
+    var body: some View {
+        ZStack {
+            HStack(spacing: 10) {
+                phone(
+                    screen: Color(red: 0.86, green: 0.92, blue: 1.0),
+                    heart: Color(red: 0.27, green: 0.52, blue: 0.95)
+                )
+                .rotationEffect(.degrees(-8))
+                phone(
+                    screen: Color(red: 0.82, green: 0.94, blue: 0.88),
+                    heart: Color(red: 0.40, green: 0.72, blue: 0.55)
+                )
+                .rotationEffect(.degrees(8))
+            }
+            .offset(y: 10)
+
+            HStack(alignment: .bottom, spacing: 5) {
+                bang.rotationEffect(.degrees(-22))
+                bang
+                bang.rotationEffect(.degrees(22))
+            }
+            .foregroundStyle(sparkle)
+            .offset(y: -40)
+        }
+    }
+
+    private var bang: some View {
+        VStack(spacing: 2) {
+            Capsule()
+                .frame(width: 3.5, height: 12)
+            Circle()
+                .frame(width: 3.5, height: 3.5)
+        }
+    }
+
+    private func phone(screen: Color, heart: Color) -> some View {
+        let width: CGFloat = 46
+        let height: CGFloat = 76
+        return ZStack {
+            RoundedRectangle(cornerRadius: 13, style: .continuous)
+                .fill(bezel)
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .fill(screen)
+                .padding(3.5)
+            Capsule()
+                .fill(bezel)
+                .frame(width: 16, height: 3.5)
+                .offset(y: -(height / 2) + 11)
+            Image(systemName: "heart.fill")
+                .font(.system(size: 16, weight: .semibold))
+                .foregroundStyle(heart)
+        }
+        .frame(width: width, height: height)
     }
 }
 

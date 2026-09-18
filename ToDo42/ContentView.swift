@@ -27,7 +27,7 @@ enum Palette {
     }
 }
 
-private extension View {
+extension View {
     func appCard(cornerRadius: CGFloat, scheme: ColorScheme) -> some View {
         background(Palette.card(scheme), in: RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
             .overlay {
@@ -39,12 +39,110 @@ private extension View {
 
 private let heartPink = Color(red: 0.92, green: 0.28, blue: 0.45)
 
+struct PairHeartPlusIcon: View {
+    var size: CGFloat = 22
+
+    var body: some View {
+        ZStack(alignment: .top) {
+            Image(systemName: "heart.fill")
+                .font(.system(size: size, weight: .semibold))
+                .foregroundStyle(.red)
+            Image(systemName: "plus")
+                .font(.system(size: size * 0.42, weight: .heavy))
+                .foregroundStyle(.white)
+                .offset(y: size * 0.18)
+        }
+        .frame(width: size + 6, height: size + 2)
+        .accessibilityHidden(true)
+    }
+}
+
+private struct CategoryTabStrip: View {
+    var categories: [ItemCategory]
+    var isSelected: (ItemCategory) -> Bool
+    var onSelect: (ItemCategory) -> Void
+    @Environment(CategoryNames.self) private var categoryNames
+    @Environment(\.colorScheme) private var colorScheme
+
+    var body: some View {
+        HStack(spacing: 6) {
+            ForEach(categories) { cat in
+                let selected = isSelected(cat)
+                Button {
+                    onSelect(cat)
+                } label: {
+                    VStack(spacing: 4) {
+                        Image(systemName: cat.systemImage)
+                            .font(.system(size: 16, weight: .semibold))
+                            .foregroundStyle(cat.iconColor)
+                        Text(categoryNames.title(for: cat))
+                            .font(.caption2.weight(.semibold))
+                            .multilineTextAlignment(.center)
+                            .lineLimit(2)
+                            .minimumScaleFactor(0.7)
+                            .foregroundStyle(Palette.brandBlue(colorScheme))
+                    }
+                    .frame(maxWidth: .infinity, minHeight: 52)
+                    .padding(.vertical, 6)
+                    .padding(.horizontal, 2)
+                    .background(
+                        RoundedRectangle(cornerRadius: 10, style: .continuous)
+                            .fill(Palette.card(colorScheme))
+                    )
+                    .overlay {
+                        RoundedRectangle(cornerRadius: 10, style: .continuous)
+                            .strokeBorder(
+                                selected
+                                    ? Palette.brandBlue(colorScheme)
+                                    : (Palette.isDark(colorScheme) ? Color.white.opacity(0.16) : Color.black.opacity(0.06)),
+                                lineWidth: selected ? 3 : 1
+                            )
+                    }
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(categoryNames.title(for: cat))
+                .accessibilityAddTraits(selected ? .isSelected : [])
+            }
+        }
+    }
+}
+
+struct CategoryPickerGrid: View {
+    @Binding var selection: Set<ItemCategory>
+
+    var body: some View {
+        VStack(spacing: 8) {
+            CategoryTabStrip(
+                categories: ItemCategory.primaryPage,
+                isSelected: { selection.contains($0) },
+                onSelect: { toggle($0) }
+            )
+            CategoryTabStrip(
+                categories: ItemCategory.extraPage,
+                isSelected: { selection.contains($0) },
+                onSelect: { toggle($0) }
+            )
+        }
+    }
+
+    private func toggle(_ cat: ItemCategory) {
+        if selection.contains(cat) {
+            guard selection.count > 1 else { return }
+            selection.remove(cat)
+        } else {
+            selection.insert(cat)
+        }
+    }
+}
+
 struct ContentView: View {
     @Environment(\.modelContext) private var modelContext
     @Environment(\.colorScheme) private var colorScheme
     @Query private var items: [TodoItem]
     @Environment(\.scenePhase) private var scenePhase
     @State private var category: ItemCategory = .places
+    @State private var categoryPage = 0
+    @State private var pageSelection: [Int: ItemCategory] = [0: .places, 1: .trip]
     @State private var showAdd = false
     @State private var showPairing = false
     @State private var showHelp = false
@@ -59,7 +157,7 @@ struct ContentView: View {
 
     private var filtered: [TodoItem] {
         items
-            .filter { $0.category == category }
+            .filter { $0.belongs(to: category) }
             .sorted { lhs, rhs in
                 if lhs.sortOrder == rhs.sortOrder {
                     return lhs.createdAt > rhs.createdAt
@@ -103,7 +201,7 @@ struct ContentView: View {
                         Button {
                             toggleListEditing()
                         } label: {
-                            Image(systemName: isListEditing ? "checkmark" : "gearshape")
+                            Image(systemName: isListEditing ? "checkmark" : "pencil")
                                 .font(.system(size: 22, weight: .semibold))
                                 .foregroundStyle(Palette.brandBlue(colorScheme))
                                 .frame(width: 32, height: 32)
@@ -124,9 +222,7 @@ struct ContentView: View {
 
                         if isListEditing {
                             Button { showPairing = true } label: {
-                                Image(systemName: pairSession.isPaired ? "person.2.fill" : "person.2")
-                                    .font(.system(size: 22, weight: .semibold))
-                                    .foregroundStyle(Palette.brandBlue(colorScheme))
+                                PairHeartPlusIcon(size: 22)
                             }
                             .accessibilityLabel("Pair phones")
                         }
@@ -142,76 +238,18 @@ struct ContentView: View {
                 }
                 .padding(.horizontal, 24)
 
-                Picker("Category", selection: $category) {
-                    ForEach(ItemCategory.allCases) { cat in
-                        Text(cat.title).tag(cat)
-                    }
+                TabView(selection: $categoryPage) {
+                    categoryPageView(ItemCategory.primaryPage, page: 0)
+                        .tag(0)
+                    categoryPageView(ItemCategory.extraPage, page: 1)
+                        .tag(1)
                 }
-                .pickerStyle(.segmented)
-                .padding(.horizontal, 24)
-
-                ScrollView {
-                    LazyVStack(spacing: 14) {
-                        ForEach(filtered, id: \.persistentModelID) { item in
-                            SwipeToDeleteRow(
-                                itemID: item.id,
-                                swipingItemID: $swipingItemID,
-                                isEnabled: false
-                            ) {
-                                deleteItem(item)
-                            } content: {
-                                Group {
-                                    if isListEditing {
-                                        ItemRowView(
-                                            item: item,
-                                            showsDragHandle: true,
-                                            onDelete: { deleteItem(item) },
-                                            onHandleDragChanged: { translation in
-                                                handleReorderChanged(item: item, translation: translation)
-                                            },
-                                            onHandleDragEnded: {
-                                                handleReorderEnded(item: item)
-                                            }
-                                        )
-                                    } else {
-                                        Button {
-                                            selectedItem = item
-                                        } label: {
-                                            ItemRowView(item: item)
-                                        }
-                                        .buttonStyle(.plain)
-                                    }
-                                }
-                            }
-                            .offset(y: reorderOffset(for: item))
-                            .zIndex(reorderDrag?.id == item.id ? 1 : 0)
-                            .scaleEffect(reorderDrag?.id == item.id ? 1.02 : 1)
-                            .shadow(
-                                color: reorderDrag?.id == item.id ? Color.black.opacity(0.18) : .clear,
-                                radius: 12,
-                                y: 6
-                            )
-                            .animation(
-                                reorderDrag?.id == item.id
-                                    ? nil
-                                    : .interactiveSpring(response: 0.25, dampingFraction: 0.86),
-                                value: reorderOffset(for: item)
-                            )
-                            .background {
-                                GeometryReader { geo in
-                                    Color.clear.preference(
-                                        key: RowHeightPreferenceKey.self,
-                                        value: [item.id: geo.size.height]
-                                    )
-                                }
-                            }
-                        }
-                    }
-                    .padding(.horizontal, 24)
-                    .padding(.bottom, 24)
-                    .onPreferenceChange(RowHeightPreferenceKey.self) { rowHeights = $0 }
+                .tabViewStyle(.page(indexDisplayMode: .automatic))
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .onChange(of: categoryPage) { _, page in
+                    category = pageSelection[page] ?? (page == 0 ? .places : .trip)
+                    reorderDrag = nil
                 }
-                .scrollDisabled(reorderDrag != nil)
             }
         }
         .background(WindowCanvas(color: Palette.uiCanvas(colorScheme)))
@@ -222,16 +260,23 @@ struct ContentView: View {
         )) {
             ItemPagerView(items: pagerItems, selectedItem: $selectedItem)
                 .presentationBackground(Palette.canvas(colorScheme))
+                .environment(CategoryNames.shared)
+                .environment(HomeBase.shared)
         }
         .sheet(isPresented: $showAdd) {
             AddItemView(category: category)
+                .environment(CategoryNames.shared)
         }
         .sheet(isPresented: $showPairing) {
             PairingView()
                 .environment(PairSession.shared)
+                .environment(CategoryNames.shared)
+                .environment(HomeBase.shared)
         }
         .sheet(isPresented: $showHelp) {
             HelpView()
+                .environment(CategoryNames.shared)
+                .environment(HomeBase.shared)
         }
         .onAppear {
             importSharedDrafts()
@@ -251,6 +296,107 @@ struct ContentView: View {
         .onChange(of: category) { _, _ in
             reorderDrag = nil
         }
+    }
+
+    private func selectCategory(_ cat: ItemCategory) {
+        category = cat
+        categoryPage = cat.pageIndex
+        pageSelection[cat.pageIndex] = cat
+        reorderDrag = nil
+    }
+
+    private func items(in cat: ItemCategory) -> [TodoItem] {
+        items
+            .filter { $0.belongs(to: cat) }
+            .sorted { lhs, rhs in
+                if lhs.sortOrder == rhs.sortOrder {
+                    return lhs.createdAt > rhs.createdAt
+                }
+                return lhs.sortOrder < rhs.sortOrder
+            }
+    }
+
+    @ViewBuilder
+    private func categoryPageView(_ categories: [ItemCategory], page: Int) -> some View {
+        let selected = Binding(
+            get: { pageSelection[page] ?? categories[0] },
+            set: { selectCategory($0) }
+        )
+        VStack(alignment: .leading, spacing: 14) {
+            CategoryTabStrip(
+                categories: categories,
+                isSelected: { $0 == selected.wrappedValue },
+                onSelect: { selected.wrappedValue = $0 }
+            )
+                .padding(.horizontal, 24)
+            itemList(for: selected.wrappedValue)
+        }
+    }
+
+    private func itemList(for cat: ItemCategory) -> some View {
+        let rows = items(in: cat)
+        return ScrollView {
+            LazyVStack(spacing: 14) {
+                ForEach(rows, id: \.persistentModelID) { item in
+                    SwipeToDeleteRow(
+                        itemID: item.id,
+                        swipingItemID: $swipingItemID,
+                        isEnabled: false
+                    ) {
+                        deleteItem(item)
+                    } content: {
+                        Group {
+                            if isListEditing {
+                                ItemRowView(
+                                    item: item,
+                                    showsDragHandle: true,
+                                    onDelete: { deleteItem(item) },
+                                    onHandleDragChanged: { translation in
+                                        handleReorderChanged(item: item, translation: translation)
+                                    },
+                                    onHandleDragEnded: {
+                                        handleReorderEnded(item: item)
+                                    }
+                                )
+                            } else {
+                                Button {
+                                    selectedItem = item
+                                } label: {
+                                    ItemRowView(item: item)
+                                }
+                                .buttonStyle(.plain)
+                            }
+                        }
+                    }
+                    .offset(y: reorderOffset(for: item))
+                    .zIndex(reorderDrag?.id == item.id ? 1 : 0)
+                    .scaleEffect(reorderDrag?.id == item.id ? 1.02 : 1)
+                    .shadow(
+                        color: reorderDrag?.id == item.id ? Color.black.opacity(0.18) : .clear,
+                        radius: 12,
+                        y: 6
+                    )
+                    .animation(
+                        reorderDrag?.id == item.id
+                            ? nil
+                            : .interactiveSpring(response: 0.25, dampingFraction: 0.86),
+                        value: reorderOffset(for: item)
+                    )
+                    .background {
+                        GeometryReader { geo in
+                            Color.clear.preference(
+                                key: RowHeightPreferenceKey.self,
+                                value: [item.id: geo.size.height]
+                            )
+                        }
+                    }
+                }
+            }
+            .padding(.horizontal, 24)
+            .padding(.bottom, 24)
+            .onPreferenceChange(RowHeightPreferenceKey.self) { rowHeights = $0 }
+        }
+        .scrollDisabled(reorderDrag != nil)
     }
 
     private func toggleListEditing() {
@@ -275,29 +421,33 @@ struct ContentView: View {
 
     private func refreshFromCloud() async {
         await CloudSync.shared.sync(modelContext: modelContext)
+        seedIfNeeded()
         if let cat = PairSession.shared.takeRevealCategory() {
-            category = cat
+            selectCategory(cat)
         }
     }
 
     private func normalizeSortOrders() {
         for cat in ItemCategory.allCases {
             let ordered = items
-                .filter { $0.category == cat }
+                .filter { $0.belongs(to: cat) }
                 .sorted { lhs, rhs in
                     if lhs.sortOrder == rhs.sortOrder {
                         return lhs.createdAt > rhs.createdAt
                     }
                     return lhs.sortOrder < rhs.sortOrder
                 }
+            var seen = Set<Int>()
+            let hasClash = ordered.contains { !seen.insert($0.sortOrder).inserted }
+            guard hasClash else { continue }
             for (index, item) in ordered.enumerated() {
-                item.sortOrder = index
+                item.sortOrder = ListReorder.rebalanced(ordered.count)[index]
             }
         }
     }
 
     private func nextSortOrder(for category: ItemCategory) -> Int {
-        (items.filter { $0.category == category }.map(\.sortOrder).min() ?? 0) - 1
+        (items.filter { $0.belongs(to: category) }.map(\.sortOrder).min() ?? 0) - 1
     }
 
     private func normalizeStoredText() {
@@ -370,8 +520,21 @@ struct ContentView: View {
         }
         withAnimation(.spring(response: 0.32, dampingFraction: 0.86)) {
             if from != to {
-                for (index, row) in ordered.enumerated() {
-                    row.sortOrder = index
+                let prev = to > 0 ? ordered[to - 1].sortOrder : nil
+                let next = to < ordered.count - 1 ? ordered[to + 1].sortOrder : nil
+                if let slot = ListReorder.slot(prev: prev, next: next) {
+                    ordered[to].sortOrder = slot
+                    PairSession.shared.noteLocalReorder(moved: ordered[to], others: [])
+                } else {
+                    let orders = ListReorder.rebalanced(ordered.count)
+                    for (index, row) in ordered.enumerated() {
+                        row.sortOrder = orders[index]
+                    }
+                    let moved = ordered[to]
+                    PairSession.shared.noteLocalReorder(
+                        moved: moved,
+                        others: ordered.filter { $0.id != moved.id }
+                    )
                 }
             }
             reorderDrag = nil
@@ -379,12 +542,43 @@ struct ContentView: View {
     }
 
     private func seedIfNeeded() {
-        let key = "todo42.seeded.v3"
-        guard !UserDefaults.standard.bool(forKey: key) else { return }
-        defer { UserDefaults.standard.set(true, forKey: key) }
-        guard items.isEmpty else { return }
-        for (index, seed) in SampleData.seeds.enumerated() {
-            modelContext.insert(SampleData.makeItem(seed, sortOrder: index))
+        ItemStore.deduplicateSampleCopies(in: modelContext)
+
+        // Paired phones use the shared iCloud list. Samples are only for a
+        // fresh local install so they can be shown in Simulator / App Store.
+        if pairSession.isPaired { return }
+
+        let stored = ItemStore.allItems(in: modelContext)
+        let oldThree = Set([
+            "Lake Escape 2",
+            "Greek Seas Charter Sailing",
+            "Keto recipe",
+        ])
+        let sampleTitles = Set(SampleData.seeds.map(\.title)).union(oldThree)
+        let titles = Set(stored.map(\.title))
+
+        if stored.isEmpty {
+            for (index, seed) in SampleData.seeds.enumerated() {
+                modelContext.insert(SampleData.makeItem(seed, sortOrder: index))
+            }
+            return
+        }
+
+        if titles.isSubset(of: oldThree) {
+            for item in stored {
+                modelContext.delete(item)
+            }
+            for (index, seed) in SampleData.seeds.enumerated() {
+                modelContext.insert(SampleData.makeItem(seed, sortOrder: index))
+            }
+            return
+        }
+
+        guard titles.isSubset(of: sampleTitles) else { return }
+        var nextOrder = (stored.map(\.sortOrder).min() ?? 0) - 1
+        for seed in SampleData.seeds where !titles.contains(seed.title) {
+            modelContext.insert(SampleData.makeItem(seed, sortOrder: nextOrder))
+            nextOrder -= 1
         }
     }
 
@@ -407,12 +601,14 @@ struct ContentView: View {
             let cut = SharedText.cutTitle(rawTitle, notes: rawNotes)
             let title = SharedText.normalized(cut.title)
             guard !title.isEmpty else { continue }
-            let category = ItemCategory(rawValue: payload.category) ?? .places
+            let chosen = ItemCategory.parse(payload.category)
+            let category = chosen.first ?? .places
             let sortOrder = nextOrders[category] ?? nextSortOrder(for: category)
             nextOrders[category] = sortOrder - 1
             let item = TodoItem(
                 title: title,
                 category: category,
+                categories: chosen,
                 urlString: link.isEmpty ? nil : link,
                 imageData: imageData,
                 notes: SharedText.reflowNotes(cut.notes),
@@ -725,6 +921,7 @@ struct ItemDetailView: View {
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.dismiss) private var dismiss
     @Environment(PairSession.self) private var pairSession
+    @Environment(HomeBase.self) private var homeBase
     @Bindable var item: TodoItem
     var onEditingChange: ((Bool) -> Void)? = nil
     @State private var isEditing = false
@@ -732,7 +929,7 @@ struct ItemDetailView: View {
     @State private var draftLink = ""
     @State private var draftNotes = ""
     @State private var photoItem: PhotosPickerItem?
-    @State private var extraPhotoItem: PhotosPickerItem?
+    @State private var placeCaption: String?
 
     private var isGuest: Bool { pairSession.role == .deena }
 
@@ -773,7 +970,7 @@ struct ItemDetailView: View {
                         beginEditing()
                     }
                 } label: {
-                    Image(systemName: isEditing ? "checkmark" : "gearshape")
+                    Image(systemName: isEditing ? "checkmark" : "pencil")
                         .font(.system(size: 22, weight: .semibold))
                         .foregroundStyle(Palette.brandBlue(colorScheme))
                         .frame(width: 32, height: 32)
@@ -786,89 +983,75 @@ struct ItemDetailView: View {
             .background(Palette.canvas(colorScheme))
 
             ScrollView {
-                VStack(alignment: .leading, spacing: 0) {
-                    photoSection
-
-                    VStack(alignment: .leading, spacing: 16) {
-                        if isEditing {
-                            labeledField("Title") {
-                                TextField("Title", text: $draftTitle, axis: .vertical)
-                                    .font(.body)
-                                    .lineLimit(1...6)
-                                    .multilineTextAlignment(.leading)
-                                    .padding(12)
-                                    .appCard(cornerRadius: 12, scheme: colorScheme)
-                            }
-                        } else {
-                            titleView
-                        }
-
-                        HStack(spacing: 16) {
-                            PartnerHeartButton(name: pairSession.myHeartLabel, isOn: myHeart, size: 18)
-                            PartnerHeartButton(
-                                name: pairSession.partnerHeartLabel,
-                                isOn: partnerHeart,
-                                interactive: false,
-                                size: 18
-                            )
-                            DoneCheckButton(isDone: $item.isDone, size: 18, name: "Done")
-                        }
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 0)
-                        .onChange(of: item.chrisHearted) { _, _ in
-                            PairSession.shared.noteLocalEdit(item, kind: "heart")
-                        }
-                        .onChange(of: item.deenaHearted) { _, _ in
-                            PairSession.shared.noteLocalEdit(item, kind: "heart")
-                        }
-                        .onChange(of: item.isDone) { _, _ in
-                            PairSession.shared.noteLocalEdit(item, kind: "edit")
-                        }
-
-                        if isEditing {
-                            Picker("Category", selection: categoryBinding) {
-                                ForEach(ItemCategory.allCases) { cat in
-                                    Text(cat.title).tag(cat)
-                                }
-                            }
-                            .pickerStyle(.segmented)
-                            .accessibilityLabel("Category")
-
-                            labeledField("Link") {
-                                TextField("https://", text: $draftLink)
-                                    .textInputAutocapitalization(.never)
-                                    .keyboardType(.URL)
-                                    .autocorrectionDisabled()
-                                    .padding(12)
-                                    .appCard(cornerRadius: 12, scheme: colorScheme)
-                            }
-
-                            TextField("Add a note", text: $draftNotes, axis: .vertical)
-                                .font(.system(size: 16, weight: .semibold))
-                                .lineLimit(3...20)
+                VStack(alignment: .leading, spacing: 16) {
+                    if isEditing {
+                        labeledField("Title") {
+                            TextField("Title", text: $draftTitle, axis: .vertical)
+                                .font(.body)
+                                .lineLimit(1...6)
+                                .multilineTextAlignment(.leading)
                                 .padding(12)
                                 .appCard(cornerRadius: 12, scheme: colorScheme)
-
-                            extraPhotoSection
-                        } else {
-                            if !item.notes.isEmpty {
-                                LockedText(
-                                    text: item.notes,
-                                    font: UIFont.systemFont(ofSize: 16, weight: .semibold),
-                                    color: .label,
-                                    lines: 0,
-                                    preserveNewlines: true
-                                )
-                            }
-
-                            if item.hasExtraPhoto {
-                                extraPhotoSection
-                            }
                         }
+                    } else {
+                        titleView
                     }
-                    .padding(20)
-                    .padding(.bottom, isEditing ? 180 : 0)
+
+                    locationLine
+
+                    HStack(spacing: 16) {
+                        PartnerHeartButton(name: pairSession.myHeartLabel, isOn: myHeart, size: 18)
+                        PartnerHeartButton(
+                            name: pairSession.partnerHeartLabel,
+                            isOn: partnerHeart,
+                            interactive: false,
+                            size: 18
+                        )
+                        DoneCheckButton(isDone: $item.isDone, size: 18, name: "Done")
+                    }
+                    .frame(maxWidth: .infinity)
+                    .onChange(of: item.chrisHearted) { _, _ in
+                        PairSession.shared.noteLocalEdit(item, kind: "heart")
+                    }
+                    .onChange(of: item.deenaHearted) { _, _ in
+                        PairSession.shared.noteLocalEdit(item, kind: "heart")
+                    }
+                    .onChange(of: item.isDone) { _, _ in
+                        PairSession.shared.noteLocalEdit(item, kind: "edit")
+                    }
+
+                    photosBlock
+
+                    if isEditing {
+                        CategoryPickerGrid(selection: categoriesBinding)
+                            .accessibilityLabel("Category")
+
+                        labeledField("Link") {
+                            TextField("https://", text: $draftLink)
+                                .textInputAutocapitalization(.never)
+                                .keyboardType(.URL)
+                                .autocorrectionDisabled()
+                                .padding(12)
+                                .appCard(cornerRadius: 12, scheme: colorScheme)
+                        }
+
+                        TextField("Add a note", text: $draftNotes, axis: .vertical)
+                            .font(.system(size: 16, weight: .semibold))
+                            .lineLimit(3...20)
+                            .padding(12)
+                            .appCard(cornerRadius: 12, scheme: colorScheme)
+                    } else if !item.notes.isEmpty {
+                        LockedText(
+                            text: item.notes,
+                            font: UIFont.systemFont(ofSize: 16, weight: .semibold),
+                            color: .label,
+                            lines: 0,
+                            preserveNewlines: true
+                        )
+                    }
                 }
+                .padding(20)
+                .padding(.bottom, isEditing ? 180 : 0)
             }
             .scrollContentBackground(.hidden)
             .scrollDismissesKeyboard(.interactively)
@@ -877,8 +1060,8 @@ struct ItemDetailView: View {
         .onChange(of: photoItem) { _, newItem in
             Task { await applyPickedPhoto(newItem) }
         }
-        .onChange(of: extraPhotoItem) { _, newItem in
-            Task { await applyExtraPhoto(newItem) }
+        .task(id: "\(item.id.uuidString)|\(item.urlString ?? "")|\(homeBase.latitude ?? 0)|\(homeBase.longitude ?? 0)") {
+            await refreshPlaceLine()
         }
         .onDisappear {
             if isEditing { commitEdits() }
@@ -913,58 +1096,134 @@ struct ItemDetailView: View {
         }
     }
 
-    private var categoryBinding: Binding<ItemCategory> {
+    @ViewBuilder
+    private var locationLine: some View {
+        if let text = placeCaption {
+            HStack(spacing: 6) {
+                Image(systemName: "location.fill")
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(Palette.brandBlue(colorScheme))
+                Text(text)
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(2)
+            }
+            .accessibilityLabel(text)
+        }
+    }
+
+    private func refreshPlaceLine() async {
+        let source = "\(item.urlString ?? "")|\(item.title)"
+        let cached: ItemPlace.Fix?
+        if item.placeSource == source, let lat = item.placeLatitude, let lon = item.placeLongitude {
+            cached = ItemPlace.Fix(latitude: lat, longitude: lon, locality: item.placeLocality)
+        } else {
+            cached = nil
+        }
+        let fix = await ItemPlace.resolve(
+            urlString: item.urlString,
+            title: item.title,
+            cached: cached,
+            cacheKey: cached == nil ? nil : source
+        )
+        guard let fix else {
+            placeCaption = nil
+            return
+        }
+        if item.placeSource != source
+            || item.placeLatitude != fix.latitude
+            || item.placeLongitude != fix.longitude
+            || item.placeLocality != fix.locality {
+            item.placeLatitude = fix.latitude
+            item.placeLongitude = fix.longitude
+            item.placeLocality = fix.locality
+            item.placeSource = source
+        }
+        let miles = homeBase.miles(to: fix.latitude, longitude: fix.longitude)
+        placeCaption = ItemPlace.line(locality: fix.locality, miles: miles)
+    }
+
+    private var categoriesBinding: Binding<Set<ItemCategory>> {
         Binding(
-            get: { item.category },
-            set: {
-                item.category = $0
+            get: { Set(item.categories) },
+            set: { newValue in
+                var next = item.categories.filter { newValue.contains($0) }
+                for cat in ItemCategory.allCases where newValue.contains(cat) && !next.contains(cat) {
+                    next.append(cat)
+                }
+                item.categories = next
                 PairSession.shared.noteLocalEdit(item, kind: "edit")
             }
         )
     }
 
     @ViewBuilder
-    private var photoSection: some View {
-        if item.hasPhoto {
-            ZStack(alignment: .topTrailing) {
-                ItemPhotoView(item: item, cornerRadius: 18, placeholderIconSize: 48)
-                    .frame(maxWidth: .infinity)
-                    .frame(height: 280)
-                    .clipped()
-
-                if isEditing {
-                    Button(action: clearPhoto) {
-                        Image(systemName: "xmark.circle.fill")
-                            .symbolRenderingMode(.palette)
-                            .foregroundStyle(.white, Color.black.opacity(0.55))
-                            .font(.system(size: 28, weight: .semibold))
+    private var photosBlock: some View {
+        VStack(spacing: 14) {
+            if item.hasPhoto {
+                stackedPhotoCard(deleteLabel: "Delete photo", onDelete: clearPhoto) {
+                    ItemPhotoView(item: item, cornerRadius: 18, placeholderIconSize: 48)
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 280)
+                        .clipped()
+                }
+            }
+            if item.hasExtraPhoto, let data = item.extraImageData, let image = UIImage(data: data) {
+                stackedBitmap(image, deleteLabel: "Delete photo 2", onDelete: clearExtraPhoto)
+            }
+            if item.hasExtraPhoto2, let data = item.extraImageData2, let image = UIImage(data: data) {
+                stackedBitmap(image, deleteLabel: "Delete photo 3", onDelete: clearExtraPhoto2)
+            }
+            if item.hasExtraPhoto3, let data = item.extraImageData3, let image = UIImage(data: data) {
+                stackedBitmap(image, deleteLabel: "Delete photo 4", onDelete: clearExtraPhoto3)
+            }
+            if isEditing, item.photoCount < 4 {
+                PhotosPicker(selection: $photoItem, matching: .images) {
+                    HStack(spacing: 10) {
+                        Image(systemName: "photo.badge.plus")
+                            .font(.system(size: 22, weight: .semibold))
+                        Text(item.photoCount == 0 ? "Add photo" : "Add another photo")
+                            .font(.headline)
                     }
-                    .buttonStyle(.plain)
-                    .padding(14)
-                    .accessibilityLabel("Delete photo")
+                    .foregroundStyle(Palette.brandBlue(colorScheme))
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 18)
+                    .appCard(cornerRadius: 12, scheme: colorScheme)
                 }
+                .buttonStyle(.plain)
+                .accessibilityLabel(item.photoCount == 0 ? "Add photo" : "Add another photo")
             }
-            .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
-            .padding(.horizontal, 20)
-            .padding(.top, 8)
-        } else {
-            PhotosPicker(selection: $photoItem, matching: .images) {
-                VStack(spacing: 10) {
-                    Image(systemName: "photo.badge.plus")
-                        .font(.system(size: 36, weight: .medium))
-                    Text("Upload photo")
-                        .font(.subheadline.weight(.semibold))
-                }
-                .foregroundStyle(Palette.brandBlue(colorScheme))
+        }
+    }
+
+    private func stackedBitmap(_ image: UIImage, deleteLabel: String, onDelete: @escaping () -> Void) -> some View {
+        stackedPhotoCard(deleteLabel: deleteLabel, onDelete: onDelete) {
+            Image(uiImage: image)
+                .resizable()
+                .aspectRatio(image.size, contentMode: .fit)
                 .frame(maxWidth: .infinity)
-                .frame(height: 280)
-                .background(Palette.canvas(colorScheme))
+        }
+    }
+
+    private func stackedPhotoCard<Content: View>(
+        deleteLabel: String,
+        onDelete: @escaping () -> Void,
+        @ViewBuilder content: () -> Content
+    ) -> some View {
+        ZStack(alignment: .topTrailing) {
+            content()
                 .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+            if isEditing {
+                Button(action: onDelete) {
+                    Image(systemName: "xmark.circle.fill")
+                        .symbolRenderingMode(.palette)
+                        .foregroundStyle(.white, Color.black.opacity(0.55))
+                        .font(.system(size: 28, weight: .semibold))
+                }
+                .buttonStyle(.plain)
+                .padding(14)
+                .accessibilityLabel(deleteLabel)
             }
-            .buttonStyle(.plain)
-            .padding(.horizontal, 20)
-            .padding(.top, 8)
-            .accessibilityLabel("Upload photo")
         }
     }
 
@@ -981,64 +1240,33 @@ struct ItemDetailView: View {
         guard let data = try? await picked.loadTransferable(type: Data.self),
               let image = UIImage(data: data),
               let jpeg = PhotoJPEG.compressed(image) else { return }
-        item.imageData = jpeg
-        item.imageAssetName = nil
-        item.imageURLString = nil
-        PairSession.shared.noteLocalEdit(item, kind: "edit")
-    }
-
-    @ViewBuilder
-    private var extraPhotoSection: some View {
-        if item.hasExtraPhoto, let data = item.extraImageData, let image = UIImage(data: data) {
-            ZStack(alignment: .topTrailing) {
-                Image(uiImage: image)
-                    .resizable()
-                    .aspectRatio(image.size, contentMode: .fit)
-                    .frame(maxWidth: .infinity)
-                    .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
-
-                if isEditing {
-                    Button(action: clearExtraPhoto) {
-                        Image(systemName: "xmark.circle.fill")
-                            .symbolRenderingMode(.palette)
-                            .foregroundStyle(.white, Color.black.opacity(0.55))
-                            .font(.system(size: 28, weight: .semibold))
-                    }
-                    .buttonStyle(.plain)
-                    .padding(14)
-                    .accessibilityLabel("Delete extra photo")
-                }
-            }
-        } else if isEditing {
-            PhotosPicker(selection: $extraPhotoItem, matching: .images) {
-                HStack(spacing: 10) {
-                    Image(systemName: "photo.badge.plus")
-                        .font(.system(size: 22, weight: .semibold))
-                    Text("Add photo")
-                        .font(.headline)
-                }
-                .foregroundStyle(Palette.brandBlue(colorScheme))
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 18)
-                .appCard(cornerRadius: 12, scheme: colorScheme)
-            }
-            .buttonStyle(.plain)
-            .accessibilityLabel("Add extra photo")
+        if !item.hasPhoto {
+            item.imageData = jpeg
+            item.imageAssetName = nil
+            item.imageURLString = nil
+        } else if !item.hasExtraPhoto {
+            item.extraImageData = jpeg
+        } else if !item.hasExtraPhoto2 {
+            item.extraImageData2 = jpeg
+        } else if !item.hasExtraPhoto3 {
+            item.extraImageData3 = jpeg
         }
+        photoItem = nil
+        PairSession.shared.noteLocalEdit(item, kind: "edit")
     }
 
     private func clearExtraPhoto() {
         item.extraImageData = nil
-        extraPhotoItem = nil
         PairSession.shared.noteLocalEdit(item, kind: "edit")
     }
 
-    private func applyExtraPhoto(_ picked: PhotosPickerItem?) async {
-        guard let picked else { return }
-        guard let data = try? await picked.loadTransferable(type: Data.self),
-              let image = UIImage(data: data),
-              let jpeg = PhotoJPEG.compressed(image) else { return }
-        item.extraImageData = jpeg
+    private func clearExtraPhoto2() {
+        item.extraImageData2 = nil
+        PairSession.shared.noteLocalEdit(item, kind: "edit")
+    }
+
+    private func clearExtraPhoto3() {
+        item.extraImageData3 = nil
         PairSession.shared.noteLocalEdit(item, kind: "edit")
     }
 
@@ -1180,7 +1408,7 @@ struct AddItemView: View {
     @State private var title = ""
     @State private var urlString = ""
     @State private var notes = ""
-    @State private var selectedCategory: ItemCategory = .places
+    @State private var selectedCategories: Set<ItemCategory> = [.places]
     @State private var photoItem: PhotosPickerItem?
     @State private var photoData: Data?
     @State private var isLoadingMeta = false
@@ -1200,7 +1428,17 @@ struct AddItemView: View {
     var body: some View {
         NavigationStack {
             Form {
-                Section("Paste a link") {
+                Section {
+                    NavigationLink {
+                        FindIdeasView { pageURL in
+                            urlString = pageURL
+                        }
+                    } label: {
+                        Label("Find Ideas", systemImage: "magnifyingglass")
+                    }
+                }
+
+                Section("Or Paste a link") {
                     TextField("https://", text: $urlString)
                         .textInputAutocapitalization(.never)
                         .keyboardType(.URL)
@@ -1253,11 +1491,7 @@ struct AddItemView: View {
                         .lineLimit(1...4)
                     TextField("Notes", text: $notes, axis: .vertical)
                         .lineLimit(3...6)
-                    Picker("Category", selection: $selectedCategory) {
-                        ForEach(ItemCategory.allCases) { cat in
-                            Text(cat.title).tag(cat)
-                        }
-                    }
+                    CategoryPickerGrid(selection: $selectedCategories)
                 }
             }
             .navigationTitle("Add item")
@@ -1272,7 +1506,7 @@ struct AddItemView: View {
                     .disabled(!canSave)
                 }
             }
-            .onAppear { selectedCategory = category }
+            .onAppear { selectedCategories = [category] }
             .onChange(of: photoItem) { _, newItem in
                 Task { await loadPickedPhoto(newItem) }
             }
@@ -1320,7 +1554,7 @@ struct AddItemView: View {
             ])
             if !split.title.isEmpty {
                 title = split.title
-                selectedCategory = ItemCategory.guessed(urlString: link, title: split.title + " " + split.notes)
+                selectedCategories.insert(ItemCategory.guessed(urlString: link, title: split.title + " " + split.notes))
             }
             notes = split.notes
         } else if FacebookShareText.isFacebookURL(link) {
@@ -1335,13 +1569,13 @@ struct AddItemView: View {
             ])
             if !split.title.isEmpty {
                 title = split.title
-                selectedCategory = ItemCategory.guessed(urlString: link, title: split.title + " " + split.notes)
+                selectedCategories.insert(ItemCategory.guessed(urlString: link, title: split.title + " " + split.notes))
             }
             notes = split.notes
         } else {
             if PageMetadata.isPlaceholderTitle(title), let pageTitle = meta.title, !pageTitle.isEmpty {
                 title = pageTitle
-                selectedCategory = ItemCategory.guessed(urlString: link, title: pageTitle)
+                selectedCategories.insert(ItemCategory.guessed(urlString: link, title: pageTitle))
             }
             if notes.isEmpty, let description = meta.description, !description.isEmpty {
                 notes = description
@@ -1367,10 +1601,13 @@ struct AddItemView: View {
         }
         guard !trimmedTitle.isEmpty else { return }
         let cut = SharedText.cutTitle(SharedText.normalized(trimmedTitle), notes: SharedText.reflowNotes(notes))
-        let nextSortOrder = (items.filter { $0.category == selectedCategory }.map(\.sortOrder).min() ?? 0) - 1
+        let chosen = selectedCategories.isEmpty ? [category] : ItemCategory.allCases.filter { selectedCategories.contains($0) }
+        let primary = chosen.first ?? category
+        let nextSortOrder = (items.filter { $0.belongs(to: primary) }.map(\.sortOrder).min() ?? 0) - 1
         let item = TodoItem(
             title: cut.title,
-            category: selectedCategory,
+            category: primary,
+            categories: chosen,
             urlString: trimmedLink.hasPrefix("http") ? trimmedLink : nil,
             imageData: photoData,
             notes: cut.notes,
@@ -1438,7 +1675,7 @@ struct ItemPhotoView: View {
             Palette.canvas(colorScheme)
             Image(systemName: item.category.systemImage)
                 .font(.system(size: placeholderIconSize))
-                .foregroundStyle(Palette.brandBlue(colorScheme))
+                .foregroundStyle(item.category.iconColor)
         }
     }
 }

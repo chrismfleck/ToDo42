@@ -139,6 +139,18 @@ final class PairSession {
         item.lastEditor = role?.rawValue ?? ""
         Task { await CloudSync.shared.upload(item, notifyKind: kind) }
     }
+
+    func noteLocalReorder(moved: TodoItem, others: [TodoItem]) {
+        guard !isApplyingRemote else { return }
+        let now = Date()
+        moved.updatedAt = now
+        moved.lastEditor = role?.rawValue ?? ""
+        for item in others {
+            item.updatedAt = now
+            item.lastEditor = role?.rawValue ?? ""
+        }
+        Task { await CloudSync.shared.uploadReorder(moved: moved, others: others) }
+    }
 }
 
 @MainActor
@@ -219,6 +231,7 @@ final class CloudSync {
         session.persistLocal()
         try await subscribe()
         try await requestNotifications()
+        await uploadCategoryTitles()
         return code
     }
 
@@ -248,6 +261,7 @@ final class CloudSync {
             if !host.isEmpty {
                 session.partnerName = host
             }
+            CategoryNames.shared.applyRemoteJSON(pair[CategoryNames.cloudField] as? String)
             pair["guestName"] = session.trimmedMyName
             if session.trimmedPartnerName.isEmpty == false, host.isEmpty {
                 pair["hostName"] = session.trimmedPartnerName
@@ -269,6 +283,21 @@ final class CloudSync {
                 try await self.saveOverwriting(record)
             } catch {
                 PairSession.shared.statusMessage = Self.friendlyMessage(error)
+            }
+        }
+    }
+
+    func uploadCategoryTitles() async {
+        guard PairSession.shared.isPaired, let pairID = PairSession.shared.pairID else { return }
+        let json = CategoryNames.shared.payloadJSON()
+        guard !json.isEmpty else { return }
+        await enqueue {
+            do {
+                let record = try await self.database.record(for: CKRecord.ID(recordName: "pair-\(pairID)"))
+                record[CategoryNames.cloudField] = json
+                try await self.saveOverwriting(record)
+            } catch {
+                // Production schema may not have this field yet. Names still stay on the phone.
             }
         }
     }
@@ -308,6 +337,22 @@ final class CloudSync {
         }
     }
 
+    func uploadReorder(moved: TodoItem, others: [TodoItem]) async {
+        guard PairSession.shared.isPaired else { return }
+        await enqueue {
+            do {
+                for item in others {
+                    try await self.saveItem(item, notifyKind: "")
+                }
+                try await self.saveItem(moved, notifyKind: "reorder")
+                try? await self.registerItemIDs(([moved] + others).map(\.id.uuidString))
+                PairSession.shared.statusMessage = ""
+            } catch {
+                PairSession.shared.statusMessage = Self.friendlyMessage(error)
+            }
+        }
+    }
+
     func restoreFromCloud(modelContext: ModelContext, oldCode: String = "") async {
         await enqueue {
             do {
@@ -323,6 +368,13 @@ final class CloudSync {
                 let extraRecords = records.filter { self.recordKind($0) == .extraPhoto }
                 for record in itemRecords {
                     guard let itemID = record["itemID"] as? String, let uuid = UUID(uuidString: itemID) else { continue }
+                    if RemoteItemApply.isTombstone(notifyKind: record["notifyKind"] as? String) {
+                        if let local = localByID[itemID] {
+                            modelContext.delete(local)
+                            localByID.removeValue(forKey: itemID)
+                        }
+                        continue
+                    }
                     if let local = localByID[itemID] {
                         self.apply(record, to: local)
                         continue
@@ -331,7 +383,7 @@ final class CloudSync {
                     guard !title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { continue }
                     let item = TodoItem(
                         title: title,
-                        category: ItemCategory(rawValue: record["categoryRaw"] as? String ?? "places") ?? .places,
+                        category: ItemCategory.parse(record["categoryRaw"] as? String ?? "places").first ?? .places,
                         urlString: record["urlString"] as? String,
                         notes: record["notes"] as? String ?? "",
                         sortOrder: CloudKitValues.intValue(record["sortOrder"]) ?? 0
@@ -369,14 +421,45 @@ final class CloudSync {
     func deleteRemote(_ id: UUID) async {
         guard PairSession.shared.isPaired else { return }
         await enqueue {
+            let itemRecordID = CKRecord.ID(recordName: "item-\(id.uuidString)")
             do {
-                try await self.database.deleteRecord(withID: CKRecord.ID(recordName: "item-\(id.uuidString)"))
+                _ = await self.tombstoneRemote(id)
+                try await self.database.deleteRecord(withID: itemRecordID)
                 try? await self.database.deleteRecord(withID: self.extraRecordID(for: id))
+                try? await self.database.deleteRecord(withID: self.extra2RecordID(for: id))
+                try? await self.database.deleteRecord(withID: self.extra3RecordID(for: id))
                 try await self.removeItemID(id.uuidString)
                 PairSession.shared.statusMessage = ""
+            } catch let error as CKError where error.code == .unknownItem {
+                try? await self.removeItemID(id.uuidString)
+                PairSession.shared.statusMessage = ""
             } catch {
-                PairSession.shared.statusMessage = Self.friendlyMessage(error)
+                // Partner is often not the CloudKit creator, so the record
+                // delete fails. The tombstone still syncs so both lists drop it.
+                if await self.tombstoneRemote(id) {
+                    PairSession.shared.statusMessage = ""
+                } else {
+                    PairSession.shared.statusMessage = Self.friendlyMessage(error)
+                }
             }
+        }
+    }
+
+    private func tombstoneRemote(_ id: UUID) async -> Bool {
+        let recordID = CKRecord.ID(recordName: "item-\(id.uuidString)")
+        guard let record = try? await database.record(for: recordID) else { return false }
+        record["notifyKind"] = "delete"
+        record["notifyText"] = Self.pushBody(kind: "delete", title: record["title"] as? String ?? "")
+        record["lastEditor"] = PairSession.shared.role?.rawValue ?? ""
+        record["updatedAt"] = Date()
+        do {
+            try await saveOverwriting(record)
+            try? await database.deleteRecord(withID: extraRecordID(for: id))
+            try? await database.deleteRecord(withID: extra2RecordID(for: id))
+            try? await database.deleteRecord(withID: extra3RecordID(for: id))
+            return true
+        } catch {
+            return false
         }
     }
 
@@ -389,7 +472,7 @@ final class CloudSync {
         Join \(PairSession.shared.trimmedMyName.isEmpty ? "me" : PairSession.shared.trimmedMyName) on Save4Two.
 
         1. Both of us install Save4Two from TestFlight (not from Xcode).
-        2. Open the app and tap the two-person icon.
+        2. Open the app and tap the red heart with a plus.
         3. Choose “I have a code” and enter: \(code)
 
         Stay signed in to iCloud on your iPhone so our lists can sync.
@@ -403,6 +486,7 @@ final class CloudSync {
             host: pair["hostName"] as? String,
             guest: pair["guestName"] as? String
         )
+        CategoryNames.shared.applyRemoteJSON(pair[CategoryNames.cloudField] as? String)
         let listedIDs = (pair["itemIDs"] as? String ?? "")
             .split(separator: ",")
             .map(String.init)
@@ -418,6 +502,15 @@ final class CloudSync {
         var localByID = ItemStore.keyedByID(ItemStore.allItems(in: modelContext))
         for record in remote {
             guard let itemID = record["itemID"] as? String, let uuid = UUID(uuidString: itemID) else { continue }
+            let notifyKind = record["notifyKind"] as? String
+            if RemoteItemApply.isTombstone(notifyKind: notifyKind) {
+                if let local = localByID[itemID] {
+                    modelContext.delete(local)
+                    localByID.removeValue(forKey: itemID)
+                    notifyRemoved(record)
+                }
+                continue
+            }
             let remoteUpdated = record["updatedAt"] as? Date ?? .distantPast
             let local = localByID[itemID] ?? ItemStore.item(id: uuid, in: modelContext)
             if let local {
@@ -450,13 +543,25 @@ final class CloudSync {
                     notifyUpdate(record, heartChanged: justHearted)
                 } else if justHearted {
                     notifyUpdate(record, heartChanged: true)
+                } else if RemoteItemApply.shouldApplyRemoteSort(
+                    myRole: session.role?.rawValue,
+                    lastEditor: record["lastEditor"] as? String,
+                    notifyKind: notifyKind,
+                    localSort: local.sortOrder,
+                    remoteSort: CloudKitValues.intValue(record["sortOrder"]),
+                    localUpdated: local.updatedAt ?? local.createdAt,
+                    remoteUpdated: remoteUpdated
+                ) {
+                    local.sortOrder = CloudKitValues.intValue(record["sortOrder"]) ?? local.sortOrder
+                    local.updatedAt = remoteUpdated
+                    notifyUpdate(record, heartChanged: false)
                 }
             } else {
                 let title = RemoteItemApply.resolvedTitle(localTitle: "", remoteTitle: record["title"] as? String)
                 guard !title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { continue }
                 let item = TodoItem(
                     title: title,
-                    category: ItemCategory(rawValue: record["categoryRaw"] as? String ?? "places") ?? .places,
+                    category: ItemCategory.parse(record["categoryRaw"] as? String ?? "places").first ?? .places,
                     urlString: record["urlString"] as? String,
                     notes: record["notes"] as? String ?? "",
                     sortOrder: CloudKitValues.intValue(record["sortOrder"]) ?? 0
@@ -483,29 +588,57 @@ final class CloudSync {
             applyExtraPhoto(record, to: local)
         }
         if fetched.catalogComplete, !remote.isEmpty {
-            let remoteIDs = Set(remote.compactMap { $0["itemID"] as? String })
+            let remoteIDs = Set(remote.compactMap { record -> String? in
+                guard !RemoteItemApply.isTombstone(notifyKind: record["notifyKind"] as? String) else { return nil }
+                return record["itemID"] as? String
+            })
             let extrasByItemID = Set(extraRecords.compactMap { record -> String? in
-                RemoteItemApply.extraItemID(
+                guard RemoteItemApply.extraSlot(recordName: record.recordID.recordName) == 1 else { return nil }
+                return RemoteItemApply.extraItemID(
+                    recordName: record.recordID.recordName,
+                    itemID: record["itemID"] as? String
+                )
+            })
+            let extra2ByItemID = Set(extraRecords.compactMap { record -> String? in
+                guard RemoteItemApply.extraSlot(recordName: record.recordID.recordName) == 2 else { return nil }
+                return RemoteItemApply.extraItemID(
+                    recordName: record.recordID.recordName,
+                    itemID: record["itemID"] as? String
+                )
+            })
+            let extra3ByItemID = Set(extraRecords.compactMap { record -> String? in
+                guard RemoteItemApply.extraSlot(recordName: record.recordID.recordName) == 3 else { return nil }
+                return RemoteItemApply.extraItemID(
                     recordName: record.recordID.recordName,
                     itemID: record["itemID"] as? String
                 )
             })
             for local in ItemStore.allItems(in: modelContext) {
                 if remoteIDs.contains(local.id.uuidString) {
-                    if local.hasExtraPhoto, !extrasByItemID.contains(local.id.uuidString) {
-                        let remoteItem = remote.first {
-                            ($0["itemID"] as? String) == local.id.uuidString
-                        }
-                        let remoteUpdated = remoteItem?["updatedAt"] as? Date
-                            ?? remoteItem?.modificationDate
-                            ?? .distantPast
-                        if remoteUpdated >= (local.updatedAt ?? local.createdAt) {
-                            local.extraImageData = nil
-                        }
+                    let remoteItem = remote.first {
+                        ($0["itemID"] as? String) == local.id.uuidString
+                    }
+                    let remoteUpdated = remoteItem?["updatedAt"] as? Date
+                        ?? remoteItem?.modificationDate
+                        ?? .distantPast
+                    if local.hasExtraPhoto, !extrasByItemID.contains(local.id.uuidString),
+                       remoteUpdated >= (local.updatedAt ?? local.createdAt) {
+                        local.extraImageData = nil
+                    }
+                    if local.hasExtraPhoto2, !extra2ByItemID.contains(local.id.uuidString),
+                       remoteUpdated >= (local.updatedAt ?? local.createdAt) {
+                        local.extraImageData2 = nil
+                    }
+                    if local.hasExtraPhoto3, !extra3ByItemID.contains(local.id.uuidString),
+                       remoteUpdated >= (local.updatedAt ?? local.createdAt) {
+                        local.extraImageData3 = nil
                     }
                     continue
                 }
-                if Date().timeIntervalSince(local.createdAt) < 180 { continue }
+                if Date().timeIntervalSince(local.createdAt) < 180,
+                   local.lastEditor == session.role?.rawValue || local.lastEditor.isEmpty {
+                    continue
+                }
                 modelContext.delete(local)
             }
         }
@@ -553,6 +686,18 @@ final class CloudSync {
         let missingExtras = listedIDs.filter { found["extra-\($0)"] == nil }
         if !missingExtras.isEmpty {
             for record in await fetchNamedRecords(missingExtras.map { "extra-\($0)" }) {
+                found[record.recordID.recordName] = record
+            }
+        }
+        let missingExtra2 = listedIDs.filter { found["extra2-\($0)"] == nil }
+        if !missingExtra2.isEmpty {
+            for record in await fetchNamedRecords(missingExtra2.map { "extra2-\($0)" }) {
+                found[record.recordID.recordName] = record
+            }
+        }
+        let missingExtra3 = listedIDs.filter { found["extra3-\($0)"] == nil }
+        if !missingExtra3.isEmpty {
+            for record in await fetchNamedRecords(missingExtra3.map { "extra3-\($0)" }) {
                 found[record.recordID.recordName] = record
             }
         }
@@ -711,7 +856,7 @@ final class CloudSync {
                 }
                 try? await saveOverwriting(existing)
             }
-            await saveExtraPhotoRecord(for: item, pairID: pairID)
+            await saveCompanionPhotos(for: item, pairID: pairID)
             return
         }
         let record: CKRecord
@@ -719,8 +864,8 @@ final class CloudSync {
             if notifyKind.isEmpty, shouldSkipCatchupPush(item, existing: existing) {
                 // Still publish a local bottom photo that never made it to iCloud
                 // (older builds dropped those uploads), without rewriting newer fields.
-                if item.hasExtraPhoto {
-                    await saveExtraPhotoRecord(for: item, pairID: pairID)
+                if item.hasExtraPhoto || item.hasExtraPhoto2 || item.hasExtraPhoto3 {
+                    await saveCompanionPhotos(for: item, pairID: pairID)
                 }
                 return
             }
@@ -755,8 +900,8 @@ final class CloudSync {
         record["createdAt"] = item.createdAt
         record["updatedAt"] = item.updatedAt ?? item.createdAt
         record["lastEditor"] = item.lastEditor
+        record["notifyKind"] = notifyKind
         if !notifyKind.isEmpty {
-            record["notifyKind"] = notifyKind
             record["notifyText"] = Self.pushBody(kind: notifyKind, title: item.title)
         }
         if let data = item.imageData, !data.isEmpty {
@@ -768,18 +913,59 @@ final class CloudSync {
         // Bottom photos use a companion record with the existing `image` asset field.
         // Writing a second `image2` field on the item used to happen in a follow-up
         // save that failed silently on Production CloudKit, so partners never saw it.
-        await saveExtraPhotoRecord(for: item, pairID: pairID)
+        await saveCompanionPhotos(for: item, pairID: pairID)
     }
 
-    /// Bottom-of-page photos sync through a companion TDItem that reuses the known
-    /// `image` asset field, so Production CloudKit does not need a new `image2` field.
+    /// Extra photos sync through companion TDItem rows that reuse the known
+    /// `image` asset field, so Production CloudKit does not need new image fields.
     private func extraRecordID(for itemID: UUID) -> CKRecord.ID {
         CKRecord.ID(recordName: "extra-\(itemID.uuidString)")
     }
 
-    private func saveExtraPhotoRecord(for item: TodoItem, pairID: String) async {
-        let recordID = extraRecordID(for: item.id)
-        guard let extra = item.extraImageData, !extra.isEmpty else {
+    private func extra2RecordID(for itemID: UUID) -> CKRecord.ID {
+        CKRecord.ID(recordName: "extra2-\(itemID.uuidString)")
+    }
+
+    private func extra3RecordID(for itemID: UUID) -> CKRecord.ID {
+        CKRecord.ID(recordName: "extra3-\(itemID.uuidString)")
+    }
+
+    private func saveCompanionPhotos(for item: TodoItem, pairID: String) async {
+        await saveCompanionPhoto(
+            data: item.extraImageData,
+            recordID: extraRecordID(for: item.id),
+            item: item,
+            pairID: pairID,
+            sortOrder: -1,
+            fileSuffix: "extra"
+        )
+        await saveCompanionPhoto(
+            data: item.extraImageData2,
+            recordID: extra2RecordID(for: item.id),
+            item: item,
+            pairID: pairID,
+            sortOrder: -2,
+            fileSuffix: "extra2"
+        )
+        await saveCompanionPhoto(
+            data: item.extraImageData3,
+            recordID: extra3RecordID(for: item.id),
+            item: item,
+            pairID: pairID,
+            sortOrder: -3,
+            fileSuffix: "extra3"
+        )
+    }
+
+    private func saveCompanionPhoto(
+        data: Data?,
+        recordID: CKRecord.ID,
+        item: TodoItem,
+        pairID: String,
+        sortOrder: Int,
+        fileSuffix: String
+    ) async {
+        guard let extra = data, !extra.isEmpty else {
             try? await database.deleteRecord(withID: recordID)
             return
         }
@@ -787,11 +973,11 @@ final class CloudSync {
             ?? CKRecord(recordType: "TDItem", recordID: recordID)
         record["pairID"] = pairID
         record["itemID"] = item.id.uuidString
-        record["sortOrder"] = -1
+        record["sortOrder"] = sortOrder
         record["createdAt"] = item.createdAt
         record["updatedAt"] = item.updatedAt ?? item.createdAt
         record["lastEditor"] = item.lastEditor
-        let extraURL = FileManager.default.temporaryDirectory.appendingPathComponent("\(item.id.uuidString)-extra.jpg")
+        let extraURL = FileManager.default.temporaryDirectory.appendingPathComponent("\(item.id.uuidString)-\(fileSuffix).jpg")
         guard (try? extra.write(to: extraURL)) != nil else { return }
         record["image"] = CKAsset(fileURL: extraURL)
         try? await saveOverwriting(record)
@@ -800,7 +986,14 @@ final class CloudSync {
     private func applyExtraPhoto(_ record: CKRecord, to item: TodoItem) {
         if let asset = record["image"] as? CKAsset, let url = asset.fileURL,
            let data = try? Data(contentsOf: url), !data.isEmpty, data.count < 8_000_000 {
-            item.extraImageData = data
+            switch RemoteItemApply.extraSlot(recordName: record.recordID.recordName) {
+            case 3:
+                item.extraImageData3 = data
+            case 2:
+                item.extraImageData2 = data
+            default:
+                item.extraImageData = data
+            }
         }
     }
 
@@ -889,21 +1082,37 @@ final class CloudSync {
         guard let pairID = PairSession.shared.pairID,
               let myRole = PairSession.shared.role else { return }
         let partnerRole = myRole == .chris ? PairRole.deena.rawValue : PairRole.chris.rawValue
-        let info = Self.alertNotificationInfo()
-        let newID = "todo42-alert-\(pairID.prefix(8))-\(myRole.rawValue)"
+        let prefix = pairID.prefix(8)
+        let alertID = "todo42-alert-v4-\(prefix)-\(myRole.rawValue)"
+        let silentID = "todo42-silent-v4-\(prefix)-\(myRole.rawValue)"
 
-        let migrateKey = "todo42.pushSub.v3.\(pairID.prefix(8))"
+        let migrateKey = "todo42.pushSub.v4.\(prefix)"
         if !UserDefaults.standard.bool(forKey: migrateKey) {
             for oldID in [
-                "todo42-tditem-\(pairID.prefix(8))",
+                "todo42-tditem-\(prefix)",
                 "todo42-tditem-all",
+                "todo42-alert-\(prefix)-\(myRole.rawValue)",
             ] {
                 try? await database.deleteSubscription(withID: oldID)
             }
             UserDefaults.standard.set(true, forKey: migrateKey)
         }
 
+        let silentInfo = CKSubscription.NotificationInfo()
+        silentInfo.shouldSendContentAvailable = true
+        silentInfo.shouldBadge = false
+        let silent = CKQuerySubscription(
+            recordType: "TDItem",
+            predicate: NSPredicate(format: "pairID == %@", pairID),
+            subscriptionID: silentID,
+            options: [.firesOnRecordCreation, .firesOnRecordUpdate, .firesOnRecordDeletion]
+        )
+        silent.notificationInfo = silentInfo
+        try? await database.save(silent)
+
+        let notifyKinds = ["add", "heart", "edit", "reorder", "delete"]
         let predicates = [
+            NSPredicate(format: "pairID == %@ AND lastEditor == %@ AND notifyKind IN %@", pairID, partnerRole, notifyKinds),
             NSPredicate(format: "pairID == %@ AND lastEditor == %@ AND sortOrder >= 0", pairID, partnerRole),
             NSPredicate(format: "pairID == %@ AND lastEditor == %@", pairID, partnerRole),
             NSPredicate(format: "pairID == %@", pairID),
@@ -912,10 +1121,10 @@ final class CloudSync {
             let subscription = CKQuerySubscription(
                 recordType: "TDItem",
                 predicate: predicate,
-                subscriptionID: newID,
-                options: [.firesOnRecordCreation, .firesOnRecordUpdate]
+                subscriptionID: alertID,
+                options: [.firesOnRecordCreation, .firesOnRecordUpdate, .firesOnRecordDeletion]
             )
-            subscription.notificationInfo = info
+            subscription.notificationInfo = Self.alertNotificationInfo()
             do {
                 _ = try await database.save(subscription)
                 return
@@ -942,6 +1151,8 @@ final class CloudSync {
         switch kind {
         case "heart": return "\(who) hearted \(label)"
         case "add": return "\(who) added \(label)"
+        case "reorder": return "\(who) reordered the list"
+        case "delete": return "\(who) removed \(label)"
         default: return "\(who) updated \(label)"
         }
     }
@@ -957,6 +1168,15 @@ final class CloudSync {
         guard status == .available else {
             throw SyncError.message("Sign in to iCloud on this iPhone (Settings → Apple Account → iCloud) so the lists can sync.")
         }
+    }
+
+    private func notifyRemoved(_ record: CKRecord) {
+        guard recordKind(record) == .listItem else { return }
+        let editor = record["lastEditor"] as? String ?? ""
+        guard editor != PairSession.shared.role?.rawValue else { return }
+        let who = PairSession.shared.displayName(forEditor: editor)
+        let title = record["title"] as? String ?? "an item"
+        postNotice(title: "\(who) removed an item", body: title)
     }
 
     private func notifyNew(_ record: CKRecord) {
@@ -978,6 +1198,12 @@ final class CloudSync {
         let editor = record["lastEditor"] as? String ?? ""
         guard editor != PairSession.shared.role?.rawValue else { return }
         let who = PairSession.shared.displayName(forEditor: editor)
+        let kind = record["notifyKind"] as? String ?? ""
+        if kind == "reorder" {
+            postNotice(title: "\(who) reordered the list", body: title)
+            return
+        }
+        if kind.isEmpty { return }
         postNotice(title: "\(who) updated an item", body: title)
     }
 

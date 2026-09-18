@@ -3,6 +3,8 @@ import SwiftUI
 struct HelpView: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.colorScheme) private var colorScheme
+    @Environment(CategoryNames.self) private var categoryNames
+    @Environment(HomeBase.self) private var homeBase
 
     var body: some View {
         NavigationStack {
@@ -16,31 +18,42 @@ struct HelpView: View {
                     VStack(alignment: .leading, spacing: 18) {
                         HelpStep(
                             number: 1,
-                            spoken: "Tap the pair icon. Enter names, send invite to partner. Or enter a code if you are sent one."
+                            spoken: "To add an item, tap plus paste a link. Title, photo, and notes auto fill in. Or skip the link and type the details and save. Then tap check for home page."
                         ) {
-                            helpText("Tap ")
-                            + chrome("person.2")
-                            + helpText(" Enter names, send invite to partner. Or enter a code if you are sent one.")
+                            helpText("To add an item, tap ")
+                            + chrome("plus.circle.fill")
+                            + helpText(" paste a link. Title, photo, and notes auto fill in. Or skip the link and type the details and save. Then tap ")
+                            + chrome("checkmark")
+                            + helpText(" for home page.")
                         }
 
                         HelpStep(
                             number: 2,
-                            spoken: "From a page on Instagram or TikTok, tap Share, then Share to."
+                            spoken: "To Find ideas and add items, tap plus, then tap Find Ideas. Then enter search keywords: location, features, guests, etc. Then select an item and tap Save 4 Two."
                         ) {
-                            helpText("From a page on Instagram or TikTok etc, tap ")
-                            + chrome("paperplane")
-                            + helpText(" then ")
-                            + chrome("square.and.arrow.up")
-                            + helpText(".")
+                            helpText("To Find ideas and add items, tap ")
+                            + chrome("plus.circle.fill")
+                            + helpText(", then tap Find Ideas. Then enter search keywords: location, features, guests, etc. Then select an item and tap Save 4 Two.")
                         }
 
                         HelpStep(
                             number: 3,
-                            spoken: "Look for the Save4Two app icon. You may need to swipe left."
+                            spoken: "To add a partner tap the red heart with a plus. Enter names, send invite to partner. Or enter a code if you are sent one."
+                        ) {
+                            partnerHelpRow
+                        }
+
+                        HelpStep(
+                            number: 4,
+                            spoken: "From a page on Instagram or TikTok, tap Share, then Share to. Look for the Save 4 Two app icon. You may need to swipe left."
                         ) {
                             VStack(alignment: .leading, spacing: 10) {
-                                helpText("Look for ")
-                                + helpText("Save4Two")
+                                helpText("From a page on Instagram or TikTok etc, tap ")
+                                + chrome("paperplane")
+                                + helpText(" then ")
+                                + chrome("square.and.arrow.up")
+                                + helpText(". Look for ")
+                                + helpText("Save 4 Two")
                                     .fontWeight(.semibold)
                                 + helpText(" — you may need to swipe left.")
                                 Image("HelpAppIcon")
@@ -53,18 +66,18 @@ struct HelpView: View {
                         }
 
                         HelpStep(
-                            number: 4,
-                            spoken: "Wait for the photo if it is still loading. Review or edit the page, select a category, tap Save."
+                            number: 5,
+                            spoken: "Wait for the photo if it is still loading. Review or edit the page, tap every category where it should appear, tap Save."
                         ) {
-                            helpText("Wait for the photo if it is still loading. Review or edit the page, select a category, tap Save.")
+                            helpText("Wait for the photo if it is still loading. Review or edit the page, tap every category where it should appear, tap Save.")
                         }
 
                         HelpStep(
-                            number: 5,
-                            spoken: "In list view, items can be reordered by tapping the gear and dragging the hamburger handle up or down. Then tap the check."
+                            number: 6,
+                            spoken: "In list view, items can be reordered by tapping the pencil and dragging the hamburger handle up or down. Then tap the check."
                         ) {
                             helpText("In list view, items can be reordered by tapping ")
-                            + chrome("gearshape")
+                            + chrome("pencil")
                             + helpText(" and dragging ")
                             + chrome("line.3.horizontal")
                             + helpText(" up or down. Then tap ")
@@ -73,23 +86,54 @@ struct HelpView: View {
                         }
 
                         HelpStep(
-                            number: 6,
-                            spoken: "To enter a new item manually, tap plus, fill in the detail fields, then tap Save."
+                            number: 7,
+                            spoken: "To edit an item, tap it in the list, then tap the pencil on that page. Details can be edited and the original plus three more photos can be added. Tap your heart so your partner sees you like it. Tap the check when you are done."
                         ) {
-                            helpText("To enter a new item manually, tap ")
-                            + chrome("plus.circle.fill")
-                            + helpText(" and fill in the detail fields, then tap Save.")
+                            helpText("To edit an item, tap it in the list, then tap ")
+                            + chrome("pencil")
+                            + helpText(" on that page. Details can be edited and the original plus three more photos can be added. Tap your heart so your partner sees you like it. Tap ")
+                            + chrome("checkmark")
+                            + helpText(" when you are done.")
                         }
 
                         HelpStep(
-                            number: 7,
-                            spoken: "To edit an item, tap it in the list, then tap the gear on that page. Details can be edited and an extra photo can be added and saved for a fun memory. Tap the check when you are done. If you see red minus buttons, tap the check first so items can be opened."
+                            number: 8,
+                            spoken: "To delete an item from the home page, tap the pencil, tap the red minus, then tap the check to save. Either person can delete."
                         ) {
-                            helpText("To edit an item, tap it in the list, then tap ")
-                            + chrome("gearshape")
-                            + helpText(" on that page. Details can be edited and an extra photo can be added and saved for a fun memory. Tap ")
+                            helpText("To delete item from home page, tap ")
+                            + chrome("pencil")
+                            + helpText(", tap ")
+                            + redChrome("minus.circle.fill")
+                            + helpText(", tap ")
                             + chrome("checkmark")
-                            + helpText(" when you are done. If you see red minus buttons, tap the check first so items can be opened.")
+                            + helpText(" to save. Either person can delete.")
+                        }
+
+                        HelpStep(
+                            number: 9,
+                            spoken: "Enter additional categories. Home tabs are Bed 4 Two, Fun 4 Two, and Table 4 Two. Swipe left for Trip 4 Two, Recipe 4 Two, and Health Tips 4 Two. You can rename all six.",
+                            isolatesAccessibility: false
+                        ) {
+                            VStack(alignment: .leading, spacing: 12) {
+                                helpText("Enter additional categories. Swipe left on the home list for the extra three. Names below are the tab titles — tap to edit.")
+                                categoryNameFields(ItemCategory.primaryPage)
+                                categoryNameFields(ItemCategory.extraPage)
+                            }
+                        }
+
+                        HelpStep(
+                            number: 10,
+                            spoken: "When your partner adds, hearts, edits, reorders, or deletes, a lock-screen banner says Save 4 Two, Your list was updated. Allow notifications when asked."
+                        ) {
+                            helpText("When your partner adds, hearts, edits, reorders, or deletes, a lock-screen banner says Save 4 Two — Your list was updated. Allow notifications when asked.")
+                        }
+
+                        HelpStep(
+                            number: 11,
+                            spoken: "Set home base, optional. Tap Set home while you are at home so item pages can show the town and how many miles away they are.",
+                            isolatesAccessibility: false
+                        ) {
+                            homeBaseStep
                         }
                     }
 
@@ -98,6 +142,7 @@ struct HelpView: View {
                 .padding(20)
                 .padding(.bottom, 24)
             }
+            .scrollDismissesKeyboard(.interactively)
             .background(Palette.canvas(colorScheme).ignoresSafeArea())
             .navigationTitle("Help")
             .navigationBarTitleDisplayMode(.inline)
@@ -106,28 +151,85 @@ struct HelpView: View {
                     Button("Close") { dismiss() }
                 }
             }
+            .onDisappear {
+                categoryNames.flushUpload()
+            }
         }
         .tint(Palette.brandBlue(colorScheme))
     }
 
-    private var openingScreenshot: some View {
+    private var partnerHelpRow: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text("Opening page")
-                .font(.caption.weight(.semibold))
-                .foregroundStyle(.secondary)
-            Image("HelpOpening")
-                .resizable()
-                .scaledToFit()
-                .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
-                .overlay {
-                    RoundedRectangle(cornerRadius: 18, style: .continuous)
-                        .strokeBorder(
-                            Palette.isDark(colorScheme) ? Color.white.opacity(0.16) : Color.black.opacity(0.08),
-                            lineWidth: 1
-                        )
-                }
-                .accessibilityLabel("Screenshot of the opening list page in edit mode")
+            HStack(spacing: 6) {
+                Text("To add a partner tap")
+                PairHeartPlusIcon(size: 18)
+            }
+            Text("Enter names, send invite to partner. Or enter a code if you are sent one.")
         }
+        .font(.body)
+        .foregroundStyle(.primary)
+        .fixedSize(horizontal: false, vertical: true)
+    }
+
+    private func categoryNameFields(_ categories: [ItemCategory]) -> some View {
+        VStack(spacing: 8) {
+            ForEach(categories) { cat in
+                HStack(spacing: 10) {
+                    Image(systemName: cat.systemImage)
+                        .font(.body.weight(.semibold))
+                        .foregroundStyle(cat.iconColor)
+                        .frame(width: 22)
+                    TextField(cat.defaultTitle, text: categoryNames.binding(for: cat))
+                        .textInputAutocapitalization(.words)
+                        .padding(10)
+                        .appCard(cornerRadius: 10, scheme: colorScheme)
+                }
+            }
+        }
+    }
+
+    private var homeBaseStep: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Set home base (optional). Tap Set home while you are at home so item pages can show the town and how many miles away they are.")
+            HStack(spacing: 10) {
+                Image(systemName: "location.fill")
+                    .font(.body.weight(.semibold))
+                    .foregroundStyle(Palette.brandBlue(colorScheme))
+                Text(homeBase.isSet ? "Home: \(homeBase.displayLabel)" : "Home: not set")
+            }
+            Button {
+                Task { await homeBase.setFromCurrentLocation() }
+            } label: {
+                Text(homeBase.isSetting ? "Setting home…" : "Set home")
+                    .font(.headline)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 12)
+                    .appCard(cornerRadius: 12, scheme: colorScheme)
+            }
+            .buttonStyle(.plain)
+            .disabled(homeBase.isSetting)
+            .accessibilityLabel("Set home")
+            if !homeBase.statusMessage.isEmpty {
+                Text(homeBase.statusMessage)
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+            }
+        }
+    }
+
+    private var openingScreenshot: some View {
+        Image("HelpOpening")
+            .resizable()
+            .scaledToFit()
+            .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+            .overlay {
+                RoundedRectangle(cornerRadius: 18, style: .continuous)
+                    .strokeBorder(
+                        Palette.isDark(colorScheme) ? Color.white.opacity(0.16) : Color.black.opacity(0.08),
+                        lineWidth: 1
+                    )
+            }
+            .accessibilityLabel("Screenshot of the home list in edit mode")
     }
 
     private var footer: some View {
@@ -163,12 +265,19 @@ struct HelpView: View {
             .font(.body.weight(.semibold))
             .foregroundColor(Palette.brandBlue(colorScheme))
     }
+
+    private func redChrome(_ systemName: String) -> Text {
+        Text(Image(systemName: systemName))
+            .font(.body.weight(.semibold))
+            .foregroundColor(.red)
+    }
 }
 
 private struct HelpStep<Content: View>: View {
     @Environment(\.colorScheme) private var colorScheme
     let number: Int
     var spoken: String
+    var isolatesAccessibility = true
     @ViewBuilder var content: Content
 
     var body: some View {
@@ -183,14 +292,30 @@ private struct HelpStep<Content: View>: View {
                 .foregroundStyle(.primary)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .fixedSize(horizontal: false, vertical: true)
-                .accessibilityHidden(true)
+                .accessibilityHidden(isolatesAccessibility)
         }
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel("\(number). \(spoken)")
+        .modifier(HelpStepAccess(isolates: isolatesAccessibility, label: "\(number). \(spoken)"))
+    }
+}
+
+private struct HelpStepAccess: ViewModifier {
+    var isolates: Bool
+    var label: String
+
+    func body(content: Content) -> some View {
+        if isolates {
+            content
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel(label)
+        } else {
+            content
+        }
     }
 }
 
 #Preview {
     HelpView()
+        .environment(CategoryNames.shared)
+        .environment(HomeBase.shared)
         .preferredColorScheme(.dark)
 }

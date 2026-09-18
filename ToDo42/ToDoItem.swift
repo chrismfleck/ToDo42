@@ -1,22 +1,73 @@
 import Foundation
 import SwiftData
+import SwiftUI
 
 enum ItemCategory: String, CaseIterable, Identifiable {
-    case places, fun, eats
+    case places, fun, eats, trip, recipe, health
     var id: String { rawValue }
-    var title: String {
+
+    static let primaryPage: [ItemCategory] = [.places, .fun, .eats]
+    static let extraPage: [ItemCategory] = [.trip, .recipe, .health]
+
+    var pageIndex: Int { Self.extraPage.contains(self) ? 1 : 0 }
+
+    var defaultTitle: String {
         switch self {
-        case .places: "Places"
-        case .fun: "Fun"
-        case .eats: "Eats"
+        case .places: "Bed 4 Two"
+        case .fun: "Fun 4 Two"
+        case .eats: "Table 4 Two"
+        case .trip: "Trip 4 Two"
+        case .recipe: "Recipe 4 Two"
+        case .health: "Health Tips 4 Two"
         }
     }
+
+    @MainActor
+    var title: String { CategoryNames.shared.title(for: self) }
+
     var systemImage: String {
         switch self {
-        case .places: "mappin.and.ellipse"
+        case .places: "bed.double.fill"
         case .fun: "sailboat.fill"
         case .eats: "fork.knife"
+        case .trip: "airplane"
+        case .recipe: "frying.pan.fill"
+        case .health: "heart.text.square.fill"
         }
+    }
+
+    var iconColor: Color {
+        switch self {
+        case .places, .health:
+            Color(red: 0.90, green: 0.20, blue: 0.22)
+        case .fun:
+            Color(red: 0.95, green: 0.76, blue: 0.08)
+        case .eats, .recipe:
+            Color(red: 0.16, green: 0.67, blue: 0.30)
+        case .trip:
+            Color(red: 0.56, green: 0.27, blue: 0.85)
+        }
+    }
+
+    static func parse(_ raw: String) -> [ItemCategory] {
+        var seen = Set<ItemCategory>()
+        var ordered: [ItemCategory] = []
+        for part in raw.split(separator: ",") {
+            let token = part.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard let cat = ItemCategory(rawValue: token), seen.insert(cat).inserted else { continue }
+            ordered.append(cat)
+        }
+        return ordered.isEmpty ? [.places] : ordered
+    }
+
+    static func encode(_ cats: [ItemCategory]) -> String {
+        var seen = Set<ItemCategory>()
+        var ordered: [ItemCategory] = []
+        for cat in cats where seen.insert(cat).inserted {
+            ordered.append(cat)
+        }
+        if ordered.isEmpty { ordered = [.places] }
+        return ordered.map(\.rawValue).joined(separator: ",")
     }
 
     static func guessed(urlString: String, title: String) -> ItemCategory {
@@ -26,11 +77,26 @@ enum ItemCategory: String, CaseIterable, Identifiable {
         }
         if haystack.contains("allrecipes")
             || haystack.contains("nytimes.com/cooking")
-            || haystack.contains("yelp")
-            || haystack.contains("opentable")
             || haystack.contains("recipe")
             || haystack.contains("ingredients") {
+            return .recipe
+        }
+        if haystack.contains("yelp")
+            || haystack.contains("opentable")
+            || haystack.contains("restaurant") {
             return .eats
+        }
+        if haystack.contains("webmd")
+            || haystack.contains("healthline")
+            || haystack.contains("health tip")
+            || haystack.contains("wellness") {
+            return .health
+        }
+        if haystack.contains("tripadvisor")
+            || haystack.contains("expedia")
+            || haystack.contains("kayak.com")
+            || haystack.contains("google.com/travel") {
+            return .trip
         }
         if haystack.contains("instagram")
             || haystack.contains("youtube")
@@ -56,6 +122,8 @@ final class TodoItem {
     var imageURLString: String?
     var imageData: Data?
     var extraImageData: Data?
+    var extraImageData2: Data? = nil
+    var extraImageData3: Data? = nil
     var notes: String = ""
     var chrisHearted: Bool = false
     var deenaHearted: Bool = false
@@ -65,26 +133,35 @@ final class TodoItem {
     var sortOrder: Int = 0
     var updatedAt: Date?
     var lastEditor: String = ""
+    var placeLatitude: Double?
+    var placeLongitude: Double?
+    var placeLocality: String?
+    var placeSource: String?
 
     init(
         title: String,
         category: ItemCategory,
+        categories: [ItemCategory]? = nil,
         urlString: String? = nil,
         imageAssetName: String? = nil,
         imageURLString: String? = nil,
         imageData: Data? = nil,
         extraImageData: Data? = nil,
+        extraImageData2: Data? = nil,
+        extraImageData3: Data? = nil,
         notes: String = "",
         sortOrder: Int = 0
     ) {
         self.id = UUID()
         self.title = title
-        self.categoryRaw = category.rawValue
+        self.categoryRaw = ItemCategory.encode(categories ?? [category])
         self.urlString = urlString
         self.imageAssetName = imageAssetName
         self.imageURLString = imageURLString
         self.imageData = imageData
         self.extraImageData = extraImageData
+        self.extraImageData2 = extraImageData2
+        self.extraImageData3 = extraImageData3
         self.notes = notes
         self.chrisHearted = false
         self.deenaHearted = false
@@ -96,8 +173,21 @@ final class TodoItem {
     }
 
     var category: ItemCategory {
-        get { ItemCategory(rawValue: categoryRaw) ?? .places }
-        set { categoryRaw = newValue.rawValue }
+        get { categories.first ?? .places }
+        set {
+            var next = categories.filter { $0 != newValue }
+            next.insert(newValue, at: 0)
+            categories = next
+        }
+    }
+
+    var categories: [ItemCategory] {
+        get { ItemCategory.parse(categoryRaw) }
+        set { categoryRaw = ItemCategory.encode(newValue) }
+    }
+
+    func belongs(to category: ItemCategory) -> Bool {
+        categories.contains(category)
     }
 
     var hasPhoto: Bool {
@@ -111,6 +201,22 @@ final class TodoItem {
         if let data = extraImageData, !data.isEmpty { return true }
         return false
     }
+
+    var hasExtraPhoto2: Bool {
+        if let data = extraImageData2, !data.isEmpty { return true }
+        return false
+    }
+
+    var hasExtraPhoto3: Bool {
+        if let data = extraImageData3, !data.isEmpty { return true }
+        return false
+    }
+
+    var photoCount: Int {
+        (hasPhoto ? 1 : 0) + (hasExtraPhoto ? 1 : 0) + (hasExtraPhoto2 ? 1 : 0) + (hasExtraPhoto3 ? 1 : 0)
+    }
+
+    var hasAnyPhotos: Bool { photoCount > 0 }
 }
 
 enum ItemStore {
@@ -184,9 +290,64 @@ enum ItemStore {
             if keep.extraImageData == nil, let data = extra.extraImageData, data.isEmpty == false {
                 keep.extraImageData = data
             }
+            if keep.extraImageData2 == nil, let data = extra.extraImageData2, data.isEmpty == false {
+                keep.extraImageData2 = data
+            }
+            if keep.extraImageData3 == nil, let data = extra.extraImageData3, data.isEmpty == false {
+                keep.extraImageData3 = data
+            }
             context.delete(extra)
         }
         try? context.save()
+    }
+
+    static func deduplicateSampleCopies(in context: ModelContext) {
+        let sampleTitles = Set(SampleData.seeds.map(\.title)).union([
+            "Lake Escape 2",
+            "Greek Seas Charter Sailing",
+            "Keto recipe",
+        ])
+        let items = allItems(in: context)
+        var groups: [String: [TodoItem]] = [:]
+        for item in items {
+            let title = item.title.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard sampleTitles.contains(title) else { continue }
+            groups[title, default: []].append(item)
+        }
+        var didDelete = false
+        for copies in groups.values where copies.count > 1 {
+            let ranked = copies.sorted { lhs, rhs in
+                if lhs.hasPhoto != rhs.hasPhoto { return lhs.hasPhoto }
+                if lhs.notes.count != rhs.notes.count { return lhs.notes.count > rhs.notes.count }
+                return lhs.createdAt < rhs.createdAt
+            }
+            let keep = ranked[0]
+            for extra in ranked.dropFirst() {
+                keep.chrisHearted = keep.chrisHearted || extra.chrisHearted
+                keep.deenaHearted = keep.deenaHearted || extra.deenaHearted
+                if keep.imageData == nil, let data = extra.imageData, data.isEmpty == false {
+                    keep.imageData = data
+                }
+                if keep.extraImageData == nil, let data = extra.extraImageData, data.isEmpty == false {
+                    keep.extraImageData = data
+                }
+                if keep.extraImageData2 == nil, let data = extra.extraImageData2, data.isEmpty == false {
+                    keep.extraImageData2 = data
+                }
+                if keep.extraImageData3 == nil, let data = extra.extraImageData3, data.isEmpty == false {
+                    keep.extraImageData3 = data
+                }
+                if keep.imageAssetName == nil || keep.imageAssetName?.isEmpty == true,
+                   let name = extra.imageAssetName, name.isEmpty == false {
+                    keep.imageAssetName = name
+                }
+                context.delete(extra)
+                didDelete = true
+            }
+        }
+        if didDelete {
+            try? context.save()
+        }
     }
 }
 
@@ -201,25 +362,90 @@ enum SampleData {
 
     static let seeds: [Seed] = [
         Seed(
-            title: "Lake Escape 2",
+            title: "Luxury private lakefront Barn Loft + Silo Jacuzzi",
             category: .places,
-            urlString: "https://www.airbnb.com/rooms/810901494684354420?photo_id=1572097457&source_impression_id=p3_1788720795_P3m5HyIdx_dI3pKD",
-            imageAssetName: "LakeEscape",
-            notes: "Dock, kayaks, fire pit"
+            urlString: "https://www.airbnb.com/rooms/1660244481236892848?guests=1&adults=1&s=67&unique_share_id=5661229e-e8c6-4e11-8e7f-277755cb63ad&source_impression_id=p3_1789326720_P3s9gNohwU3CVQDm",
+            imageAssetName: "BarnLoft",
+            notes: "Escape to a one-of-a-kind private lakefront barn loft on peaceful farmland in Dade City. Designed with dreamy Victorian style, antique character, and a romantic high-end boutique feel, this stay blends rustic charm with elevated comfort. Unwind in the silo jacuzzi, enjoy slow mornings on the deck beneath the trees, watch movies on the large-screen projector, and meet our friendly farm animals for a magical agritourism escape that feels private, special, and luxurious."
         ),
         Seed(
-            title: "Greek Seas Charter Sailing",
+            title: "Eco-Luxurious Lakefront haven (Fire pit & Hot Tub)",
+            category: .places,
+            urlString: "https://www.airbnb.com/rooms/976091434015163591?guests=1&adults=1&s=67&unique_share_id=a44a02db-6b0b-4827-9cf5-b54bd6422955&source_impression_id=p3_1789326918_P3ns_i-_2TQK7qY2",
+            imageAssetName: "EcoLuxHaven",
+            notes: """
+            Experience the perfect blend of an eco-friendly retreat and modern luxury of our lakefront container home. Nestled in the heart of nature, this stylish oasis promises an unforgettable experience where you can immerse yourself amidst the beauty of the countryside without sacrificing comfort. Plus, enjoy the opportunity to interact with our farm animals, adding a touch of rural charm to your agritourism escape.
+
+            Also, feel free to check out  my other listing, Casa de Elvira on my host profile.
+            """
+        ),
+        Seed(
+            title: "Historic 1974 Trawler on the River",
+            category: .places,
+            urlString: "https://www.airbnb.com/rooms/1711681767125004425?unique_share_id=d056ee0a-c8c7-40c7-aa9f-a343947016ee&viralityEntryPoint=1&s=76&source_impression_id=p3_1789567442_P3qKxUqUrkrImx9t",
+            imageAssetName: "HistoricTrawler",
+            notes: "Stay aboard a classic 1974 trawler on the beautiful St. Johns River. Relax on the spacious upper deck, enjoy stunning Florida sunsets, and experience a unique waterfront escape filled with charm, comfort, and unforgettable views."
+        ),
+        Seed(
+            title: "Sunset on a Historic 1966 Sailboat",
+            category: .places,
+            urlString: "https://www.airbnb.com/rooms/1690972441082730451?unique_share_id=8c954171-bcff-4b21-8555-e06f5f57aaca&viralityEntryPoint=1&s=76&source_impression_id=p3_1789567479_P3UQMhY0D3dn29Ka",
+            imageAssetName: "HistoricSailboat",
+            notes: "Stay aboard a beautifully preserved 1966 sailboat in a peaceful marina setting. Enjoy river views, stunning sunsets, vintage charm, and a unique overnight experience. Guests also have access to a complimentary tandem kayak and a waterfront restaurant just steps away."
+        ),
+        Seed(
+            title: "Sail Greece as a Traveler, Not a Tourist",
+            category: .places,
+            urlString: "https://greekseas.com/",
+            imageAssetName: "GreekSeas",
+            notes: "The Lagoon 450 is where comfort meets performance. This spacious luxury catamaran is designed for groups who want to experience the Greek islands without compromising on space or amenities. With room for up to eight guests, everyone has their own private retreat onboard."
+        ),
+        Seed(
+            title: "Intermediate Pickleball Clinic by the Palm Beach Royals x Nikki Roth",
             category: .fun,
-            urlString: "https://share.google/jvIvhY1em9UXeMeEh",
-            imageAssetName: "GreekSailing",
-            notes: "Athens sailing"
+            urlString: "https://www.palmbeachroyals.com/events",
+            imageAssetName: "PickleballClinic",
+            notes: "Join us for an exciting event that you won't want to miss. Experience the thrill and be part of our community."
         ),
         Seed(
-            title: "Keto recipe",
+            title: "Yoga Community in Boca Raton",
+            category: .fun,
+            urlString: "https://yogajourney.com/yjcommunity",
+            imageAssetName: "YogaJourney",
+            notes: "Yoga Journey has always been about community, and we're grateful for everyone who has been part of ours. If you've practiced with us, we'd love to hear about your experience."
+        ),
+        Seed(
+            title: "Le Colonial Delray Beach",
             category: .eats,
-            urlString: "https://www.instagram.com/reel/Cw0BCo0vBC9/?utm_source=ig_web_copy_link&stkn=MzRlODBiNWFlZA==",
-            imageAssetName: "KetoRecipe",
-            notes: "Reel recipe"
+            urlString: "https://www.lecolonial.com/delray-beach/",
+            imageAssetName: "LeColonial",
+            notes: """
+            Timeless fine dining.
+            Famed Vietnamese fare.
+
+            Situated in Delray’s lively beachfront town square, Le Colonial transports guests to a different time and place, an era of romance and soft architecture–old world French glamour and vivid flavor. Our warm, romantic atmosphere seamlessly blends indoor and outdoor spaces, creating a vibrant yet relaxed ambiance that harmonizes with the local culture.
+            """
+        ),
+        Seed(
+            title: "Easy Homemade Sauerkraut (Fermented Cabbage)",
+            category: .eats,
+            urlString: "https://www.instagram.com/p/DVrPo6nETT7/",
+            imageAssetName: "Sauerkraut",
+            notes: """
+            Ingredients:
+            • 1 kg green cabbage, thinly sliced
+            • 50 g carrots, grated
+            • 20 g salt (non-iodized)
+            Instructions
+            1. Thinly slice the cabbage (a mandolin slicer makes this much easier).
+            2. Add the grated carrots and salt.
+            3. Gently mix everything together with your hands until the cabbage begins releasing some moisture.
+            4. Pack the cabbage tightly into a clean jar.
+            5. Press it down so the cabbage is fully submerged in its natural brine.
+            6. Leave the jar on the counter to ferment for 4 days, releasing trapped air once a day.
+            7. Move it to the fridge and enjoy your homemade sauerkraut.
+            #sauerkraut #fermentedfoods #guthealthrecipes
+            """
         ),
     ]
 

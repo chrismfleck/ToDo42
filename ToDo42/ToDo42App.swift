@@ -21,6 +21,8 @@ struct ToDo42App: App {
             ContentView()
                 .background(PaletteHost())
                 .environment(PairSession.shared)
+                .environment(CategoryNames.shared)
+                .environment(HomeBase.shared)
         }
         .modelContainer(modelContainer)
     }

@@ -236,7 +236,7 @@ struct ShareFormView: View {
     @State var title: String
     @State var urlString: String
     @State var notes: String
-    @State var category: String
+    @State var selectedCategories: Set<String>
     @State var previewImage: UIImage?
     @State private var isLoadingMeta = false
     var pageImageURL: String
@@ -255,7 +255,7 @@ struct ShareFormView: View {
         _title = State(initialValue: title)
         _urlString = State(initialValue: urlString)
         _notes = State(initialValue: notes)
-        _category = State(initialValue: ShareInbox.guessedCategory(urlString: urlString, title: title))
+        _selectedCategories = State(initialValue: [ShareInbox.guessedCategory(urlString: urlString, title: title)])
         _previewImage = State(initialValue: image)
         self.pageImageURL = pageImageURL
         self.onCancel = onCancel
@@ -292,10 +292,24 @@ struct ShareFormView: View {
                         .autocorrectionDisabled()
                     TextField("Notes", text: $notes, axis: .vertical)
                         .lineLimit(3...6)
-                    Picker("Category", selection: $category) {
-                        Text("Places").tag("places")
-                        Text("Fun").tag("fun")
-                        Text("Eats").tag("eats")
+                }
+                Section("Categories") {
+                    ForEach(ShareInbox.categoryDefaults, id: \.raw) { item in
+                        Button {
+                            toggle(item.raw)
+                        } label: {
+                            HStack {
+                                Image(systemName: ShareInbox.categorySymbol(item.raw))
+                                    .foregroundStyle(categoryColor(item.raw))
+                                Text(ShareInbox.categoryTitle(item.raw))
+                                    .foregroundStyle(.primary)
+                                Spacer()
+                                if selectedCategories.contains(item.raw) {
+                                    Image(systemName: "checkmark")
+                                        .foregroundStyle(.blue)
+                                }
+                            }
+                        }
                     }
                 }
             }
@@ -307,12 +321,16 @@ struct ShareFormView: View {
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Save") {
+                        let encoded = ShareInbox.categoryDefaults
+                            .map(\.raw)
+                            .filter { selectedCategories.contains($0) }
+                            .joined(separator: ",")
                         onSave(
                             SharePayload(
                                 title: SharedText.normalized(title),
                                 urlString: urlString.trimmingCharacters(in: .whitespacesAndNewlines),
                                 notes: SharedText.reflowNotes(notes),
-                                category: category
+                                category: encoded.isEmpty ? "places" : encoded
                             ),
                             previewImage
                         )
@@ -321,6 +339,25 @@ struct ShareFormView: View {
                 }
             }
             .task { await enrichFromPage() }
+        }
+    }
+
+    private func toggle(_ raw: String) {
+        if selectedCategories.contains(raw) {
+            guard selectedCategories.count > 1 else { return }
+            selectedCategories.remove(raw)
+        } else {
+            selectedCategories.insert(raw)
+        }
+    }
+
+    private func categoryColor(_ raw: String) -> Color {
+        switch raw {
+        case "places", "health": return Color(red: 0.90, green: 0.20, blue: 0.22)
+        case "fun": return Color(red: 0.95, green: 0.76, blue: 0.08)
+        case "eats", "recipe": return Color(red: 0.16, green: 0.67, blue: 0.30)
+        case "trip": return Color(red: 0.56, green: 0.27, blue: 0.85)
+        default: return .blue
         }
     }
 
@@ -346,7 +383,7 @@ struct ShareFormView: View {
             ])
             if !split.title.isEmpty {
                 title = split.title
-                category = ShareInbox.guessedCategory(urlString: link, title: split.title + " " + split.notes)
+                selectedCategories.insert(ShareInbox.guessedCategory(urlString: link, title: split.title + " " + split.notes))
             }
             notes = split.notes
         } else if FacebookShareText.isFacebookURL(link) {
@@ -361,13 +398,13 @@ struct ShareFormView: View {
             ])
             if !split.title.isEmpty {
                 title = split.title
-                category = ShareInbox.guessedCategory(urlString: link, title: split.title + " " + split.notes)
+                selectedCategories.insert(ShareInbox.guessedCategory(urlString: link, title: split.title + " " + split.notes))
             }
             notes = split.notes
         } else {
             if PageMetadata.isPlaceholderTitle(title), let pageTitle = meta.title, !pageTitle.isEmpty {
                 title = pageTitle
-                category = ShareInbox.guessedCategory(urlString: link, title: pageTitle)
+                selectedCategories.insert(ShareInbox.guessedCategory(urlString: link, title: pageTitle))
             }
             if notes.isEmpty, let description = meta.description, !description.isEmpty {
                 notes = description
