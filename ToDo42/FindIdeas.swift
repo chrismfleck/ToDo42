@@ -38,7 +38,7 @@ enum IdeaSource: String, CaseIterable, Identifiable {
 
     var opensInAppBrowser: Bool {
         switch self {
-        case .instagram, .tiktok: false
+        case .tiktok: false
         default: true
         }
     }
@@ -91,14 +91,7 @@ enum IdeaSource: String, CaseIterable, Identifiable {
         let tags = Self.hashtagSlugs(query)
         switch self {
         case .instagram:
-            if query.isEmpty {
-                return [URL(string: "instagram://app")].compactMap { $0 }
-            }
-            let hashtags = Self.hashtagQuery(query)
-            let encodedTags = hashtags.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? ""
-            return [
-                URL(string: "instagram://search?query=\(encodedTags)"),
-            ].compactMap { $0 }
+            return []
         case .tiktok:
             if query.isEmpty {
                 return [URL(string: "tiktok://"), URL(string: "snssdk1233://")].compactMap { $0 }
@@ -173,7 +166,7 @@ struct FindIdeasView: View {
             } header: {
                 Text("Look in")
             } footer: {
-                Text("Airbnb, Google, Maps, TripAdvisor, and X open here. Instagram and TikTok open those apps to search.")
+                Text("Airbnb, Google, Maps, Instagram, TripAdvisor, and X open here. TikTok opens that app to search.")
             }
         }
         .navigationTitle("Find Ideas")
