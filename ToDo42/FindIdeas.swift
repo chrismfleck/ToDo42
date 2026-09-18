@@ -61,9 +61,13 @@ enum IdeaSource: String, CaseIterable, Identifiable {
                 ? "https://maps.apple.com/"
                 : "https://maps.apple.com/?q=\(encoded)"
         case .instagram:
-            string = query.isEmpty
-                ? "https://www.instagram.com/"
-                : "https://www.instagram.com/explore/search/keyword/?q=\(encoded)"
+            if query.isEmpty {
+                string = "https://www.instagram.com/"
+            } else {
+                let tags = Self.hashtagQuery(query)
+                let encodedTags = tags.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? ""
+                string = "https://www.instagram.com/explore/search/keyword/?q=\(encodedTags)"
+            }
         case .tiktok:
             string = query.isEmpty
                 ? "https://www.tiktok.com/"
@@ -80,8 +84,7 @@ enum IdeaSource: String, CaseIterable, Identifiable {
         return URL(string: string)
     }
 
-    /// Native app links that keep the keywords. Instagram has no official
-    /// full-text search scheme, so we open the hashtag for the first word.
+    /// Native app links that keep the keywords. Instagram gets every word as a #tag.
     func nativeSearchURLs(keywords: String) -> [URL] {
         let query = keywords.trimmingCharacters(in: .whitespacesAndNewlines)
         let encoded = query.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? ""
@@ -91,7 +94,11 @@ enum IdeaSource: String, CaseIterable, Identifiable {
             if query.isEmpty {
                 return [URL(string: "instagram://app")].compactMap { $0 }
             }
-            return tags.compactMap { URL(string: "instagram://tag?name=\($0)") }
+            let hashtags = Self.hashtagQuery(query)
+            let encodedTags = hashtags.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? ""
+            return [
+                URL(string: "instagram://search?query=\(encodedTags)"),
+            ].compactMap { $0 }
         case .tiktok:
             if query.isEmpty {
                 return [URL(string: "tiktok://"), URL(string: "snssdk1233://")].compactMap { $0 }
@@ -108,13 +115,21 @@ enum IdeaSource: String, CaseIterable, Identifiable {
         }
     }
 
+    static func hashtagWords(_ keywords: String) -> [String] {
+        keywords
+            .folding(options: .diacriticInsensitive, locale: .current)
+            .split(whereSeparator: { !$0.isLetter && !$0.isNumber })
+            .map { String($0).lowercased() }
+            .filter { !$0.isEmpty }
+    }
+
+    static func hashtagQuery(_ keywords: String) -> String {
+        hashtagWords(keywords).map { "#\($0)" }.joined(separator: " ")
+    }
+
     static func hashtagSlugs(_ keywords: String) -> [String] {
-        let folded = keywords.folding(options: .diacriticInsensitive, locale: .current)
-        let words = folded.split(whereSeparator: { !$0.isLetter && !$0.isNumber }).map { String($0).lowercased() }
-        var slugs: [String] = []
-        if let first = words.first, !first.isEmpty {
-            slugs.append(first)
-        }
+        let words = hashtagWords(keywords)
+        var slugs = words
         let joined = words.joined()
         if !joined.isEmpty, !slugs.contains(joined) {
             slugs.append(joined)
