@@ -5,7 +5,7 @@ enum IdeaSource: String, CaseIterable {
 
     var opensInAppBrowser: Bool {
         switch self {
-        case .tiktok: false
+        case .instagram, .tiktok: false
         default: true
         }
     }
@@ -30,10 +30,10 @@ enum IdeaSource: String, CaseIterable {
         case .instagram:
             if query.isEmpty {
                 string = "https://www.instagram.com/"
+            } else if let first = Self.hashtagWords(query).first {
+                string = "https://www.instagram.com/explore/tags/\(first)/"
             } else {
-                let tags = Self.hashtagQuery(query)
-                let encodedTags = tags.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? ""
-                string = "https://www.instagram.com/explore/search/keyword/?q=\(encodedTags)"
+                string = "https://www.instagram.com/"
             }
         case .tiktok:
             string = query.isEmpty
@@ -57,7 +57,10 @@ enum IdeaSource: String, CaseIterable {
         let tags = Self.hashtagSlugs(query)
         switch self {
         case .instagram:
-            return []
+            if query.isEmpty {
+                return [URL(string: "instagram://app")].compactMap { $0 }
+            }
+            return Self.hashtagWords(query).compactMap { URL(string: "instagram://tag?name=\($0)") }
         case .tiktok:
             if query.isEmpty {
                 return [URL(string: "tiktok://"), URL(string: "snssdk1233://")].compactMap { $0 }
@@ -118,13 +121,11 @@ expect(maps.contains("maps.apple.com"), "maps host")
 expect(maps.contains("q=Asheville"), "maps query")
 
 let instagram = IdeaSource.instagram.searchURL(keywords: query)?.absoluteString ?? ""
-expect(instagram.contains("instagram.com"), "instagram host")
-expect(instagram.contains("%23asheville"), "instagram hash asheville")
-expect(instagram.contains("%23cabin"), "instagram hash cabin")
-expect(instagram.contains("%23hot"), "instagram hash hot")
-expect(instagram.contains("%23tub"), "instagram hash tub")
-expect(IdeaSource.instagram.opensInAppBrowser, "instagram in-app")
-expect(IdeaSource.instagram.nativeSearchURLs(keywords: query).isEmpty, "instagram has no native scheme")
+expect(instagram.contains("instagram.com/explore/tags/asheville"), "instagram first tag page")
+expect(!IdeaSource.instagram.opensInAppBrowser, "instagram opens app")
+let igNative = IdeaSource.instagram.nativeSearchURLs(keywords: query).map(\.absoluteString)
+expect(igNative.contains { $0.contains("instagram://tag?name=asheville") }, "instagram first tag")
+expect(igNative.contains { $0.contains("instagram://tag?name=cabin") }, "instagram later tags listed")
 expect(IdeaSource.hashtagQuery(query) == "#asheville #cabin #hot #tub", "hashtag query")
 
 let tiktok = IdeaSource.tiktok.searchURL(keywords: query)?.absoluteString ?? ""
@@ -147,7 +148,7 @@ expect(IdeaSource.airbnb.opensInAppBrowser, "airbnb in-app")
 expect(IdeaSource.google.opensInAppBrowser, "google in-app")
 expect(IdeaSource.maps.opensInAppBrowser, "maps in-app")
 expect(IdeaSource.tripadvisor.opensInAppBrowser, "tripadvisor in-app")
-expect(IdeaSource.instagram.nativeSearchURLs(keywords: query).isEmpty, "instagram stays in-app")
+expect(!IdeaSource.instagram.nativeSearchURLs(keywords: query).isEmpty, "instagram app url")
 expect(!IdeaSource.tiktok.nativeSearchURLs(keywords: query).isEmpty, "tiktok app url")
 expect(IdeaSource.airbnb.nativeSearchURLs(keywords: query).isEmpty, "airbnb has no native scheme")
 expect(IdeaSource.hashtagSlugs(query) == ["asheville", "cabin", "hot", "tub", "ashevillecabinhottub"], "hashtag slugs")

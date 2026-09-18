@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 import WebKit
 
 enum IdeaSource: String, CaseIterable, Identifiable {
@@ -38,7 +39,7 @@ enum IdeaSource: String, CaseIterable, Identifiable {
 
     var opensInAppBrowser: Bool {
         switch self {
-        case .tiktok: false
+        case .instagram, .tiktok: false
         default: true
         }
     }
@@ -63,10 +64,10 @@ enum IdeaSource: String, CaseIterable, Identifiable {
         case .instagram:
             if query.isEmpty {
                 string = "https://www.instagram.com/"
+            } else if let first = Self.hashtagWords(query).first {
+                string = "https://www.instagram.com/explore/tags/\(first)/"
             } else {
-                let tags = Self.hashtagQuery(query)
-                let encodedTags = tags.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? ""
-                string = "https://www.instagram.com/explore/search/keyword/?q=\(encodedTags)"
+                string = "https://www.instagram.com/"
             }
         case .tiktok:
             string = query.isEmpty
@@ -91,7 +92,11 @@ enum IdeaSource: String, CaseIterable, Identifiable {
         let tags = Self.hashtagSlugs(query)
         switch self {
         case .instagram:
-            return []
+            if query.isEmpty {
+                return [URL(string: "instagram://app")].compactMap { $0 }
+            }
+            // Instagram only accepts one tag in-app. The rest are copied in open().
+            return Self.hashtagWords(query).compactMap { URL(string: "instagram://tag?name=\($0)") }
         case .tiktok:
             if query.isEmpty {
                 return [URL(string: "tiktok://"), URL(string: "snssdk1233://")].compactMap { $0 }
@@ -142,6 +147,7 @@ struct FindIdeasView: View {
     @Environment(\.dismiss) private var dismiss
     @State private var keywords = ""
     @State private var browser: BrowserPage?
+    @State private var instagramCopyNote = ""
 
     var body: some View {
         Form {
@@ -152,7 +158,11 @@ struct FindIdeasView: View {
             } header: {
                 Text("Keywords")
             } footer: {
-                Text("Type a few words, then pick where to look.")
+                if instagramCopyNote.isEmpty {
+                    Text("Type a few words, then pick where to look.")
+                } else {
+                    Text(instagramCopyNote)
+                }
             }
 
             Section {
@@ -166,7 +176,7 @@ struct FindIdeasView: View {
             } header: {
                 Text("Look in")
             } footer: {
-                Text("Airbnb, Google, Maps, Instagram, TripAdvisor, and X open here. TikTok opens that app to search.")
+                Text("Airbnb, Google, Maps, TripAdvisor, and X open here. TikTok and Instagram open those apps. Instagram only takes one #tag, so all #keywords are copied to paste into Search.")
             }
         }
         .navigationTitle("Find Ideas")
@@ -195,6 +205,11 @@ struct FindIdeasView: View {
             return
         }
         let query = keywords.trimmingCharacters(in: .whitespacesAndNewlines)
+        if source == .instagram, !query.isEmpty {
+            let hashtags = IdeaSource.hashtagQuery(query)
+            UIPasteboard.general.string = hashtags
+            instagramCopyNote = "Copied \(hashtags). Paste that into Instagram Search."
+        }
         let natives = source.nativeSearchURLs(keywords: query).filter { UIApplication.shared.canOpenURL($0) }
 
         // Prefer a native search/hashtag link so keywords are not dropped.
