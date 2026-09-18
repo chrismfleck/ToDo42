@@ -1,7 +1,7 @@
 import Foundation
 
 enum IdeaSource: String, CaseIterable {
-    case airbnb, google, maps, instagram, tiktok, tripadvisor
+    case airbnb, google, maps, instagram, tiktok, x, tripadvisor
 
     var opensInAppBrowser: Bool {
         switch self {
@@ -35,6 +35,10 @@ enum IdeaSource: String, CaseIterable {
             string = query.isEmpty
                 ? "https://www.tiktok.com/"
                 : "https://www.tiktok.com/search?q=\(encoded)"
+        case .x:
+            string = query.isEmpty
+                ? "https://x.com/"
+                : "https://x.com/search?q=\(encoded)"
         case .tripadvisor:
             string = query.isEmpty
                 ? "https://www.tripadvisor.com/"
@@ -119,6 +123,12 @@ expect(!IdeaSource.tiktok.opensInAppBrowser, "tiktok opens app")
 let ttNative = IdeaSource.tiktok.nativeSearchURLs(keywords: query).map(\.absoluteString)
 expect(ttNative.contains { $0.contains("search?keyword=") }, "tiktok native search")
 expect(ttNative.contains { $0.contains("Asheville") }, "tiktok native keeps keywords")
+
+let x = IdeaSource.x.searchURL(keywords: query)?.absoluteString ?? ""
+expect(x.contains("x.com/search"), "x search")
+expect(x.contains("q=Asheville"), "x query")
+expect(IdeaSource.x.opensInAppBrowser, "x in-app")
+expect(IdeaSource.x.nativeSearchURLs(keywords: query).isEmpty, "x has no native scheme")
 
 let tripadvisor = IdeaSource.tripadvisor.searchURL(keywords: query)?.absoluteString ?? ""
 expect(tripadvisor.contains("tripadvisor.com/Search"), "tripadvisor search")

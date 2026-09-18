@@ -7,6 +7,7 @@ enum IdeaSource: String, CaseIterable, Identifiable {
     case maps
     case instagram
     case tiktok
+    case x
     case tripadvisor
 
     var id: String { rawValue }
@@ -18,6 +19,7 @@ enum IdeaSource: String, CaseIterable, Identifiable {
         case .maps: "Maps"
         case .instagram: "Instagram"
         case .tiktok: "TikTok"
+        case .x: "X (Twitter)"
         case .tripadvisor: "TripAdvisor"
         }
     }
@@ -29,6 +31,7 @@ enum IdeaSource: String, CaseIterable, Identifiable {
         case .maps: "map"
         case .instagram: "camera"
         case .tiktok: "play.rectangle"
+        case .x: "at"
         case .tripadvisor: "binoculars"
         }
     }
@@ -65,6 +68,10 @@ enum IdeaSource: String, CaseIterable, Identifiable {
             string = query.isEmpty
                 ? "https://www.tiktok.com/"
                 : "https://www.tiktok.com/search?q=\(encoded)"
+        case .x:
+            string = query.isEmpty
+                ? "https://x.com/"
+                : "https://x.com/search?q=\(encoded)"
         case .tripadvisor:
             string = query.isEmpty
                 ? "https://www.tripadvisor.com/"
@@ -151,7 +158,7 @@ struct FindIdeasView: View {
             } header: {
                 Text("Look in")
             } footer: {
-                Text("Airbnb, Google, Maps, and TripAdvisor open here. Instagram and TikTok open those apps to search.")
+                Text("Airbnb, Google, Maps, TripAdvisor, and X open here. Instagram and TikTok open those apps to search.")
             }
         }
         .navigationTitle("Find Ideas")
