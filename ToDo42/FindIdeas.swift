@@ -73,15 +73,46 @@ enum IdeaSource: String, CaseIterable, Identifiable {
         return URL(string: string)
     }
 
-    var nativeAppURLs: [URL] {
+    /// Native app links that keep the keywords. Instagram has no official
+    /// full-text search scheme, so we open the hashtag for the first word.
+    func nativeSearchURLs(keywords: String) -> [URL] {
+        let query = keywords.trimmingCharacters(in: .whitespacesAndNewlines)
+        let encoded = query.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? ""
+        let tags = Self.hashtagSlugs(query)
         switch self {
         case .instagram:
-            [URL(string: "instagram://app")].compactMap { $0 }
+            if query.isEmpty {
+                return [URL(string: "instagram://app")].compactMap { $0 }
+            }
+            return tags.compactMap { URL(string: "instagram://tag?name=\($0)") }
         case .tiktok:
-            [URL(string: "tiktok://"), URL(string: "snssdk1233://")].compactMap { $0 }
+            if query.isEmpty {
+                return [URL(string: "tiktok://"), URL(string: "snssdk1233://")].compactMap { $0 }
+            }
+            var urls = [
+                URL(string: "snssdk1233://search?keyword=\(encoded)"),
+                URL(string: "tiktok://search?keyword=\(encoded)"),
+                URL(string: "aweme://search?keyword=\(encoded)"),
+            ]
+            urls += tags.map { URL(string: "tiktok://hashtag/\($0)") }
+            return urls.compactMap { $0 }
         default:
-            []
+            return []
         }
+    }
+
+    static func hashtagSlugs(_ keywords: String) -> [String] {
+        let folded = keywords.folding(options: .diacriticInsensitive, locale: .current)
+        let words = folded.split(whereSeparator: { !$0.isLetter && !$0.isNumber }).map { String($0).lowercased() }
+        var slugs: [String] = []
+        if let first = words.first, !first.isEmpty {
+            slugs.append(first)
+        }
+        let joined = words.joined()
+        if !joined.isEmpty, !slugs.contains(joined) {
+            slugs.append(joined)
+        }
+        return slugs
     }
 }
 
@@ -120,7 +151,7 @@ struct FindIdeasView: View {
             } header: {
                 Text("Look in")
             } footer: {
-                Text("Airbnb, Google, Maps, and TripAdvisor open here. Instagram and TikTok open those apps.")
+                Text("Airbnb, Google, Maps, and TripAdvisor open here. Instagram and TikTok open those apps to search.")
             }
         }
         .navigationTitle("Find Ideas")
@@ -148,15 +179,22 @@ struct FindIdeasView: View {
             browser = BrowserPage(url: url)
             return
         }
-        let appURLs = source.nativeAppURLs.filter { UIApplication.shared.canOpenURL($0) }
-        if appURLs.isEmpty {
-            UIApplication.shared.open(url)
+        let query = keywords.trimmingCharacters(in: .whitespacesAndNewlines)
+        let natives = source.nativeSearchURLs(keywords: query).filter { UIApplication.shared.canOpenURL($0) }
+
+        // Prefer a native search/hashtag link so keywords are not dropped.
+        if !query.isEmpty, let native = natives.first {
+            UIApplication.shared.open(native)
             return
         }
+
         UIApplication.shared.open(url, options: [.universalLinksOnly: true]) { success in
-            if !success, let appURL = appURLs.first {
-                UIApplication.shared.open(appURL)
+            if success { return }
+            if let native = natives.first {
+                UIApplication.shared.open(native)
+                return
             }
+            UIApplication.shared.open(url)
         }
     }
 }
