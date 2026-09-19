@@ -281,6 +281,7 @@ struct ContentView: View {
         .onAppear {
             importSharedDrafts()
             seedIfNeeded()
+            repairSampleLinks()
             normalizeStoredText()
             Task { await refreshFromCloud() }
         }
@@ -422,6 +423,7 @@ struct ContentView: View {
     private func refreshFromCloud() async {
         await CloudSync.shared.sync(modelContext: modelContext)
         seedIfNeeded()
+        repairSampleLinks()
         if let cat = PairSession.shared.takeRevealCategory() {
             selectCategory(cat)
         }
@@ -471,9 +473,24 @@ struct ContentView: View {
             let cut = SharedText.cutTitle(title, notes: notes)
             let nextTitle = SharedText.normalized(cut.title)
             let nextNotes = SharedText.reflowNotes(cut.notes)
-            guard item.title != nextTitle || item.notes != nextNotes else { continue }
+            let nextLink = OpenableURL.from(item.urlString)?.absoluteString ?? item.urlString
+            guard item.title != nextTitle || item.notes != nextNotes || item.urlString != nextLink else { continue }
             item.title = nextTitle
             item.notes = nextNotes
+            item.urlString = nextLink
+            PairSession.shared.noteLocalEdit(item, kind: "edit")
+        }
+    }
+
+    /// Older installs may have sample rows with a missing or share-tracking Airbnb URL.
+    private func repairSampleLinks() {
+        guard !pairSession.isPaired else { return }
+        for item in items {
+            guard let seed = SampleData.matching(title: item.title) else { continue }
+            let current = OpenableURL.from(item.urlString)?.absoluteString
+            let expected = OpenableURL.from(seed.urlString)?.absoluteString ?? seed.urlString
+            if current == expected { continue }
+            item.urlString = expected
             PairSession.shared.noteLocalEdit(item, kind: "edit")
         }
     }
@@ -931,7 +948,6 @@ struct ItemDetailView: View {
     @State private var draftNotes = ""
     @State private var photoItem: PhotosPickerItem?
     @State private var placeCaption: String?
-    @State private var inAppBrowser: InAppBrowserPage?
 
     private var isGuest: Bool { pairSession.role == .deena }
 
@@ -1068,15 +1084,11 @@ struct ItemDetailView: View {
         .onDisappear {
             if isEditing { commitEdits() }
         }
-        .sheet(item: $inAppBrowser) { page in
-            InAppBrowserSheet(page: page) {
-                inAppBrowser = nil
-            }
-        }
     }
 
     private var savedURL: URL? {
         OpenableURL.from(item.urlString)
+            ?? OpenableURL.from(SampleData.matching(title: item.title)?.urlString)
     }
 
     @ViewBuilder
@@ -1089,7 +1101,7 @@ struct ItemDetailView: View {
 
         if let url = savedURL {
             Button {
-                openSavedLink(url)
+                OpenableURL.open(url)
             } label: {
                 titleText
                     .foregroundStyle(Palette.brandBlue(colorScheme))
@@ -1099,14 +1111,6 @@ struct ItemDetailView: View {
             .accessibilityLabel("Open \(SharedText.normalized(item.title))")
         } else {
             titleText
-        }
-    }
-
-    private func openSavedLink(_ url: URL) {
-        if OpenableURL.prefersInAppBrowser(url) {
-            inAppBrowser = InAppBrowserPage(url: url)
-        } else {
-            UIApplication.shared.open(url)
         }
     }
 

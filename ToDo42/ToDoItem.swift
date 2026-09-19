@@ -364,14 +364,14 @@ enum SampleData {
         Seed(
             title: "Luxury private lakefront Barn Loft + Silo Jacuzzi",
             category: .places,
-            urlString: "https://www.airbnb.com/rooms/1660244481236892848?guests=1&adults=1&s=67&unique_share_id=5661229e-e8c6-4e11-8e7f-277755cb63ad&source_impression_id=p3_1789326720_P3s9gNohwU3CVQDm",
+            urlString: "https://www.airbnb.com/rooms/1660244481236892848",
             imageAssetName: "BarnLoft",
             notes: "Escape to a one-of-a-kind private lakefront barn loft on peaceful farmland in Dade City. Designed with dreamy Victorian style, antique character, and a romantic high-end boutique feel, this stay blends rustic charm with elevated comfort. Unwind in the silo jacuzzi, enjoy slow mornings on the deck beneath the trees, watch movies on the large-screen projector, and meet our friendly farm animals for a magical agritourism escape that feels private, special, and luxurious."
         ),
         Seed(
             title: "Eco-Luxurious Lakefront haven (Fire pit & Hot Tub)",
             category: .places,
-            urlString: "https://www.airbnb.com/rooms/976091434015163591?guests=1&adults=1&s=67&unique_share_id=a44a02db-6b0b-4827-9cf5-b54bd6422955&source_impression_id=p3_1789326918_P3ns_i-_2TQK7qY2",
+            urlString: "https://www.airbnb.com/rooms/976091434015163591",
             imageAssetName: "EcoLuxHaven",
             notes: """
             Experience the perfect blend of an eco-friendly retreat and modern luxury of our lakefront container home. Nestled in the heart of nature, this stylish oasis promises an unforgettable experience where you can immerse yourself amidst the beauty of the countryside without sacrificing comfort. Plus, enjoy the opportunity to interact with our farm animals, adding a touch of rural charm to your agritourism escape.
@@ -382,14 +382,14 @@ enum SampleData {
         Seed(
             title: "Historic 1974 Trawler on the River",
             category: .places,
-            urlString: "https://www.airbnb.com/rooms/1711681767125004425?unique_share_id=d056ee0a-c8c7-40c7-aa9f-a343947016ee&viralityEntryPoint=1&s=76&source_impression_id=p3_1789567442_P3qKxUqUrkrImx9t",
+            urlString: "https://www.airbnb.com/rooms/1711681767125004425",
             imageAssetName: "HistoricTrawler",
             notes: "Stay aboard a classic 1974 trawler on the beautiful St. Johns River. Relax on the spacious upper deck, enjoy stunning Florida sunsets, and experience a unique waterfront escape filled with charm, comfort, and unforgettable views."
         ),
         Seed(
             title: "Sunset on a Historic 1966 Sailboat",
             category: .places,
-            urlString: "https://www.airbnb.com/rooms/1690972441082730451?unique_share_id=8c954171-bcff-4b21-8555-e06f5f57aaca&viralityEntryPoint=1&s=76&source_impression_id=p3_1789567479_P3UQMhY0D3dn29Ka",
+            urlString: "https://www.airbnb.com/rooms/1690972441082730451",
             imageAssetName: "HistoricSailboat",
             notes: "Stay aboard a beautifully preserved 1966 sailboat in a peaceful marina setting. Enjoy river views, stunning sunsets, vintage charm, and a unique overnight experience. Guests also have access to a complimentary tandem kayak and a waterfront restaurant just steps away."
         ),

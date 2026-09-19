@@ -5,11 +5,7 @@ enum OpenableURL {
         guard let raw = string?.trimmingCharacters(in: .whitespacesAndNewlines), !raw.isEmpty else {
             return nil
         }
-        if let url = URL(string: raw) {
-            return normalized(url)
-        }
-        if let encoded = raw.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed),
-           let url = URL(string: encoded) {
+        if let url = parse(raw) {
             return normalized(url)
         }
         return nil
@@ -20,6 +16,16 @@ enum OpenableURL {
         guard scheme != "http", scheme != "https", scheme != "about" else { return nil }
         if scheme == "airbnb" {
             return airbnbHTTPS(fromDeepLink: url)
+        }
+        return nil
+    }
+
+    private static func parse(_ raw: String) -> URL? {
+        if let url = URL(string: raw) { return url }
+        if let components = URLComponents(string: raw), let url = components.url { return url }
+        if let encoded = raw.addingPercentEncoding(withAllowedCharacters: .urlFragmentAllowed),
+           let url = URL(string: encoded) {
+            return url
         }
         return nil
     }
@@ -59,7 +65,7 @@ enum OpenableURL {
         if let id = airbnbRoomID(from: url) {
             return URL(string: "https://www.airbnb.com/rooms/\(id)")
         }
-        if host.isEmpty == false {
+        if !host.isEmpty {
             let path = url.path.isEmpty ? "" : url.path
             return URL(string: "https://www.airbnb.com/\(host)\(path)")
         }
@@ -82,9 +88,6 @@ expect(cleaned == "https://www.airbnb.com/rooms/1711681767125004425", "strip air
 
 let deep = OpenableURL.from("airbnb://rooms/1711681767125004425")?.absoluteString ?? ""
 expect(deep == "https://www.airbnb.com/rooms/1711681767125004425", "airbnb deep link to https")
-
-let httpsFromDeep = OpenableURL.httpsEquivalent(URL(string: "airbnb://rooms/1711681767125004425")!)?.absoluteString ?? ""
-expect(httpsFromDeep == "https://www.airbnb.com/rooms/1711681767125004425", "httpsEquivalent deep link")
 
 let other = OpenableURL.from("https://greekseas.com/trips")?.absoluteString ?? ""
 expect(other == "https://greekseas.com/trips", "leave non-airbnb urls alone")
