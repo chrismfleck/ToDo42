@@ -996,6 +996,18 @@ struct ItemDetailView: View {
                         }
                     } else {
                         titleView
+                        if savedURL != nil {
+                            Button {
+                                OpenableURL.open(item.urlString)
+                            } label: {
+                                Label("Open link", systemImage: "link")
+                                    .font(.headline)
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                            }
+                            .buttonStyle(.plain)
+                            .foregroundStyle(Palette.brandBlue(colorScheme))
+                            .accessibilityLabel("Open link")
+                        }
                     }
 
                     locationLine

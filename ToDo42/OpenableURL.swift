@@ -1,12 +1,13 @@
 import Foundation
+import SafariServices
 import UIKit
 
-/// Turns saved / shared links into URLs that open reliably outside Save 4 Two.
+/// Turns saved / shared links into URLs that open reliably inside Save 4 Two.
 ///
 /// Airbnb share links often include tracking query items (`unique_share_id`,
-/// `viralityEntryPoint`, …). SwiftUI `Link` hands those to the Airbnb app via
-/// universal links, and that handoff frequently fails. Opening a clean
-/// `https://www.airbnb.com/rooms/{id}` URL works.
+/// `viralityEntryPoint`, …). Handing those to the Airbnb app via universal
+/// links frequently does nothing. We strip to a clean room URL and open it in
+/// an in-app Safari sheet so the listing always appears.
 enum OpenableURL {
     static func from(_ string: String?) -> URL? {
         guard let raw = string?.trimmingCharacters(in: .whitespacesAndNewlines), !raw.isEmpty else {
@@ -25,11 +26,11 @@ enum OpenableURL {
 
     static func open(_ string: String?) {
         guard let url = from(string) else { return }
-        UIApplication.shared.open(url)
+        openInSafari(url)
     }
 
     static func open(_ url: URL) {
-        UIApplication.shared.open(normalized(url))
+        openInSafari(normalized(url))
     }
 
     /// Convert custom schemes (e.g. `airbnb://rooms/123`) to https pages the
@@ -42,6 +43,39 @@ enum OpenableURL {
             return airbnbHTTPS(fromDeepLink: url)
         }
         return nil
+    }
+
+    private static func openInSafari(_ url: URL) {
+        DispatchQueue.main.async {
+            guard let presenter = topViewController() else {
+                // Last resort if no view controller is ready yet.
+                UIApplication.shared.open(url)
+                return
+            }
+            let safari = SFSafariViewController(url: url)
+            safari.dismissButtonStyle = .close
+            presenter.present(safari, animated: true)
+        }
+    }
+
+    private static func topViewController(
+        base: UIViewController? = nil
+    ) -> UIViewController? {
+        let base = base ?? UIApplication.shared.connectedScenes
+            .compactMap { $0 as? UIWindowScene }
+            .flatMap(\.windows)
+            .first { $0.isKeyWindow }?
+            .rootViewController
+        if let nav = base as? UINavigationController {
+            return topViewController(base: nav.visibleViewController)
+        }
+        if let tab = base as? UITabBarController {
+            return topViewController(base: tab.selectedViewController)
+        }
+        if let presented = base?.presentedViewController {
+            return topViewController(base: presented)
+        }
+        return base
     }
 
     private static func normalized(_ url: URL) -> URL {
