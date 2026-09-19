@@ -1084,12 +1084,6 @@ struct ItemDetailView: View {
         .onDisappear {
             if isEditing { commitEdits() }
         }
-        // fullScreenCover (not sheet): item pages are already a fullScreenCover,
-        // and sheets on top of that often never appear.
-        .fullScreenCover(item: $safariLink) { link in
-            SafariView(url: link.url)
-                .ignoresSafeArea()
-        }
     }
 
     private var savedURL: URL? {
@@ -1107,25 +1101,18 @@ struct ItemDetailView: View {
 
         if let url = savedURL {
             Button {
-                openSavedLink(url)
+                UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                OpenableURL.open(url)
             } label: {
                 titleText
                     .foregroundStyle(Palette.brandBlue(colorScheme))
                     .frame(maxWidth: .infinity, alignment: .leading)
+                    .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
             .accessibilityLabel("Open \(SharedText.normalized(item.title))")
         } else {
             titleText
-        }
-    }
-
-    private func openSavedLink(_ url: URL) {
-        if OpenableURL.isAirbnb(url) {
-            // Bypass the Airbnb app — this listing’s share/room URL dies there.
-            safariLink = SafariLink(url: url)
-        } else {
-            UIApplication.shared.open(url)
         }
     }
 
