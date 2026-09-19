@@ -1028,10 +1028,20 @@ struct ItemDetailView: View {
             .padding(.vertical, 8)
             .background(Palette.canvas(colorScheme))
 
-            // Title sits above the ScrollView so the item pager/scroll
-            // gestures cannot eat the tap (SwiftUI Button inside ScrollView
-            // was never firing — no haptic).
-            if !isEditing {
+            // Title sits above the ScrollView so link taps aren't eaten by
+            // pager/scroll gestures. Keep the edit field in the same place.
+            if isEditing {
+                labeledField("Title") {
+                    TextField("Title", text: $draftTitle, axis: .vertical)
+                        .font(.body)
+                        .lineLimit(1...6)
+                        .multilineTextAlignment(.leading)
+                        .padding(12)
+                        .appCard(cornerRadius: 12, scheme: colorScheme)
+                }
+                .padding(.horizontal, 20)
+                .padding(.bottom, 8)
+            } else {
                 titleView
                     .padding(.horizontal, 20)
                     .padding(.bottom, 8)
@@ -1039,17 +1049,6 @@ struct ItemDetailView: View {
 
             ScrollView {
                 VStack(alignment: .leading, spacing: 16) {
-                    if isEditing {
-                        labeledField("Title") {
-                            TextField("Title", text: $draftTitle, axis: .vertical)
-                                .font(.body)
-                                .lineLimit(1...6)
-                                .multilineTextAlignment(.leading)
-                                .padding(12)
-                                .appCard(cornerRadius: 12, scheme: colorScheme)
-                        }
-                    }
-
                     locationLine
 
                     HStack(spacing: 16) {
