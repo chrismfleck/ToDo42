@@ -1085,6 +1085,12 @@ struct ItemDetailView: View {
         .onDisappear {
             if isEditing { commitEdits() }
         }
+        // fullScreenCover (not sheet): item pages are already a fullScreenCover,
+        // and sheets on top of that often never appear.
+        .fullScreenCover(item: $safariLink) { link in
+            SafariView(url: link.url)
+                .ignoresSafeArea()
+        }
     }
 
     private var savedURL: URL? {
@@ -1102,7 +1108,7 @@ struct ItemDetailView: View {
 
         if let url = savedURL {
             Button {
-                OpenableURL.open(url)
+                openSavedLink(url)
             } label: {
                 titleText
                     .foregroundStyle(Palette.brandBlue(colorScheme))
@@ -1112,6 +1118,15 @@ struct ItemDetailView: View {
             .accessibilityLabel("Open \(SharedText.normalized(item.title))")
         } else {
             titleText
+        }
+    }
+
+    private func openSavedLink(_ url: URL) {
+        if OpenableURL.isAirbnb(url) {
+            // Bypass the Airbnb app — this listing’s share/room URL dies there.
+            safariLink = SafariLink(url: url)
+        } else {
+            UIApplication.shared.open(url)
         }
     }
 
@@ -1642,7 +1657,7 @@ struct AddItemView: View {
     }
 
     private static func normalizedURL(_ raw: String) -> String {
-        var s = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        let s = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         if s.hasPrefix("http://") || s.hasPrefix("https://") {
             return OpenableURL.from(s)?.absoluteString ?? s
         }
