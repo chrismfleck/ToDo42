@@ -571,7 +571,6 @@ struct ContentView: View {
             "Greek Seas Charter Sailing",
             "Keto recipe",
         ])
-        let sampleTitles = Set(SampleData.seeds.map(\.title)).union(oldThree)
         let titles = Set(stored.map(\.title))
 
         if stored.isEmpty {
@@ -591,12 +590,8 @@ struct ContentView: View {
             return
         }
 
-        guard titles.isSubset(of: sampleTitles) else { return }
-        var nextOrder = (stored.map(\.sortOrder).min() ?? 0) - 1
-        for seed in SampleData.seeds where !titles.contains(seed.title) {
-            modelContext.insert(SampleData.makeItem(seed, sortOrder: nextOrder))
-            nextOrder -= 1
-        }
+        // Do not top up deleted samples. That recreated the trawler after the
+        // user removed it and made "add" look like it duplicated the item.
     }
 
     private func importSharedDrafts() {
@@ -1443,16 +1438,19 @@ struct AddItemView: View {
     @State private var photoItem: PhotosPickerItem?
     @State private var photoData: Data?
     @State private var isLoadingMeta = false
+    @State private var isSaving = false
     @State private var lastFetchedLink = ""
 
-    private var normalizedLink: String {
-        Self.normalizedURL(urlString)
+    private var resolvedLink: String? {
+        OpenableURL.from(urlString)?.absoluteString
+            ?? OpenableURL.from(title)?.absoluteString
+            ?? OpenableURL.from(notes)?.absoluteString
     }
 
     private var canSave: Bool {
-        !isLoadingMeta && (
+        !isLoadingMeta && !isSaving && (
             !title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-            || normalizedLink.hasPrefix("http")
+            || resolvedLink != nil
         )
     }
 
@@ -1476,7 +1474,7 @@ struct AddItemView: View {
                         .autocorrectionDisabled()
                         .submitLabel(.go)
                         .onSubmit {
-                            Task { await enrichFromPage(saveIfReady: true) }
+                            Task { await prepareAndSave() }
                         }
                     if isLoadingMeta {
                         HStack(spacing: 10) {
@@ -1532,7 +1530,7 @@ struct AddItemView: View {
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Save") {
-                        Task { await enrichFromPage(saveIfReady: true) }
+                        Task { await prepareAndSave() }
                     }
                     .disabled(!canSave)
                 }
@@ -1542,11 +1540,10 @@ struct AddItemView: View {
                 Task { await loadPickedPhoto(newItem) }
             }
             .onChange(of: urlString) { _, _ in
-                let link = normalizedLink
-                guard link.hasPrefix("http"), link != lastFetchedLink else { return }
+                guard let link = resolvedLink, link != lastFetchedLink else { return }
                 Task {
                     try? await Task.sleep(for: .milliseconds(700))
-                    guard Self.normalizedURL(urlString) == link else { return }
+                    guard resolvedLink == link else { return }
                     await enrichFromPage(saveIfReady: false)
                 }
             }
@@ -1562,15 +1559,31 @@ struct AddItemView: View {
         photoData = jpeg
     }
 
+    @MainActor
+    private func prepareAndSave() async {
+        guard !isSaving else { return }
+        isSaving = true
+        defer { isSaving = false }
+
+        if let link = resolvedLink {
+            urlString = link
+        }
+
+        if resolvedLink != nil {
+            await enrichFromPage(saveIfReady: false)
+        }
+        saveOnce()
+    }
+
+    @MainActor
     private func enrichFromPage(saveIfReady: Bool) async {
-        let link = normalizedLink
-        urlString = link
-        if !link.hasPrefix("http") {
-            if saveIfReady { save() }
+        guard let link = resolvedLink else {
+            if saveIfReady { saveOnce() }
             return
         }
+        urlString = link
         if lastFetchedLink == link, !title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            if saveIfReady { save() }
+            if saveIfReady { saveOnce() }
             return
         }
         isLoadingMeta = true
@@ -1615,22 +1628,37 @@ struct AddItemView: View {
         let cut = SharedText.cutTitle(title, notes: notes)
         title = cut.title
         notes = cut.notes
+        // Keep the clean link even if metadata parsing touched other fields.
+        urlString = link
         if photoData == nil, let image = meta.image, let jpeg = PhotoJPEG.compressed(image) {
             photoData = jpeg
         }
         isLoadingMeta = false
         if saveIfReady {
-            save()
+            saveOnce()
         }
     }
 
-    private func save() {
+    @MainActor
+    private func saveOnce() {
         var trimmedTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
-        let trimmedLink = normalizedLink
-        if trimmedTitle.isEmpty, trimmedLink.hasPrefix("http"), let url = URL(string: trimmedLink) {
+        var trimmedLink = resolvedLink ?? ""
+
+        if let extracted = OpenableURL.firstRawHTTPURL(in: trimmedTitle) {
+            trimmedTitle = trimmedTitle.replacingOccurrences(of: extracted, with: "")
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            if trimmedLink.isEmpty {
+                trimmedLink = OpenableURL.from(extracted)?.absoluteString ?? extracted
+            }
+        }
+        if let clean = OpenableURL.from(trimmedLink) {
+            trimmedLink = clean.absoluteString
+        }
+        if trimmedTitle.isEmpty, let url = URL(string: trimmedLink) {
             trimmedTitle = url.host?.replacingOccurrences(of: "www.", with: "") ?? "Saved link"
         }
         guard !trimmedTitle.isEmpty else { return }
+
         let cut = SharedText.cutTitle(SharedText.normalized(trimmedTitle), notes: SharedText.reflowNotes(notes))
         let chosen = selectedCategories.isEmpty ? [category] : ItemCategory.allCases.filter { selectedCategories.contains($0) }
         let primary = chosen.first ?? category
@@ -1639,7 +1667,7 @@ struct AddItemView: View {
             title: cut.title,
             category: primary,
             categories: chosen,
-            urlString: trimmedLink.hasPrefix("http") ? trimmedLink : nil,
+            urlString: trimmedLink.lowercased().hasPrefix("http") ? trimmedLink : nil,
             imageData: photoData,
             notes: cut.notes,
             sortOrder: nextSortOrder
@@ -1648,19 +1676,6 @@ struct AddItemView: View {
         PairSession.shared.noteLocalEdit(item, kind: "add")
         dismiss()
     }
-
-    private static func normalizedURL(_ raw: String) -> String {
-        let s = raw.trimmingCharacters(in: .whitespacesAndNewlines)
-        if s.hasPrefix("http://") || s.hasPrefix("https://") {
-            return OpenableURL.from(s)?.absoluteString ?? s
-        }
-        if s.contains("."), !s.contains(" ") {
-            let withScheme = "https://\(s)"
-            return OpenableURL.from(withScheme)?.absoluteString ?? withScheme
-        }
-        return s
-    }
-}
 
 struct ItemPhotoView: View {
     @Environment(\.colorScheme) private var colorScheme
