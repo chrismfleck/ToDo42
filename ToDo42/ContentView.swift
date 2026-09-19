@@ -857,6 +857,7 @@ struct ItemPagerView: View {
     @Environment(\.colorScheme) private var colorScheme
     @State private var selectedID: UUID
     @State private var isEditing = false
+    @State private var browserPage: LinkBrowserPage?
 
     init(items: [TodoItem], selectedItem: Binding<TodoItem?>) {
         self.items = items
@@ -867,11 +868,17 @@ struct ItemPagerView: View {
     var body: some View {
         TabView(selection: $selectedID) {
             ForEach(items, id: \.persistentModelID) { item in
-                ItemDetailView(item: item, onEditingChange: { editing in
-                    if item.id == selectedID {
-                        isEditing = editing
+                ItemDetailView(
+                    item: item,
+                    onEditingChange: { editing in
+                        if item.id == selectedID {
+                            isEditing = editing
+                        }
+                    },
+                    onOpenLink: { url in
+                        openLink(url)
                     }
-                })
+                )
                 .tag(item.id)
             }
         }
@@ -887,6 +894,19 @@ struct ItemPagerView: View {
             UIImpactFeedbackGenerator(style: .light).impactOccurred()
         }
         .accessibilityHint(items.count > 1 ? "Swipe left or right to see other items" : "")
+        .fullScreenCover(item: $browserPage) { page in
+            LinkBrowserSheet(page: page) {
+                browserPage = nil
+            }
+        }
+    }
+
+    private func openLink(_ url: URL) {
+        if OpenableURL.isAirbnb(url) {
+            browserPage = LinkBrowserPage(url: url)
+        } else {
+            OpenableURL.openExternally(url)
+        }
     }
 }
 
@@ -937,6 +957,7 @@ struct ItemDetailView: View {
     @Environment(HomeBase.self) private var homeBase
     @Bindable var item: TodoItem
     var onEditingChange: ((Bool) -> Void)? = nil
+    var onOpenLink: ((URL) -> Void)? = nil
     @State private var isEditing = false
     @State private var draftTitle = ""
     @State private var draftLink = ""
@@ -1097,22 +1118,33 @@ struct ItemDetailView: View {
             .padding(.top, 4)
 
         if let url = savedURL {
-            Button {
-                UIImpactFeedbackGenerator(style: .light).impactOccurred()
-                // If the link was stuck in title/notes, persist the clean URL.
+            VStack(alignment: .leading, spacing: 4) {
+                titleText
+                    .foregroundStyle(Palette.brandBlue(colorScheme))
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                Text(url.host?.replacingOccurrences(of: "www.", with: "") ?? "Open link")
+                    .font(.caption)
+                    .foregroundStyle(Palette.brandBlue(colorScheme).opacity(0.8))
+            }
+            .contentShape(Rectangle())
+            .onTapGesture {
+                UIImpactFeedbackGenerator(style: .medium).impactOccurred()
                 if item.urlString == nil || OpenableURL.from(item.urlString)?.absoluteString != url.absoluteString {
                     item.urlString = url.absoluteString
                     PairSession.shared.noteLocalEdit(item, kind: "edit")
                 }
-                OpenableURL.open(url)
-            } label: {
-                titleText
-                    .foregroundStyle(Palette.brandBlue(colorScheme))
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .contentShape(Rectangle())
+                if let onOpenLink {
+                    onOpenLink(url)
+                } else if OpenableURL.isAirbnb(url) {
+                    // Fallback if opened outside the pager.
+                    OpenableURL.openExternally(url)
+                } else {
+                    OpenableURL.openExternally(url)
+                }
             }
-            .buttonStyle(.plain)
+            .accessibilityAddTraits(.isLink)
             .accessibilityLabel("Open \(SharedText.normalized(item.title))")
+            .accessibilityHint(url.absoluteString)
         } else {
             titleText
         }
@@ -1676,6 +1708,7 @@ struct AddItemView: View {
         PairSession.shared.noteLocalEdit(item, kind: "add")
         dismiss()
     }
+}
 
 struct ItemPhotoView: View {
     @Environment(\.colorScheme) private var colorScheme
