@@ -1,4 +1,5 @@
 import Foundation
+import SafariServices
 import SwiftUI
 import UIKit
 import WebKit
@@ -41,6 +42,43 @@ enum OpenableURL {
 
     static func openExternally(_ url: URL) {
         UIApplication.shared.open(normalized(url))
+    }
+
+    /// Present in-app Safari from a user tap (works on top of the item page).
+    static func presentInSafari(_ url: URL) {
+        let target = normalized(url)
+        DispatchQueue.main.async {
+            let safari = SFSafariViewController(url: target)
+            safari.dismissButtonStyle = .close
+            safari.preferredControlTintColor = UIColor(red: 0.10, green: 0.45, blue: 0.90, alpha: 1)
+            safari.modalPresentationStyle = .pageSheet
+
+            guard let presenter = topMostViewController() else {
+                UIApplication.shared.open(target)
+                return
+            }
+            presenter.present(safari, animated: true)
+        }
+    }
+
+    private static func topMostViewController() -> UIViewController? {
+        let scenes = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
+        let windows = scenes.flatMap(\.windows)
+        let window = windows.first(where: \.isKeyWindow) ?? windows.first
+        guard var top = window?.rootViewController else { return nil }
+        while let presented = top.presentedViewController {
+            top = presented
+        }
+        if let nav = top as? UINavigationController {
+            top = nav.visibleViewController ?? top
+        }
+        if let tab = top as? UITabBarController {
+            top = tab.selectedViewController ?? top
+            while let presented = top.presentedViewController {
+                top = presented
+            }
+        }
+        return top
     }
 
     static func httpsEquivalent(_ url: URL) -> URL? {

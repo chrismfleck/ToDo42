@@ -903,7 +903,7 @@ struct ItemPagerView: View {
 
     private func openLink(_ url: URL) {
         if OpenableURL.isAirbnb(url) {
-            browserPage = LinkBrowserPage(url: url)
+            OpenableURL.presentInSafari(url)
         } else {
             OpenableURL.openExternally(url)
         }
@@ -1115,19 +1115,9 @@ struct ItemDetailView: View {
             .font(.body)
             .underline(savedURL != nil)
             .multilineTextAlignment(.leading)
-            .padding(.top, 4)
 
         if let url = savedURL {
-            VStack(alignment: .leading, spacing: 4) {
-                titleText
-                    .foregroundStyle(Palette.brandBlue(colorScheme))
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                Text(url.host?.replacingOccurrences(of: "www.", with: "") ?? "Open link")
-                    .font(.caption)
-                    .foregroundStyle(Palette.brandBlue(colorScheme).opacity(0.8))
-            }
-            .contentShape(Rectangle())
-            .onTapGesture {
+            Button {
                 UIImpactFeedbackGenerator(style: .medium).impactOccurred()
                 if item.urlString == nil || OpenableURL.from(item.urlString)?.absoluteString != url.absoluteString {
                     item.urlString = url.absoluteString
@@ -1135,18 +1125,29 @@ struct ItemDetailView: View {
                 }
                 if let onOpenLink {
                     onOpenLink(url)
-                } else if OpenableURL.isAirbnb(url) {
-                    // Fallback if opened outside the pager.
-                    OpenableURL.openExternally(url)
                 } else {
                     OpenableURL.openExternally(url)
                 }
+            } label: {
+                VStack(alignment: .leading, spacing: 4) {
+                    titleText
+                        .foregroundStyle(Palette.brandBlue(colorScheme))
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                    Text(url.host?.replacingOccurrences(of: "www.", with: "") ?? "Open link")
+                        .font(.caption)
+                        .foregroundStyle(Palette.brandBlue(colorScheme).opacity(0.8))
+                }
+                .padding(.top, 4)
+                .padding(.vertical, 8)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .contentShape(Rectangle())
             }
-            .accessibilityAddTraits(.isLink)
+            .buttonStyle(.borderless)
             .accessibilityLabel("Open \(SharedText.normalized(item.title))")
             .accessibilityHint(url.absoluteString)
         } else {
             titleText
+                .padding(.top, 4)
         }
     }
 
