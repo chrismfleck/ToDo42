@@ -1088,6 +1088,8 @@ struct ItemDetailView: View {
 
     private var savedURL: URL? {
         OpenableURL.from(item.urlString)
+            ?? OpenableURL.from(item.notes)
+            ?? OpenableURL.from(item.title)
             ?? OpenableURL.from(SampleData.matching(title: item.title)?.urlString)
     }
 
@@ -1102,6 +1104,11 @@ struct ItemDetailView: View {
         if let url = savedURL {
             Button {
                 UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                // If the link was stuck in title/notes, persist the clean URL.
+                if item.urlString == nil || OpenableURL.from(item.urlString)?.absoluteString != url.absoluteString {
+                    item.urlString = url.absoluteString
+                    PairSession.shared.noteLocalEdit(item, kind: "edit")
+                }
                 OpenableURL.open(url)
             } label: {
                 titleText

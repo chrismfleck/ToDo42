@@ -16,7 +16,30 @@ enum OpenableURL {
         if let url = parse(raw) {
             return normalized(url)
         }
+        // Paste often includes a title plus the URL on another line.
+        if let detected = firstRawHTTPURL(in: raw), let url = parse(detected) {
+            return normalized(url)
+        }
         return nil
+    }
+
+    /// Pull the first http(s) URL out of any pasted blob (title + link, etc.).
+    static func firstRawHTTPURL(in string: String) -> String? {
+        let pattern = #"https?://[^\s<>\"'\)\]]+"#
+        guard let regex = try? NSRegularExpression(pattern: pattern, options: .caseInsensitive) else {
+            return nil
+        }
+        let range = NSRange(string.startIndex..<string.endIndex, in: string)
+        guard let match = regex.firstMatch(in: string, options: [], range: range),
+              let swiftRange = Range(match.range, in: string) else {
+            return nil
+        }
+        var found = String(string[swiftRange])
+        // Trim trailing punctuation commonly copied with links.
+        while let last = found.last, ".,:;!?)]}>\"".contains(last) {
+            found.removeLast()
+        }
+        return found
     }
 
     static func isAirbnb(_ url: URL) -> Bool {
@@ -65,11 +88,6 @@ enum OpenableURL {
                 return
             }
 
-            if presenter.presentedViewController != nil {
-                presenter.presentedViewController?.present(safari, animated: true)
-                return
-            }
-
             presenter.present(safari, animated: true)
         }
     }
@@ -111,11 +129,18 @@ enum OpenableURL {
         if isAirbnbHost(url), let roomID = airbnbRoomID(from: url) {
             return URL(string: "https://www.airbnb.com/rooms/\(roomID)") ?? url
         }
+        // abnb.me short links still open; prefer expanding path if it embeds a room id
+        if let host = url.host?.lowercased(), host.contains("abnb.me") || host.contains("airbnb.") {
+            if let roomID = airbnbRoomID(from: url) {
+                return URL(string: "https://www.airbnb.com/rooms/\(roomID)") ?? url
+            }
+        }
         return url
     }
 
     private static func isAirbnbHost(_ url: URL) -> Bool {
-        (url.host ?? "").lowercased().contains("airbnb.")
+        let host = (url.host ?? "").lowercased()
+        return host.contains("airbnb.") || host.contains("abnb.me")
     }
 
     private static func airbnbRoomID(from url: URL) -> String? {
