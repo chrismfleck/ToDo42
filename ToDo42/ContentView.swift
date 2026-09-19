@@ -931,6 +931,7 @@ struct ItemDetailView: View {
     @State private var draftNotes = ""
     @State private var photoItem: PhotosPickerItem?
     @State private var placeCaption: String?
+    @State private var inAppBrowser: InAppBrowserPage?
 
     private var isGuest: Bool { pairSession.role == .deena }
 
@@ -996,18 +997,6 @@ struct ItemDetailView: View {
                         }
                     } else {
                         titleView
-                        if savedURL != nil {
-                            Button {
-                                OpenableURL.open(item.urlString)
-                            } label: {
-                                Label("Open link", systemImage: "link")
-                                    .font(.headline)
-                                    .frame(maxWidth: .infinity, alignment: .leading)
-                            }
-                            .buttonStyle(.plain)
-                            .foregroundStyle(Palette.brandBlue(colorScheme))
-                            .accessibilityLabel("Open link")
-                        }
                     }
 
                     locationLine
@@ -1079,6 +1068,11 @@ struct ItemDetailView: View {
         .onDisappear {
             if isEditing { commitEdits() }
         }
+        .sheet(item: $inAppBrowser) { page in
+            InAppBrowserSheet(page: page) {
+                inAppBrowser = nil
+            }
+        }
     }
 
     private var savedURL: URL? {
@@ -1093,9 +1087,9 @@ struct ItemDetailView: View {
             .multilineTextAlignment(.leading)
             .padding(.top, 4)
 
-        if savedURL != nil {
+        if let url = savedURL {
             Button {
-                OpenableURL.open(item.urlString)
+                openSavedLink(url)
             } label: {
                 titleText
                     .foregroundStyle(Palette.brandBlue(colorScheme))
@@ -1105,6 +1099,14 @@ struct ItemDetailView: View {
             .accessibilityLabel("Open \(SharedText.normalized(item.title))")
         } else {
             titleText
+        }
+    }
+
+    private func openSavedLink(_ url: URL) {
+        if OpenableURL.prefersInAppBrowser(url) {
+            inAppBrowser = InAppBrowserPage(url: url)
+        } else {
+            UIApplication.shared.open(url)
         }
     }
 

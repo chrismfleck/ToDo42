@@ -1,13 +1,12 @@
 import Foundation
-import SafariServices
-import UIKit
+import SwiftUI
+import WebKit
 
-/// Turns saved / shared links into URLs that open reliably inside Save 4 Two.
+/// Turns saved / shared links into URLs that open reliably from Save 4 Two.
 ///
-/// Airbnb share links often include tracking query items (`unique_share_id`,
-/// `viralityEntryPoint`, …). Handing those to the Airbnb app via universal
-/// links frequently does nothing. We strip to a clean room URL and open it in
-/// an in-app Safari sheet so the listing always appears.
+/// Airbnb share links include tracking query items and often fail when iOS
+/// hands them to the Airbnb app via universal links. We strip to a clean
+/// room URL and open Airbnb inside an in-app browser instead.
 enum OpenableURL {
     static func from(_ string: String?) -> URL? {
         guard let raw = string?.trimmingCharacters(in: .whitespacesAndNewlines), !raw.isEmpty else {
@@ -16,7 +15,6 @@ enum OpenableURL {
         if let url = URL(string: raw) {
             return normalized(url)
         }
-        // Last resort for copy/paste with spaces or odd characters.
         if let encoded = raw.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed),
            let url = URL(string: encoded) {
             return normalized(url)
@@ -24,58 +22,18 @@ enum OpenableURL {
         return nil
     }
 
-    static func open(_ string: String?) {
-        guard let url = from(string) else { return }
-        openInSafari(url)
+    /// Airbnb (and similar) must stay in-app; other sites open normally.
+    static func prefersInAppBrowser(_ url: URL) -> Bool {
+        isAirbnbHost(url) || url.scheme?.lowercased() == "airbnb"
     }
 
-    static func open(_ url: URL) {
-        openInSafari(normalized(url))
-    }
-
-    /// Convert custom schemes (e.g. `airbnb://rooms/123`) to https pages the
-    /// in-app browser can load.
     static func httpsEquivalent(_ url: URL) -> URL? {
         let scheme = url.scheme?.lowercased() ?? ""
         guard scheme != "http", scheme != "https", scheme != "about" else { return nil }
-
         if scheme == "airbnb" {
             return airbnbHTTPS(fromDeepLink: url)
         }
         return nil
-    }
-
-    private static func openInSafari(_ url: URL) {
-        DispatchQueue.main.async {
-            guard let presenter = topViewController() else {
-                // Last resort if no view controller is ready yet.
-                UIApplication.shared.open(url)
-                return
-            }
-            let safari = SFSafariViewController(url: url)
-            safari.dismissButtonStyle = .close
-            presenter.present(safari, animated: true)
-        }
-    }
-
-    private static func topViewController(
-        base: UIViewController? = nil
-    ) -> UIViewController? {
-        let base = base ?? UIApplication.shared.connectedScenes
-            .compactMap { $0 as? UIWindowScene }
-            .flatMap(\.windows)
-            .first { $0.isKeyWindow }?
-            .rootViewController
-        if let nav = base as? UINavigationController {
-            return topViewController(base: nav.visibleViewController)
-        }
-        if let tab = base as? UITabBarController {
-            return topViewController(base: tab.selectedViewController)
-        }
-        if let presented = base?.presentedViewController {
-            return topViewController(base: presented)
-        }
-        return base
     }
 
     private static func normalized(_ url: URL) -> URL {
@@ -92,7 +50,6 @@ enum OpenableURL {
         (url.host ?? "").lowercased().contains("airbnb.")
     }
 
-    /// `https://www.airbnb.com/rooms/1711681767125004425?...` → `1711681767125004425`
     private static func airbnbRoomID(from url: URL) -> String? {
         let parts = url.path.split(separator: "/").map(String.init)
         guard let roomsIndex = parts.firstIndex(of: "rooms"),
@@ -104,7 +61,6 @@ enum OpenableURL {
         return candidate
     }
 
-    /// `airbnb://rooms/1711681767125004425` → https room URL
     private static func airbnbHTTPS(fromDeepLink url: URL) -> URL? {
         let host = (url.host ?? "").lowercased()
         let pathParts = url.path.split(separator: "/").map(String.init)
@@ -115,10 +71,137 @@ enum OpenableURL {
         if let id = airbnbRoomID(from: url) {
             return URL(string: "https://www.airbnb.com/rooms/\(id)")
         }
-        if host.isEmpty == false {
+        if !host.isEmpty {
             let path = url.path.isEmpty ? "" : url.path
             return URL(string: "https://www.airbnb.com/\(host)\(path)")
         }
         return URL(string: "https://www.airbnb.com/")
+    }
+}
+
+struct InAppBrowserPage: Identifiable {
+    let id = UUID()
+    let url: URL
+}
+
+/// Simple in-app browser for hosts (Airbnb) that break when opened via universal links.
+struct InAppBrowserSheet: View {
+    let page: InAppBrowserPage
+    var onDone: () -> Void
+
+    @State private var currentURL: URL?
+    @State private var isLoading = true
+    @State private var canGoBack = false
+    @State private var goBackToken = 0
+
+    var body: some View {
+        NavigationStack {
+            InAppBrowserWebView(
+                startURL: page.url,
+                currentURL: $currentURL,
+                isLoading: $isLoading,
+                canGoBack: $canGoBack,
+                goBackToken: goBackToken
+            )
+            .ignoresSafeArea(edges: .bottom)
+            .navigationTitle(currentURL?.host ?? page.url.host ?? "Link")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Done", action: onDone)
+                }
+                ToolbarItemGroup(placement: .bottomBar) {
+                    Button {
+                        goBackToken += 1
+                    } label: {
+                        Image(systemName: "chevron.left")
+                    }
+                    .disabled(!canGoBack)
+                    Spacer()
+                    if isLoading {
+                        ProgressView()
+                    }
+                }
+            }
+        }
+    }
+}
+
+private struct InAppBrowserWebView: UIViewRepresentable {
+    let startURL: URL
+    @Binding var currentURL: URL?
+    @Binding var isLoading: Bool
+    @Binding var canGoBack: Bool
+    var goBackToken: Int
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(self)
+    }
+
+    func makeUIView(context: Context) -> WKWebView {
+        let config = WKWebViewConfiguration()
+        let web = WKWebView(frame: .zero, configuration: config)
+        web.navigationDelegate = context.coordinator
+        web.allowsBackForwardNavigationGestures = true
+        web.customUserAgent = "Mozilla/5.0 (iPhone; CPU iPhone OS 18_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.5 Mobile/15E148 Safari/604.1"
+        web.addObserver(context.coordinator, forKeyPath: "URL", options: .new, context: nil)
+        web.addObserver(context.coordinator, forKeyPath: "loading", options: .new, context: nil)
+        web.addObserver(context.coordinator, forKeyPath: "canGoBack", options: .new, context: nil)
+        web.load(URLRequest(url: startURL))
+        return web
+    }
+
+    func updateUIView(_ web: WKWebView, context: Context) {
+        context.coordinator.parent = self
+        if goBackToken != context.coordinator.lastGoBackToken {
+            context.coordinator.lastGoBackToken = goBackToken
+            if web.canGoBack { web.goBack() }
+        }
+    }
+
+    static func dismantleUIView(_ web: WKWebView, coordinator: Coordinator) {
+        web.removeObserver(coordinator, forKeyPath: "URL")
+        web.removeObserver(coordinator, forKeyPath: "loading")
+        web.removeObserver(coordinator, forKeyPath: "canGoBack")
+        web.navigationDelegate = nil
+    }
+
+    final class Coordinator: NSObject, WKNavigationDelegate {
+        var parent: InAppBrowserWebView
+        var lastGoBackToken = 0
+
+        init(_ parent: InAppBrowserWebView) {
+            self.parent = parent
+        }
+
+        override func observeValue(
+            forKeyPath keyPath: String?,
+            of object: Any?,
+            change: [NSKeyValueChangeKey: Any]?,
+            context: UnsafeMutableRawPointer?
+        ) {
+            guard let web = object as? WKWebView else { return }
+            DispatchQueue.main.async {
+                self.parent.currentURL = web.url
+                self.parent.isLoading = web.isLoading
+                self.parent.canGoBack = web.canGoBack
+            }
+        }
+
+        func webView(
+            _ webView: WKWebView,
+            decidePolicyFor navigationAction: WKNavigationAction,
+            decisionHandler: @escaping (WKNavigationActionPolicy) -> Void
+        ) {
+            if let url = navigationAction.request.url, let scheme = url.scheme?.lowercased(),
+               scheme != "http", scheme != "https", scheme != "about" {
+                decisionHandler(.cancel)
+                if let https = OpenableURL.httpsEquivalent(url) {
+                    webView.load(URLRequest(url: https))
+                }
+                return
+            }
+            decisionHandler(.allow)
+        }
     }
 }
