@@ -268,7 +268,7 @@ private struct FindIdeasBrowserSheet: View {
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Save 4 Two") {
                         if let page = currentURL?.absoluteString {
-                            onSave(page)
+                            onSave(OpenableURL.from(page)?.absoluteString ?? page)
                         }
                     }
                     .disabled(currentURL == nil)
@@ -370,6 +370,11 @@ private struct FindIdeasWebView: UIViewRepresentable {
             if let url = navigationAction.request.url, let scheme = url.scheme?.lowercased(),
                scheme != "http", scheme != "https", scheme != "about" {
                 decisionHandler(.cancel)
+                // Airbnb (and similar) try to jump into their app via custom
+                // schemes. Keep browsing on https so the listing still loads.
+                if let https = OpenableURL.httpsEquivalent(url) {
+                    webView.load(URLRequest(url: https))
+                }
                 return
             }
             decisionHandler(.allow)

@@ -585,7 +585,8 @@ struct ContentView: View {
     private func importSharedDrafts() {
         var nextOrders: [ItemCategory: Int] = [:]
         for (payload, imageData) in ShareInbox.consumeDrafts() {
-            let link = payload.urlString.trimmingCharacters(in: .whitespacesAndNewlines)
+            let rawLink = payload.urlString.trimmingCharacters(in: .whitespacesAndNewlines)
+            let link = OpenableURL.from(rawLink)?.absoluteString ?? rawLink
             var rawTitle = payload.title
             var rawNotes = payload.notes
             if InstagramShareText.isInstagramURL(link) || InstagramShareText.needsCleanup(title: rawTitle, notes: rawNotes) {
@@ -1069,11 +1070,7 @@ struct ItemDetailView: View {
     }
 
     private var savedURL: URL? {
-        guard let s = item.urlString?.trimmingCharacters(in: .whitespacesAndNewlines),
-              !s.isEmpty,
-              let url = URL(string: s)
-        else { return nil }
-        return url
+        OpenableURL.from(item.urlString)
     }
 
     @ViewBuilder
@@ -1084,12 +1081,15 @@ struct ItemDetailView: View {
             .multilineTextAlignment(.leading)
             .padding(.top, 4)
 
-        if let url = savedURL {
-            Link(destination: url) {
+        if savedURL != nil {
+            Button {
+                OpenableURL.open(item.urlString)
+            } label: {
                 titleText
                     .foregroundStyle(Palette.brandBlue(colorScheme))
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
+            .buttonStyle(.plain)
             .accessibilityLabel("Open \(SharedText.normalized(item.title))")
         } else {
             titleText
@@ -1300,7 +1300,11 @@ struct ItemDetailView: View {
             item.notes = SharedText.normalizedMultiline(draftNotes)
         }
         let trimmedLink = draftLink.trimmingCharacters(in: .whitespacesAndNewlines)
-        item.urlString = trimmedLink.isEmpty ? nil : trimmedLink
+        if trimmedLink.isEmpty {
+            item.urlString = nil
+        } else {
+            item.urlString = OpenableURL.from(trimmedLink)?.absoluteString ?? trimmedLink
+        }
         PairSession.shared.noteLocalEdit(item, kind: "edit")
         withAnimation(.easeInOut(duration: 0.2)) {
             isEditing = false
@@ -1431,7 +1435,7 @@ struct AddItemView: View {
                 Section {
                     NavigationLink {
                         FindIdeasView { pageURL in
-                            urlString = pageURL
+                            urlString = OpenableURL.from(pageURL)?.absoluteString ?? pageURL
                         }
                     } label: {
                         Label("Find Ideas", systemImage: "magnifyingglass")
@@ -1620,8 +1624,13 @@ struct AddItemView: View {
 
     private static func normalizedURL(_ raw: String) -> String {
         var s = raw.trimmingCharacters(in: .whitespacesAndNewlines)
-        if s.hasPrefix("http://") || s.hasPrefix("https://") { return s }
-        if s.contains("."), !s.contains(" ") { return "https://\(s)" }
+        if s.hasPrefix("http://") || s.hasPrefix("https://") {
+            return OpenableURL.from(s)?.absoluteString ?? s
+        }
+        if s.contains("."), !s.contains(" ") {
+            let withScheme = "https://\(s)"
+            return OpenableURL.from(withScheme)?.absoluteString ?? withScheme
+        }
         return s
     }
 }
