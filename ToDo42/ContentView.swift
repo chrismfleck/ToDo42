@@ -948,7 +948,6 @@ struct ItemDetailView: View {
     @State private var draftNotes = ""
     @State private var photoItem: PhotosPickerItem?
     @State private var placeCaption: String?
-    @State private var safariLink: SafariLink?
 
     private var isGuest: Bool { pairSession.role == .deena }
 

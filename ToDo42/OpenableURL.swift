@@ -1,13 +1,13 @@
 import Foundation
 import SafariServices
-import SwiftUI
 import UIKit
 
 /// Turns saved / shared links into URLs that open reliably from Save 4 Two.
 ///
-/// Some Airbnb share/room links fail when iOS hands them to the Airbnb app via
-/// universal links. We strip tracking to `/rooms/{id}` and open Airbnb inside
-/// Safari (in-app) so the listing always loads.
+/// Some Airbnb room links fail when iOS hands them to the Airbnb app. We strip
+/// tracking to `/rooms/{id}` and present `SFSafariViewController` from the
+/// topmost UIKit controller (item pages are already a SwiftUI fullScreenCover,
+/// so nested SwiftUI covers/sheets often never appear).
 enum OpenableURL {
     static func from(_ string: String?) -> URL? {
         guard let raw = string?.trimmingCharacters(in: .whitespacesAndNewlines), !raw.isEmpty else {
@@ -23,7 +23,20 @@ enum OpenableURL {
         isAirbnbHost(url) || url.scheme?.lowercased() == "airbnb"
     }
 
-    /// Convert custom schemes (e.g. `airbnb://rooms/123`) to https pages.
+    static func open(_ string: String?) {
+        guard let url = from(string) else { return }
+        open(url)
+    }
+
+    static func open(_ url: URL) {
+        let target = normalized(url)
+        if isAirbnb(target) {
+            presentSafari(target)
+        } else {
+            UIApplication.shared.open(target)
+        }
+    }
+
     static func httpsEquivalent(_ url: URL) -> URL? {
         let scheme = url.scheme?.lowercased() ?? ""
         guard scheme != "http", scheme != "https", scheme != "about" else { return nil }
@@ -31,6 +44,54 @@ enum OpenableURL {
             return airbnbHTTPS(fromDeepLink: url)
         }
         return nil
+    }
+
+    private static func presentSafari(_ url: URL) {
+        DispatchQueue.main.async {
+            let safari = SFSafariViewController(url: url)
+            safari.dismissButtonStyle = .close
+            safari.preferredControlTintColor = UIColor(red: 0.10, green: 0.45, blue: 0.90, alpha: 1)
+            safari.modalPresentationStyle = .pageSheet
+
+            guard let presenter = topMostViewController() else {
+                UIApplication.shared.open(url)
+                return
+            }
+
+            if presenter is SFSafariViewController {
+                presenter.dismiss(animated: false) {
+                    topMostViewController()?.present(safari, animated: true)
+                }
+                return
+            }
+
+            if presenter.presentedViewController != nil {
+                presenter.presentedViewController?.present(safari, animated: true)
+                return
+            }
+
+            presenter.present(safari, animated: true)
+        }
+    }
+
+    private static func topMostViewController() -> UIViewController? {
+        let scenes = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
+        let windows = scenes.flatMap(\.windows)
+        let window = windows.first(where: \.isKeyWindow) ?? windows.first
+        guard var top = window?.rootViewController else { return nil }
+        while let presented = top.presentedViewController {
+            top = presented
+        }
+        if let nav = top as? UINavigationController {
+            top = nav.visibleViewController ?? top
+        }
+        if let tab = top as? UITabBarController {
+            top = tab.selectedViewController ?? top
+            while let presented = top.presentedViewController {
+                top = presented
+            }
+        }
+        return top
     }
 
     private static func parse(_ raw: String) -> URL? {
@@ -84,23 +145,4 @@ enum OpenableURL {
         }
         return URL(string: "https://www.airbnb.com/")
     }
-}
-
-struct SafariLink: Identifiable {
-    let id = UUID()
-    let url: URL
-}
-
-/// In-app Safari. Used for Airbnb so iOS cannot hand the link to the Airbnb app.
-struct SafariView: UIViewControllerRepresentable {
-    let url: URL
-
-    func makeUIViewController(context: Context) -> SFSafariViewController {
-        let safari = SFSafariViewController(url: url)
-        safari.dismissButtonStyle = .close
-        safari.preferredControlTintColor = UIColor(red: 0.10, green: 0.45, blue: 0.90, alpha: 1)
-        return safari
-    }
-
-    func updateUIViewController(_ uiViewController: SFSafariViewController, context: Context) {}
 }
