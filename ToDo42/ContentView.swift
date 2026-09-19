@@ -997,6 +997,18 @@ struct ItemDetailView: View {
 
                 Spacer()
 
+                if !isEditing, savedURL != nil {
+                    Button {
+                        openSavedLink()
+                    } label: {
+                        Image(systemName: "link")
+                            .font(.system(size: 20, weight: .semibold))
+                            .foregroundStyle(Palette.brandBlue(colorScheme))
+                            .frame(width: 32, height: 32)
+                    }
+                    .accessibilityLabel("Open link")
+                }
+
                 Button {
                     if isEditing {
                         commitEdits()
@@ -1016,6 +1028,15 @@ struct ItemDetailView: View {
             .padding(.vertical, 8)
             .background(Palette.canvas(colorScheme))
 
+            // Title sits above the ScrollView so the item pager/scroll
+            // gestures cannot eat the tap (SwiftUI Button inside ScrollView
+            // was never firing — no haptic).
+            if !isEditing {
+                titleView
+                    .padding(.horizontal, 20)
+                    .padding(.bottom, 8)
+            }
+
             ScrollView {
                 VStack(alignment: .leading, spacing: 16) {
                     if isEditing {
@@ -1027,8 +1048,6 @@ struct ItemDetailView: View {
                                 .padding(12)
                                 .appCard(cornerRadius: 12, scheme: colorScheme)
                         }
-                    } else {
-                        titleView
                     }
 
                     locationLine
@@ -1100,6 +1119,9 @@ struct ItemDetailView: View {
         .onDisappear {
             if isEditing { commitEdits() }
         }
+        .onChange(of: isEditing) { _, editing in
+            onEditingChange?(editing)
+        }
     }
 
     private var savedURL: URL? {
@@ -1109,6 +1131,20 @@ struct ItemDetailView: View {
             ?? OpenableURL.from(SampleData.matching(title: item.title)?.urlString)
     }
 
+    private func openSavedLink() {
+        guard let url = savedURL else { return }
+        UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+        if item.urlString == nil || OpenableURL.from(item.urlString)?.absoluteString != url.absoluteString {
+            item.urlString = url.absoluteString
+            PairSession.shared.noteLocalEdit(item, kind: "edit")
+        }
+        if let onOpenLink {
+            onOpenLink(url)
+        } else {
+            OpenableURL.presentInSafari(url)
+        }
+    }
+
     @ViewBuilder
     private var titleView: some View {
         let titleText = Text(verbatim: SharedText.normalized(item.title))
@@ -1116,35 +1152,24 @@ struct ItemDetailView: View {
             .underline(savedURL != nil)
             .multilineTextAlignment(.leading)
 
-        if let url = savedURL {
-            Button {
-                UIImpactFeedbackGenerator(style: .medium).impactOccurred()
-                if item.urlString == nil || OpenableURL.from(item.urlString)?.absoluteString != url.absoluteString {
-                    item.urlString = url.absoluteString
-                    PairSession.shared.noteLocalEdit(item, kind: "edit")
-                }
-                if let onOpenLink {
-                    onOpenLink(url)
-                } else {
-                    OpenableURL.openExternally(url)
-                }
-            } label: {
+        if savedURL != nil {
+            Button(action: openSavedLink) {
                 VStack(alignment: .leading, spacing: 4) {
                     titleText
                         .foregroundStyle(Palette.brandBlue(colorScheme))
                         .frame(maxWidth: .infinity, alignment: .leading)
-                    Text(url.host?.replacingOccurrences(of: "www.", with: "") ?? "Open link")
+                    Text(savedURL?.host?.replacingOccurrences(of: "www.", with: "") ?? "Open link")
                         .font(.caption)
                         .foregroundStyle(Palette.brandBlue(colorScheme).opacity(0.8))
                 }
                 .padding(.top, 4)
-                .padding(.vertical, 8)
+                .padding(.vertical, 6)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .contentShape(Rectangle())
             }
             .buttonStyle(.borderless)
             .accessibilityLabel("Open \(SharedText.normalized(item.title))")
-            .accessibilityHint(url.absoluteString)
+            .accessibilityHint(savedURL?.absoluteString ?? "")
         } else {
             titleText
                 .padding(.top, 4)
