@@ -483,37 +483,33 @@ struct ContentView: View {
 
     private func itemList(for cat: ItemCategory) -> some View {
         let rows = items(in: cat)
+        let columns = [
+            GridItem(.flexible(minimum: 120), spacing: 12),
+            GridItem(.flexible(minimum: 120), spacing: 12),
+        ]
         return ScrollView {
-            LazyVStack(spacing: 14) {
+            LazyVGrid(columns: columns, spacing: 12) {
                 ForEach(rows, id: \.persistentModelID) { item in
-                    SwipeToDeleteRow(
-                        itemID: item.id,
-                        swipingItemID: $swipingItemID,
-                        isEnabled: false
-                    ) {
-                        deleteItem(item)
-                    } content: {
-                        Group {
-                            if isListEditing {
-                                ItemRowView(
-                                    item: item,
-                                    showsDragHandle: true,
-                                    onDelete: { deleteItem(item) },
-                                    onHandleDragChanged: { translation in
-                                        handleReorderChanged(item: item, translation: translation)
-                                    },
-                                    onHandleDragEnded: {
-                                        handleReorderEnded(item: item)
-                                    }
-                                )
-                            } else {
-                                Button {
-                                    selectedItem = item
-                                } label: {
-                                    ItemRowView(item: item)
+                    Group {
+                        if isListEditing {
+                            ItemRowView(
+                                item: item,
+                                showsDragHandle: true,
+                                onDelete: { deleteItem(item) },
+                                onHandleDragChanged: { translation in
+                                    handleReorderChanged(item: item, translation: translation)
+                                },
+                                onHandleDragEnded: {
+                                    handleReorderEnded(item: item)
                                 }
-                                .buttonStyle(.plain)
+                            )
+                        } else {
+                            Button {
+                                selectedItem = item
+                            } label: {
+                                ItemRowView(item: item)
                             }
+                            .buttonStyle(.plain)
                         }
                     }
                     .offset(y: reorderOffset(for: item))
@@ -540,7 +536,7 @@ struct ContentView: View {
                     }
                 }
             }
-            .padding(.horizontal, 24)
+            .padding(.horizontal, 20)
             .padding(.bottom, 24)
             .onPreferenceChange(RowHeightPreferenceKey.self) { rowHeights = $0 }
         }
@@ -893,72 +889,75 @@ struct ItemRowView: View {
     var onHandleDragEnded: (() -> Void)?
 
     var body: some View {
-        HStack(alignment: .center, spacing: 16) {
-            if let onDelete {
-                Button(action: onDelete) {
-                    Image(systemName: "minus.circle.fill")
-                        .font(.system(size: 22, weight: .semibold))
-                        .foregroundStyle(.red)
+        VStack(alignment: .leading, spacing: 8) {
+            ZStack(alignment: .topLeading) {
+                ItemPhotoView(item: item, cornerRadius: 14, placeholderIconSize: 28)
+                    .frame(maxWidth: .infinity)
+                    .aspectRatio(1, contentMode: .fit)
+                    .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+
+                if let onDelete {
+                    Button(action: onDelete) {
+                        Image(systemName: "minus.circle.fill")
+                            .font(.system(size: 22, weight: .semibold))
+                            .foregroundStyle(.red)
+                            .shadow(color: .black.opacity(0.25), radius: 2, y: 1)
+                    }
+                    .buttonStyle(.plain)
+                    .padding(8)
+                    .accessibilityLabel("Delete \(item.title)")
                 }
-                .buttonStyle(.plain)
-                .accessibilityLabel("Delete \(item.title)")
+
+                if item.chrisHearted || item.deenaHearted {
+                    HStack(spacing: 3) {
+                        if item.chrisHearted {
+                            Image(systemName: "heart.fill")
+                        }
+                        if item.deenaHearted {
+                            Image(systemName: "heart.fill")
+                        }
+                    }
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(heartPink)
+                    .padding(6)
+                    .background(.ultraThinMaterial, in: Capsule())
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
+                    .padding(8)
+                    .accessibilityLabel("Hearted")
+                    .allowsHitTesting(false)
+                }
             }
 
-            ItemPhotoView(item: item, cornerRadius: 14)
-                .frame(width: 76, height: 76)
-
-            VStack(alignment: .leading, spacing: 6) {
+            HStack(alignment: .top, spacing: 6) {
                 LockedText(
                     text: item.title,
-                    font: UIFont.systemFont(ofSize: 16, weight: .semibold),
+                    font: UIFont.systemFont(ofSize: 14, weight: .semibold),
                     color: .label,
                     lines: 2
                 )
-                if !item.notes.isEmpty {
-                    LockedText(
-                        text: item.notes,
-                        font: UIFont.systemFont(ofSize: 12, weight: .regular),
-                        color: .secondaryLabel,
-                        lines: 1
-                    )
-                }
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .dynamicTypeSize(.large)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .dynamicTypeSize(.large)
 
-            if item.chrisHearted || item.deenaHearted {
-                HStack(spacing: 4) {
-                    if item.chrisHearted {
-                        Image(systemName: "heart.fill")
-                    }
-                    if item.deenaHearted {
-                        Image(systemName: "heart.fill")
-                    }
+                if showsDragHandle {
+                    Image(systemName: "line.3.horizontal")
+                        .font(.body.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                        .frame(width: 24, height: 28)
+                        .contentShape(Rectangle())
+                        .highPriorityGesture(
+                            DragGesture(minimumDistance: 4)
+                                .onChanged { value in
+                                    onHandleDragChanged?(value.translation.height)
+                                }
+                                .onEnded { _ in
+                                    onHandleDragEnded?()
+                                }
+                        )
+                        .accessibilityLabel("Reorder")
                 }
-                .font(.system(size: 12, weight: .semibold))
-                .foregroundStyle(heartPink)
-                .accessibilityLabel("Hearted")
-            }
-
-            if showsDragHandle {
-                Image(systemName: "line.3.horizontal")
-                    .font(.body.weight(.semibold))
-                    .foregroundStyle(.secondary)
-                    .frame(width: 28, height: 44)
-                    .contentShape(Rectangle())
-                    .highPriorityGesture(
-                        DragGesture(minimumDistance: 4)
-                            .onChanged { value in
-                                onHandleDragChanged?(value.translation.height)
-                            }
-                            .onEnded { _ in
-                                onHandleDragEnded?()
-                            }
-                    )
-                    .accessibilityLabel("Reorder")
             }
         }
-        .padding(14)
+        .padding(10)
         .appCard(cornerRadius: 18, scheme: colorScheme)
         .opacity(item.isDone ? 0.7 : 1)
     }
