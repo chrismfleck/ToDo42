@@ -235,98 +235,99 @@ struct ContentView: View {
                 .ignoresSafeArea()
 
             VStack(alignment: .leading, spacing: 22) {
-                ZStack {
-                    HStack(spacing: 10) {
-                        if pairSession.isPaired {
-                            PairHeadButton(
-                                label: pairSession.partnerHeartLabel,
-                                tint: Color(red: 0.22, green: 0.78, blue: 0.55),
-                                isActive: true
-                            ) {
-                                if pairSession.hasMultiplePairs {
-                                    pairSession.switchToNextPair()
-                                    Task { await refreshFromCloud() }
-                                } else {
-                                    showPairing = true
-                                }
-                            }
-                            .accessibilityLabel(
-                                pairSession.hasMultiplePairs
-                                    ? "Switch list. Current partner \(pairSession.partnerHeartLabel)"
-                                    : "Partner \(pairSession.partnerHeartLabel)"
-                            )
-                        }
-
-                        Image("TitleWordmark")
-                            .renderingMode(.template)
-                            .resizable()
-                            .scaledToFit()
-                            .frame(height: 44)
+                HStack(spacing: 0) {
+                    Button {
+                        toggleListEditing()
+                    } label: {
+                        Image(systemName: isListEditing ? "checkmark" : "pencil")
+                            .font(.system(size: 22, weight: .semibold))
                             .foregroundStyle(Palette.brandBlue(colorScheme))
-                            .accessibilityLabel("Save 4 Two")
-
-                        if pairSession.isPaired {
-                            PairHeadButton(
-                                label: pairSession.myHeartLabel,
-                                tint: Color(red: 0.20, green: 0.48, blue: 0.98),
-                                isActive: true
-                            ) {
-                                if pairSession.hasMultiplePairs {
-                                    pairSession.switchToNextPair()
-                                    Task { await refreshFromCloud() }
-                                } else {
-                                    showPairing = true
-                                }
-                            }
-                            .accessibilityLabel(
-                                pairSession.hasMultiplePairs
-                                    ? "Switch list. You are \(pairSession.myHeartLabel)"
-                                    : "You, \(pairSession.myHeartLabel)"
-                            )
-                        }
+                            .frame(width: 32, height: 32)
                     }
-                    .frame(maxWidth: .infinity)
-                    .padding(.top, 12)
+                    .accessibilityLabel(isListEditing ? "Done editing" : "Edit list")
 
-                    HStack {
-                        Button {
-                            toggleListEditing()
-                        } label: {
-                            Image(systemName: isListEditing ? "checkmark" : "pencil")
+                    if isListEditing {
+                        Button { showHelp = true } label: {
+                            Image(systemName: "info.circle")
                                 .font(.system(size: 22, weight: .semibold))
                                 .foregroundStyle(Palette.brandBlue(colorScheme))
                                 .frame(width: 32, height: 32)
                         }
-                        .accessibilityLabel(isListEditing ? "Done editing" : "Edit list")
-
-                        if isListEditing {
-                            Button { showHelp = true } label: {
-                                Image(systemName: "info.circle")
-                                    .font(.system(size: 22, weight: .semibold))
-                                    .foregroundStyle(Palette.brandBlue(colorScheme))
-                                    .frame(width: 32, height: 32)
-                            }
-                            .accessibilityLabel("Help")
-                        }
-
-                        Spacer()
-
-                        if isListEditing {
-                            Button { showPairing = true } label: {
-                                PairHeartPlusIcon(size: 22)
-                            }
-                            .accessibilityLabel("Pair phones")
-                        }
-
-                        Button { showAdd = true } label: {
-                            Image(systemName: "plus.circle.fill")
-                                .font(.system(size: 32))
-                                .foregroundStyle(Palette.brandBlue(colorScheme))
-                        }
-                        .accessibilityLabel("Add item")
+                        .accessibilityLabel("Help")
                     }
-                    .padding(.top, 8)
+
+                    Spacer(minLength: 10)
+
+                    if pairSession.isPaired, !isListEditing {
+                        PairHeadButton(
+                            label: pairSession.partnerHeartLabel,
+                            tint: Color(red: 0.22, green: 0.78, blue: 0.55),
+                            isActive: true
+                        ) {
+                            if pairSession.hasMultiplePairs {
+                                pairSession.switchToNextPair()
+                                Task { await refreshFromCloud() }
+                            } else {
+                                showPairing = true
+                            }
+                        }
+                        .accessibilityLabel(
+                            pairSession.hasMultiplePairs
+                                ? "Switch list. Current partner \(pairSession.partnerHeartLabel)"
+                                : "Partner \(pairSession.partnerHeartLabel)"
+                        )
+
+                        Spacer(minLength: 8)
+                    }
+
+                    Image("TitleWordmark")
+                        .renderingMode(.template)
+                        .resizable()
+                        .scaledToFit()
+                        .frame(height: 28)
+                        .foregroundStyle(Palette.brandBlue(colorScheme))
+                        .accessibilityLabel("Save 4 Two")
+                        .layoutPriority(1)
+
+                    if pairSession.isPaired, !isListEditing {
+                        Spacer(minLength: 8)
+
+                        PairHeadButton(
+                            label: pairSession.myHeartLabel,
+                            tint: Color(red: 0.20, green: 0.48, blue: 0.98),
+                            isActive: true
+                        ) {
+                            if pairSession.hasMultiplePairs {
+                                pairSession.switchToNextPair()
+                                Task { await refreshFromCloud() }
+                            } else {
+                                showPairing = true
+                            }
+                        }
+                        .accessibilityLabel(
+                            pairSession.hasMultiplePairs
+                                ? "Switch list. You are \(pairSession.myHeartLabel)"
+                                : "You, \(pairSession.myHeartLabel)"
+                        )
+                    }
+
+                    Spacer(minLength: 10)
+
+                    if isListEditing {
+                        Button { showPairing = true } label: {
+                            PairHeartPlusIcon(size: 22)
+                        }
+                        .accessibilityLabel("Pair phones")
+                    }
+
+                    Button { showAdd = true } label: {
+                        Image(systemName: "plus.circle.fill")
+                            .font(.system(size: 32))
+                            .foregroundStyle(Palette.brandBlue(colorScheme))
+                    }
+                    .accessibilityLabel("Add item")
                 }
+                .padding(.top, 10)
                 .padding(.horizontal, 24)
 
                 TabView(selection: $categoryPage) {
