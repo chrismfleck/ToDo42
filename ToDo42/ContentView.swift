@@ -57,6 +57,47 @@ struct PairHeartPlusIcon: View {
     }
 }
 
+struct PairHeadButton: View {
+    let label: String
+    var tint: Color
+    var isActive: Bool = true
+    var action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            PairHeadAvatar(label: label, tint: tint, isActive: isActive)
+        }
+        .buttonStyle(.plain)
+    }
+}
+
+struct PairHeadAvatar: View {
+    let label: String
+    var tint: Color
+    var isActive: Bool = true
+
+    private var initials: String {
+        let parts = label
+            .split(whereSeparator: { $0.isWhitespace })
+            .prefix(2)
+        let letters = parts.compactMap { $0.first.map(String.init) }
+        let joined = letters.joined().uppercased()
+        return joined.isEmpty ? "?" : joined
+    }
+
+    var body: some View {
+        Text(initials)
+            .font(.system(size: 11, weight: .bold, design: .rounded))
+            .foregroundStyle(.white)
+            .frame(width: 30, height: 30)
+            .background(tint.opacity(isActive ? 1 : 0.45), in: Circle())
+            .overlay {
+                Circle()
+                    .strokeBorder(Color.white.opacity(0.85), lineWidth: isActive ? 2 : 0)
+            }
+    }
+}
+
 private struct CategoryTabStrip: View {
     var categories: [ItemCategory]
     var isSelected: (ItemCategory) -> Bool
@@ -155,8 +196,16 @@ struct ContentView: View {
 
     private static let hasLeftListEditKey = "todo42.hasLeftListEditMode"
 
+    private var pairScopedItems: [TodoItem] {
+        let active = pairSession.pairID
+        if let active, !active.isEmpty {
+            return items.filter { $0.pairID == active || $0.pairID.isEmpty }
+        }
+        return items
+    }
+
     private var filtered: [TodoItem] {
-        items
+        pairScopedItems
             .filter { $0.belongs(to: category) }
             .sorted { lhs, rhs in
                 if lhs.sortOrder == rhs.sortOrder {
@@ -187,15 +236,57 @@ struct ContentView: View {
 
             VStack(alignment: .leading, spacing: 22) {
                 ZStack {
-                    Image("TitleWordmark")
-                        .renderingMode(.template)
-                        .resizable()
-                        .scaledToFit()
-                        .frame(height: 44)
-                        .foregroundStyle(Palette.brandBlue(colorScheme))
-                        .accessibilityLabel("Save 4 Two")
-                        .frame(maxWidth: .infinity)
-                        .padding(.top, 12)
+                    HStack(spacing: 10) {
+                        if pairSession.isPaired {
+                            PairHeadButton(
+                                label: pairSession.partnerHeartLabel,
+                                tint: Color(red: 0.22, green: 0.78, blue: 0.55),
+                                isActive: true
+                            ) {
+                                if pairSession.hasMultiplePairs {
+                                    pairSession.switchToNextPair()
+                                    Task { await refreshFromCloud() }
+                                } else {
+                                    showPairing = true
+                                }
+                            }
+                            .accessibilityLabel(
+                                pairSession.hasMultiplePairs
+                                    ? "Switch list. Current partner \(pairSession.partnerHeartLabel)"
+                                    : "Partner \(pairSession.partnerHeartLabel)"
+                            )
+                        }
+
+                        Image("TitleWordmark")
+                            .renderingMode(.template)
+                            .resizable()
+                            .scaledToFit()
+                            .frame(height: 44)
+                            .foregroundStyle(Palette.brandBlue(colorScheme))
+                            .accessibilityLabel("Save 4 Two")
+
+                        if pairSession.isPaired {
+                            PairHeadButton(
+                                label: pairSession.myHeartLabel,
+                                tint: Color(red: 0.20, green: 0.48, blue: 0.98),
+                                isActive: true
+                            ) {
+                                if pairSession.hasMultiplePairs {
+                                    pairSession.switchToNextPair()
+                                    Task { await refreshFromCloud() }
+                                } else {
+                                    showPairing = true
+                                }
+                            }
+                            .accessibilityLabel(
+                                pairSession.hasMultiplePairs
+                                    ? "Switch list. You are \(pairSession.myHeartLabel)"
+                                    : "You, \(pairSession.myHeartLabel)"
+                            )
+                        }
+                    }
+                    .frame(maxWidth: .infinity)
+                    .padding(.top, 12)
 
                     HStack {
                         Button {
@@ -279,6 +370,8 @@ struct ContentView: View {
                 .environment(HomeBase.shared)
         }
         .onAppear {
+            ItemStore.migrateUnscopedItems(in: modelContext, to: pairSession.pairID)
+            pairSession.persistLocal()
             importSharedDrafts()
             seedIfNeeded()
             repairSampleLinks()
@@ -307,7 +400,7 @@ struct ContentView: View {
     }
 
     private func items(in cat: ItemCategory) -> [TodoItem] {
-        items
+        pairScopedItems
             .filter { $0.belongs(to: cat) }
             .sorted { lhs, rhs in
                 if lhs.sortOrder == rhs.sortOrder {
@@ -449,7 +542,7 @@ struct ContentView: View {
     }
 
     private func nextSortOrder(for category: ItemCategory) -> Int {
-        (items.filter { $0.belongs(to: category) }.map(\.sortOrder).min() ?? 0) - 1
+        (pairScopedItems.filter { $0.belongs(to: category) }.map(\.sortOrder).min() ?? 0) - 1
     }
 
     private func normalizeStoredText() {
@@ -1719,7 +1812,10 @@ struct AddItemView: View {
         let cut = SharedText.cutTitle(SharedText.normalized(trimmedTitle), notes: SharedText.reflowNotes(notes))
         let chosen = selectedCategories.isEmpty ? [category] : ItemCategory.allCases.filter { selectedCategories.contains($0) }
         let primary = chosen.first ?? category
-        let nextSortOrder = (items.filter { $0.belongs(to: primary) }.map(\.sortOrder).min() ?? 0) - 1
+        let nextSortOrder = (items.filter {
+            ($0.pairID == PairSession.shared.pairID || $0.pairID.isEmpty || PairSession.shared.pairID == nil)
+                && $0.belongs(to: primary)
+        }.map(\.sortOrder).min() ?? 0) - 1
         let item = TodoItem(
             title: cut.title,
             category: primary,

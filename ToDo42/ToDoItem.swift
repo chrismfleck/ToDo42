@@ -137,6 +137,8 @@ final class TodoItem {
     var placeLongitude: Double?
     var placeLocality: String?
     var placeSource: String?
+    /// CloudKit list this row belongs to. Empty until migrated / stamped.
+    var pairID: String = ""
 
     init(
         title: String,
@@ -150,7 +152,8 @@ final class TodoItem {
         extraImageData2: Data? = nil,
         extraImageData3: Data? = nil,
         notes: String = "",
-        sortOrder: Int = 0
+        sortOrder: Int = 0,
+        pairID: String? = nil
     ) {
         self.id = UUID()
         self.title = title
@@ -170,6 +173,7 @@ final class TodoItem {
         self.updatedAt = Date()
         self.sortOrder = sortOrder
         self.lastEditor = ""
+        self.pairID = pairID ?? PairSession.shared.pairID ?? ""
     }
 
     var category: ItemCategory {
@@ -222,6 +226,26 @@ final class TodoItem {
 enum ItemStore {
     static func allItems(in context: ModelContext) -> [TodoItem] {
         (try? context.fetch(FetchDescriptor<TodoItem>())) ?? []
+    }
+
+    static func items(forPair pairID: String?, in context: ModelContext) -> [TodoItem] {
+        let all = allItems(in: context)
+        guard let pairID, !pairID.isEmpty else { return all }
+        return all.filter { $0.pairID == pairID || $0.pairID.isEmpty }
+    }
+
+    /// Assign legacy rows with no pair tag to the active pair so sync cannot wipe other lists.
+    @MainActor
+    static func migrateUnscopedItems(in context: ModelContext, to pairID: String?) {
+        guard let pairID, !pairID.isEmpty else { return }
+        var changed = false
+        for item in allItems(in: context) where item.pairID.isEmpty {
+            item.pairID = pairID
+            changed = true
+        }
+        if changed {
+            try? context.save()
+        }
     }
 
     static func item(id: UUID, in context: ModelContext) -> TodoItem? {

@@ -1,43 +1,48 @@
-# Multiple pairs (parked)
+# Multiple pairs
 
-Parked 30 Aug 2026. Do not build until Chris asks.
+Building on `cursor/save4two-unified-ac25` (unlocked Sep 2026).
+
+## Locked decisions (Chris)
+
+1. **Pairs first** (avatars/photos after multi-pair works).
+2. **Home switch:** tap a **head** beside the title to switch lists (generic heads until photos).
+3. **Share (Instagram etc.):** **silent last-open** — share extension uses `activePairID` from App Group; no pair picker in the sheet.
+4. **Hearts:** still **two per list** (me + that partner only).
+5. **Unpair:** unpair one pair leaves the other untouched.
 
 ## Goal
 
-Chris can keep **one list with Deena** and a **separate list with Brian**. A new pair must never replace or wipe another list.
+Keep **one list with Deena** and a **separate list with Diane** (or Brian). A new pair must never replace or wipe another list.
 
 ## How it should feel
 
-- Home list switcher: **Deena** and **Brian**.
-- Open Deena: only that list. Open Brian: a separate list.
-- Pair phones shows both. **Invite Brian** makes a new list. It does not touch Deena.
-- Hearts and names are only for the pair you are looking at.
-- Unpair Brian leaves Deena as-is.
+- Pair page: list of pairs when 2+, plus **Add a pair**. First pair same as today.
+- Home header: `[partner head]  Save 4 Two  [my head]` for the active pair; tap a head to switch.
+- Instagram share → active (last-open) list only.
+- Hearts and names only for the open pair.
+- Unpair Diane leaves Deena as-is.
 
 ## What has to change
 
-1. **Tag every item with a list id.** CloudKit already has `pairID` on items. The phone does not. Existing items stay on the Deena list. New Brian items get a new id.
-2. **Remember more than one pair.** Store Deena and Brian (names, role, invite code, list id). “Active list” is which one you are viewing.
-3. **Sync only the open list.** Pull/push Deena items for Deena, Brian items for Brian. Never delete an item because another list is empty. That is the unpair-and-new-invite wipe, fixed for good.
-4. **Keep two-person hearts per list.** Internally still host/guest (`chrisHearted` / `deenaHearted` on that list). On Brian’s list, Deena is not a heart. Labels stay the names you type.
-5. **Pair screen.** List of pairs, plus **Add a pair**. Invite or join a code for that pair only.
-
-## What we should not do
-
-- Do not unpair Deena to add Brian.
-- Do not make one shared pile of items for everyone.
-- Do not add a third heart on a two-person list.
-- Do not ship this until restore + “new invite does not wipe” is on both phones.
+1. **Tag every item with `pairID`.** CloudKit already has it; local SwiftData must too. Existing items stay on the current pair.
+2. **Remember more than one pair** (names, role, invite code, list id, optional later photos). `activePairID` = viewing + sharing target.
+3. **Sync only the open list.** Never prune/delete across lists.
+4. **Two-person hearts per list** (`chrisHearted` / `deenaHearted` = host/guest on that list).
+5. **Pair screen** + **header heads** to switch.
 
 ## Build order
 
-1. Put `pairID` on local items and stop prune-across-lists. No new UI yet. Chris and Deena keep using the same list.
-2. Add the list switcher and “Add a pair.” Create Brian’s list as empty and separate. Confirm Deena’s list is unchanged.
-3. Invite Brian. Confirm his items do not appear on Deena’s list, and hers do not appear on his.
-4. TestFlight for Chris, then Deena, then Brian.
+1. ~~`pairID` on local items + stop prune-across-lists. Migrate existing items to current pair.~~
+2. ~~Multi-pair session + pair list UI + Add pair; active pair switch.~~
+3. ~~Home header heads (generic) to switch; share targets `activePairID` (App Group mirror; import stamps active pair).~~
+4. Optional: pick local profile photos for heads.
+5. TestFlight: Chris ↔ Deena, then second pair.
 
-## Chris on the phone
+## Implemented
 
-- Deena list = what they have now.
-- Brian list = new invite, new code, only Brian joins that code.
-- Same iCloud. Do not unpair Deena.
+- `TodoItem.pairID` + migrate empty → active pair
+- `PairSession.savedPairs`, `beginAddPair` / `switchToPair` / unpair-one-only
+- App Group `todo42.activePairID` for last-open share targeting
+- CloudSync push/prune scoped to active pair
+- PairingView pair list + Add a pair
+- Home generic initials heads to cycle pairs when 2+

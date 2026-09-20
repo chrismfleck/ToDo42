@@ -11,16 +11,24 @@ struct PairingView: View {
     @State private var errorText = ""
     @State private var showShare = false
 
+    private var showInviteJoin: Bool {
+        !session.isPaired || session.isComposingNewPair
+    }
+
     var body: some View {
         NavigationStack {
             ScrollView {
                 VStack(alignment: .leading, spacing: 12) {
                     header
                     hero
+                    if !session.savedPairs.isEmpty {
+                        pairsListCard
+                    }
                     namesCard
-                    if session.isPaired {
+                    if session.isPaired, !session.isComposingNewPair {
                         connectedCard
-                    } else {
+                    }
+                    if showInviteJoin {
                         inviteCard
                         orDivider
                         joinCard
@@ -59,6 +67,9 @@ struct PairingView: View {
                 }
             }
             .onDisappear {
+                if session.isComposingNewPair {
+                    session.cancelComposePair()
+                }
                 session.persist()
             }
         }
@@ -87,9 +98,13 @@ struct PairingView: View {
                         .font(.caption.weight(.semibold))
                         .foregroundStyle(.secondary)
                 }
-                Text("Pair phones")
+                Text(session.isComposingNewPair ? "Add a pair" : "Pair phones")
                     .font(.title2.bold())
-                Text("Share your list with someone you trust. Both phones must be signed in to iCloud.")
+                Text(
+                    session.isComposingNewPair
+                        ? "Start a separate list with someone else. Your other pairs stay as they are."
+                        : "Share your list with someone you trust. Both phones must be signed in to iCloud."
+                )
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
@@ -100,6 +115,69 @@ struct PairingView: View {
                 .accessibilityHidden(true)
         }
         .padding(.top, 2)
+    }
+
+    private var pairsListCard: some View {
+        pairCard {
+            cardTitle("Your pairs", icon: "person.2.fill", tint: Color(red: 0.20, green: 0.48, blue: 0.98))
+            Text("Open a list, or add another partner. Unpair removes only that pair.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            ForEach(session.savedPairs) { profile in
+                let isActive = profile.pairID == session.pairID && !session.isComposingNewPair
+                Button {
+                    session.switchToPair(profile.pairID)
+                    Task { await CloudSync.shared.sync(modelContext: modelContext, allowCreate: false) }
+                } label: {
+                    HStack(spacing: 10) {
+                        PairHeadAvatar(
+                            label: profile.partnerName.isEmpty ? "Partner" : profile.partnerName,
+                            tint: Color(red: 0.22, green: 0.78, blue: 0.55),
+                            isActive: isActive
+                        )
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(profile.partnerName.isEmpty ? "Partner" : profile.partnerName)
+                                .font(.subheadline.weight(.semibold))
+                                .foregroundStyle(.primary)
+                            Text(isActive ? "Open now" : "Tap to open")
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
+                        }
+                        Spacer()
+                        if isActive {
+                            Image(systemName: "checkmark.circle.fill")
+                                .foregroundStyle(Palette.brandBlue(colorScheme))
+                        }
+                    }
+                    .padding(.vertical, 4)
+                }
+                .buttonStyle(.plain)
+                .disabled(session.isBusy)
+            }
+            if session.isPaired, !session.isComposingNewPair {
+                Button {
+                    session.beginAddPair()
+                    errorText = ""
+                } label: {
+                    Label("Add a pair", systemImage: "plus.circle.fill")
+                        .font(.subheadline.weight(.semibold))
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 10)
+                        .foregroundStyle(.white)
+                        .background(Palette.brandBlue(colorScheme), in: Capsule())
+                }
+                .buttonStyle(.plain)
+                .disabled(session.isBusy)
+            }
+            if session.isComposingNewPair {
+                Button("Cancel adding a pair") {
+                    session.cancelComposePair()
+                    errorText = ""
+                }
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(.secondary)
+            }
+        }
     }
 
     private var namesCard: some View {
@@ -194,11 +272,16 @@ struct PairingView: View {
             Button {
                 session.unpair()
             } label: {
-                Label("Unpair phones", systemImage: "heart.slash.fill")
-                    .font(.subheadline.weight(.semibold))
+                Label(
+                    session.hasMultiplePairs
+                        ? "Unpair \(session.partnerHeartLabel)"
+                        : "Unpair phones",
+                    systemImage: "heart.slash.fill"
+                )
+                .font(.subheadline.weight(.semibold))
             }
             .foregroundStyle(.red)
-            .accessibilityLabel("Unpair phones")
+            .accessibilityLabel("Unpair \(session.partnerHeartLabel)")
         }
     }
 

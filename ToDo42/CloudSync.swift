@@ -5,9 +5,32 @@ import CloudKit
 import UIKit
 import UserNotifications
 
-enum PairRole: String {
+enum PairRole: String, Codable {
     case chris
     case deena
+}
+
+struct PairProfile: Codable, Identifiable, Hashable {
+    var pairID: String
+    var roleRaw: String
+    var inviteCode: String?
+    var myName: String
+    var partnerName: String
+
+    var id: String { pairID }
+
+    var role: PairRole? {
+        get { PairRole(rawValue: roleRaw) }
+        set { roleRaw = newValue?.rawValue ?? "" }
+    }
+
+    init(pairID: String, role: PairRole, inviteCode: String?, myName: String, partnerName: String) {
+        self.pairID = pairID
+        self.roleRaw = role.rawValue
+        self.inviteCode = inviteCode
+        self.myName = myName
+        self.partnerName = partnerName
+    }
 }
 
 @Observable
@@ -22,17 +45,25 @@ final class PairSession {
     var partnerName = ""
     var statusMessage = ""
     var isBusy = false
+    /// Known pairs on this phone (including the active one once persisted).
+    var savedPairs: [PairProfile] = []
+    /// True while the pair sheet is collecting a second (or first) invite/join.
+    var isComposingNewPair = false
 
     private let defaults = UserDefaults.standard
+    private let appGroupDefaults = UserDefaults(suiteName: AppGroup.id)
     private let pairKey = "todo42.pairID"
     private let roleKey = "todo42.pairRole"
     private let codeKey = "todo42.inviteCode"
     private let myNameKey = "todo42.myName"
     private let partnerNameKey = "todo42.partnerName"
     private let pairHistoryKey = "todo42.pairIDHistory"
+    private let savedPairsKey = "todo42.savedPairs"
+    private let activePairAppGroupKey = "todo42.activePairID"
 
     var isPaired: Bool { pairID != nil && role != nil }
     var isApplyingRemote = false
+    var hasMultiplePairs: Bool { savedPairs.count > 1 }
 
     var trimmedMyName: String {
         myName.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -67,18 +98,82 @@ final class PairSession {
         inviteCode = defaults.string(forKey: codeKey)
         myName = defaults.string(forKey: myNameKey) ?? ""
         partnerName = defaults.string(forKey: partnerNameKey) ?? ""
+        savedPairs = Self.loadSavedPairs(from: defaults, key: savedPairsKey)
+        if savedPairs.isEmpty, let id = pairID, let role {
+            savedPairs = [
+                PairProfile(
+                    pairID: id,
+                    role: role,
+                    inviteCode: inviteCode,
+                    myName: myName,
+                    partnerName: partnerName
+                )
+            ]
+        } else {
+            syncActiveFromSavedPairsIfNeeded()
+        }
+        mirrorActivePairToAppGroup()
     }
 
     var rememberedPairIDs: [String] {
         defaults.stringArray(forKey: pairHistoryKey) ?? []
     }
 
-    func unpair() {
-        rememberPairID(pairID)
+    /// Keep current list, clear the active slot so invite/join can add another pair.
+    func beginAddPair() {
+        snapshotActiveIntoSavedPairs()
+        isComposingNewPair = true
         pairID = nil
         role = nil
         inviteCode = nil
+        partnerName = ""
         statusMessage = ""
+        persistLocal()
+    }
+
+    func cancelComposePair() {
+        guard isComposingNewPair else { return }
+        isComposingNewPair = false
+        if let next = savedPairs.first {
+            apply(profile: next)
+        }
+        persistLocal()
+    }
+
+    func switchToPair(_ id: String) {
+        guard id != pairID else { return }
+        guard let profile = savedPairs.first(where: { $0.pairID == id }) else { return }
+        snapshotActiveIntoSavedPairs()
+        apply(profile: profile)
+        // Last-open first for share targeting.
+        savedPairs.removeAll { $0.pairID == id }
+        savedPairs.insert(profile, at: 0)
+        isComposingNewPair = false
+        persistLocal()
+    }
+
+    func switchToNextPair() {
+        guard savedPairs.count > 1, let current = pairID else { return }
+        let ids = savedPairs.map(\.pairID)
+        guard let idx = ids.firstIndex(of: current) else { return }
+        let next = ids[(idx + 1) % ids.count]
+        switchToPair(next)
+    }
+
+    func unpair() {
+        rememberPairID(pairID)
+        if let id = pairID {
+            savedPairs.removeAll { $0.pairID == id }
+        }
+        isComposingNewPair = false
+        if let next = savedPairs.first {
+            apply(profile: next)
+        } else {
+            pairID = nil
+            role = nil
+            inviteCode = nil
+            statusMessage = ""
+        }
         persistLocal()
     }
 
@@ -90,12 +185,85 @@ final class PairSession {
     }
 
     func persistLocal() {
+        snapshotActiveIntoSavedPairs()
         rememberPairID(pairID)
         defaults.set(pairID, forKey: pairKey)
         defaults.set(role?.rawValue, forKey: roleKey)
         defaults.set(inviteCode, forKey: codeKey)
         defaults.set(myName, forKey: myNameKey)
         defaults.set(partnerName, forKey: partnerNameKey)
+        if let data = try? JSONEncoder().encode(savedPairs) {
+            defaults.set(data, forKey: savedPairsKey)
+        }
+        mirrorActivePairToAppGroup()
+    }
+
+    /// Call before createInvite/join when replacing the active CloudKit pair in place
+    /// (e.g. “New invite code”), so the old id is not kept as a second pair.
+    func discardActivePairSlotBeforeReplace() {
+        guard !isComposingNewPair, let id = pairID else { return }
+        savedPairs.removeAll { $0.pairID == id }
+        rememberPairID(id)
+    }
+
+    func markComposeFinished() {
+        isComposingNewPair = false
+    }
+
+    private func mirrorActivePairToAppGroup() {
+        appGroupDefaults?.set(pairID, forKey: activePairAppGroupKey)
+    }
+
+    private func snapshotActiveIntoSavedPairs() {
+        guard let id = pairID, let role else { return }
+        let profile = PairProfile(
+            pairID: id,
+            role: role,
+            inviteCode: inviteCode,
+            myName: myName,
+            partnerName: partnerName
+        )
+        if let idx = savedPairs.firstIndex(where: { $0.pairID == id }) {
+            savedPairs[idx] = profile
+        } else {
+            savedPairs.insert(profile, at: 0)
+        }
+    }
+
+    private func apply(profile: PairProfile) {
+        pairID = profile.pairID
+        role = profile.role
+        inviteCode = profile.inviteCode
+        myName = profile.myName
+        partnerName = profile.partnerName
+        statusMessage = ""
+    }
+
+    private func syncActiveFromSavedPairsIfNeeded() {
+        guard let id = pairID else { return }
+        if let profile = savedPairs.first(where: { $0.pairID == id }) {
+            // Keep live fields; ensure list has current names on next persist.
+            _ = profile
+        } else if let role {
+            savedPairs.insert(
+                PairProfile(
+                    pairID: id,
+                    role: role,
+                    inviteCode: inviteCode,
+                    myName: myName,
+                    partnerName: partnerName
+                ),
+                at: 0
+            )
+        }
+    }
+
+    private static func loadSavedPairs(from defaults: UserDefaults, key: String) -> [PairProfile] {
+        guard let data = defaults.data(forKey: key),
+              let pairs = try? JSONDecoder().decode([PairProfile].self, from: data) else {
+            return []
+        }
+        return pairs
     }
 
     private func rememberPairID(_ id: String?) {
@@ -134,6 +302,9 @@ final class PairSession {
         // leaves the item on this phone only; catch-up used to refuse to create it.
         if kind != "add" {
             guard !isApplyingRemote else { return }
+        }
+        if item.pairID.isEmpty, let pairID {
+            item.pairID = pairID
         }
         item.updatedAt = Date()
         item.lastEditor = role?.rawValue ?? ""
@@ -225,9 +396,13 @@ final class CloudSync {
         _ = try await database.modifyRecords(saving: [codeRecord, pairRecord], deleting: [], savePolicy: .allKeys)
 
         let session = PairSession.shared
+        if !session.isComposingNewPair {
+            session.discardActivePairSlotBeforeReplace()
+        }
         session.pairID = pairID
         session.role = .chris
         session.inviteCode = code
+        session.markComposeFinished()
         session.persistLocal()
         try await subscribe()
         try await requestNotifications()
@@ -252,9 +427,13 @@ final class CloudSync {
             throw SyncError.message("That code was not found.")
         }
         let session = PairSession.shared
+        if !session.isComposingNewPair {
+            session.discardActivePairSlotBeforeReplace()
+        }
         session.pairID = pairID
         session.role = .deena
         session.inviteCode = trimmed
+        session.markComposeFinished()
         session.persistLocal()
         if let pair = try? await database.record(for: CKRecord.ID(recordName: "pair-\(pairID)")) {
             let host = pair["hostName"] as? String ?? ""
@@ -309,13 +488,16 @@ final class CloudSync {
                 try await self.ensureiCloud()
                 try? await self.subscribe()
                 try? await self.requestNotifications()
+                ItemStore.migrateUnscopedItems(in: modelContext, to: PairSession.shared.pairID)
                 ItemStore.deduplicate(in: modelContext)
+                let pairItems = ItemStore.items(forPair: PairSession.shared.pairID, in: modelContext)
                 if allowCreate {
-                    try await self.pushAll(ItemStore.allItems(in: modelContext), allowCreate: true)
+                    try await self.pushAll(pairItems, allowCreate: true)
                     try await self.pull(modelContext: modelContext)
                 } else {
                     try await self.pull(modelContext: modelContext)
-                    try await self.pushAll(ItemStore.allItems(in: modelContext), allowCreate: false)
+                    let afterPull = ItemStore.items(forPair: PairSession.shared.pairID, in: modelContext)
+                    try await self.pushAll(afterPull, allowCreate: false)
                 }
                 PairSession.shared.statusMessage = ""
             } catch {
@@ -368,6 +550,7 @@ final class CloudSync {
                 let extraRecords = records.filter { self.recordKind($0) == .extraPhoto }
                 for record in itemRecords {
                     guard let itemID = record["itemID"] as? String, let uuid = UUID(uuidString: itemID) else { continue }
+                    let recordPairID = (record["pairID"] as? String) ?? ""
                     if RemoteItemApply.isTombstone(notifyKind: record["notifyKind"] as? String) {
                         if let local = localByID[itemID] {
                             modelContext.delete(local)
@@ -376,6 +559,9 @@ final class CloudSync {
                         continue
                     }
                     if let local = localByID[itemID] {
+                        if local.pairID.isEmpty, !recordPairID.isEmpty {
+                            local.pairID = recordPairID
+                        }
                         self.apply(record, to: local)
                         continue
                     }
@@ -386,7 +572,8 @@ final class CloudSync {
                         category: ItemCategory.parse(record["categoryRaw"] as? String ?? "places").first ?? .places,
                         urlString: record["urlString"] as? String,
                         notes: record["notes"] as? String ?? "",
-                        sortOrder: CloudKitValues.intValue(record["sortOrder"]) ?? 0
+                        sortOrder: CloudKitValues.intValue(record["sortOrder"]) ?? 0,
+                        pairID: recordPairID.isEmpty ? session.pairID : recordPairID
                     )
                     item.id = uuid
                     self.apply(record, to: item)
@@ -404,9 +591,10 @@ final class CloudSync {
                 }
                 try? modelContext.save()
                 if session.isPaired {
-                    try await self.pushAll(ItemStore.allItems(in: modelContext), allowCreate: true)
+                    let pairItems = ItemStore.items(forPair: session.pairID, in: modelContext)
+                    try await self.pushAll(pairItems, allowCreate: true)
                 }
-                let total = ItemStore.allItems(in: modelContext).count
+                let total = ItemStore.items(forPair: session.pairID, in: modelContext).count
                 if records.isEmpty {
                     session.statusMessage = result.emptyMessage
                 } else {
@@ -504,7 +692,7 @@ final class CloudSync {
             guard let itemID = record["itemID"] as? String, let uuid = UUID(uuidString: itemID) else { continue }
             let notifyKind = record["notifyKind"] as? String
             if RemoteItemApply.isTombstone(notifyKind: notifyKind) {
-                if let local = localByID[itemID] {
+                if let local = localByID[itemID], local.pairID.isEmpty || local.pairID == pairID {
                     modelContext.delete(local)
                     localByID.removeValue(forKey: itemID)
                     notifyRemoved(record)
@@ -514,6 +702,13 @@ final class CloudSync {
             let remoteUpdated = record["updatedAt"] as? Date ?? .distantPast
             let local = localByID[itemID] ?? ItemStore.item(id: uuid, in: modelContext)
             if let local {
+                // Never merge another list's row into this pair's pull.
+                if !local.pairID.isEmpty, local.pairID != pairID {
+                    continue
+                }
+                if local.pairID.isEmpty {
+                    local.pairID = pairID
+                }
                 let remoteChris = CloudKitValues.flag(record["chrisHearted"])
                 let remoteDeena = CloudKitValues.flag(record["deenaHearted"])
                 let justHearted = PartnerHeartMerge.partnerJustHearted(
@@ -564,7 +759,8 @@ final class CloudSync {
                     category: ItemCategory.parse(record["categoryRaw"] as? String ?? "places").first ?? .places,
                     urlString: record["urlString"] as? String,
                     notes: record["notes"] as? String ?? "",
-                    sortOrder: CloudKitValues.intValue(record["sortOrder"]) ?? 0
+                    sortOrder: CloudKitValues.intValue(record["sortOrder"]) ?? 0,
+                    pairID: pairID
                 )
                 item.id = uuid
                 apply(record, to: item)
@@ -613,7 +809,7 @@ final class CloudSync {
                     itemID: record["itemID"] as? String
                 )
             })
-            for local in ItemStore.allItems(in: modelContext) {
+            for local in ItemStore.items(forPair: pairID, in: modelContext) {
                 if remoteIDs.contains(local.id.uuidString) {
                     let remoteItem = remote.first {
                         ($0["itemID"] as? String) == local.id.uuidString
@@ -838,7 +1034,19 @@ final class CloudSync {
     }
 
     private func saveItem(_ item: TodoItem, notifyKind: String, allowCreate: Bool = true) async throws {
-        guard let pairID = PairSession.shared.pairID else { return }
+        let pairID: String
+        if !item.pairID.isEmpty {
+            pairID = item.pairID
+        } else if let active = PairSession.shared.pairID {
+            pairID = active
+            item.pairID = active
+        } else {
+            return
+        }
+        // Never re-tag another list onto the open pair's CloudKit records.
+        if let active = PairSession.shared.pairID, pairID != active {
+            return
+        }
         let recordID = CKRecord.ID(recordName: "item-\(item.id.uuidString)")
         let wipedTitle = item.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         if wipedTitle {
