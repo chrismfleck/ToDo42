@@ -569,6 +569,7 @@ final class CloudSync {
                 let itemRecords = records.filter { self.recordKind($0) == .listItem }
                 let extraRecords = records.filter { self.recordKind($0) == .extraPhoto }
                 for record in itemRecords {
+                    guard RemoteItemApply.extraSlot(recordName: record.recordID.recordName) == nil else { continue }
                     guard let itemID = record["itemID"] as? String, let uuid = UUID(uuidString: itemID) else { continue }
                     let recordPairID = (record["pairID"] as? String) ?? ""
                     if RemoteItemApply.isTombstone(notifyKind: record["notifyKind"] as? String) {
