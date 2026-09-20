@@ -63,7 +63,7 @@ struct PairingView: View {
                 .padding(.top, 8)
             }
             .scrollDismissesKeyboard(.interactively)
-            .background(Palette.canvas(colorScheme).ignoresSafeArea())
+            .background { AppCanvasBackground() }
             .toolbar(.hidden, for: .navigationBar)
             .sheet(isPresented: $showShare) {
                 if let code = session.inviteCode {

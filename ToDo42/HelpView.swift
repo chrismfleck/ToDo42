@@ -143,7 +143,7 @@ struct HelpView: View {
                 .padding(.bottom, 24)
             }
             .scrollDismissesKeyboard(.interactively)
-            .background(Palette.canvas(colorScheme).ignoresSafeArea())
+            .background { AppCanvasBackground() }
             .navigationTitle("Help")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {

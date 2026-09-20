@@ -19,11 +19,33 @@ enum Palette {
     }
 
     static func card(_ scheme: ColorScheme) -> Color {
-        isDark(scheme) ? .black : .white
+        isDark(scheme) ? Color.black.opacity(0.72) : Color.white.opacity(0.92)
     }
 
     static func uiCanvas(_ scheme: ColorScheme) -> UIColor {
         isDark(scheme) ? .black : UIColor(red: 0.93, green: 0.96, blue: 1.0, alpha: 1)
+    }
+}
+
+/// Full-bleed romantic balcony photo used behind Home, Pair, Help, and item pages.
+struct AppCanvasBackground: View {
+    @Environment(\.colorScheme) private var colorScheme
+
+    var body: some View {
+        ZStack {
+            Image("AppBackground")
+                .resizable()
+                .scaledToFill()
+                .frame(minWidth: 0, maxWidth: .infinity, minHeight: 0, maxHeight: .infinity)
+                .clipped()
+            // Soft wash so blue chrome and list text stay readable.
+            Color.white.opacity(Palette.isDark(colorScheme) ? 0.08 : 0.22)
+            if Palette.isDark(colorScheme) {
+                Color.black.opacity(0.35)
+            }
+        }
+        .ignoresSafeArea()
+        .allowsHitTesting(false)
     }
 }
 
@@ -34,6 +56,10 @@ extension View {
                 RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
                     .strokeBorder(Palette.isDark(scheme) ? Color.white.opacity(0.16) : Color.clear, lineWidth: 1)
             }
+    }
+
+    func appCanvasBackground() -> some View {
+        background { AppCanvasBackground() }
     }
 }
 
@@ -250,8 +276,7 @@ struct ContentView: View {
 
     var body: some View {
         ZStack {
-            Palette.canvas(colorScheme)
-                .ignoresSafeArea()
+            AppCanvasBackground()
 
             VStack(alignment: .leading, spacing: 22) {
                 HStack(spacing: 0) {
@@ -372,14 +397,14 @@ struct ContentView: View {
                 }
             }
         }
-        .background(WindowCanvas(color: Palette.uiCanvas(colorScheme)))
+        .background(WindowCanvas(color: .clear))
         .tint(Palette.brandBlue(colorScheme))
         .fullScreenCover(isPresented: Binding(
             get: { selectedItem != nil },
             set: { if !$0 { selectedItem = nil } }
         )) {
             ItemPagerView(items: pagerItems, selectedItem: $selectedItem)
-                .presentationBackground(Palette.canvas(colorScheme))
+                .presentationBackground(.clear)
                 .environment(CategoryNames.shared)
                 .environment(HomeBase.shared)
         }
@@ -1008,7 +1033,7 @@ struct ItemPagerView: View {
         .tabViewStyle(.page(indexDisplayMode: .never))
         // Lock only the pager swipe. `.scrollDisabled` also freezes the item page itself.
         .background { PagingScrollLock(locked: isEditing) }
-        .background(Palette.canvas(colorScheme).ignoresSafeArea())
+        .background { AppCanvasBackground() }
         .onChange(of: selectedID) { _, newID in
             if let match = items.first(where: { $0.id == newID }) {
                 selectedItem = match
@@ -1149,7 +1174,7 @@ struct ItemDetailView: View {
             }
             .padding(.horizontal, 20)
             .padding(.vertical, 8)
-            .background(Palette.canvas(colorScheme))
+            .background(.ultraThinMaterial)
 
             // Title sits above the ScrollView so link taps aren't eaten by
             // pager/scroll gestures. Keep the edit field in the same place.
@@ -1269,7 +1294,7 @@ struct ItemDetailView: View {
             .scrollContentBackground(.hidden)
             .scrollDismissesKeyboard(.interactively)
         }
-        .background(Palette.canvas(colorScheme).ignoresSafeArea())
+        .background { AppCanvasBackground() }
         .onChange(of: photoItem) { _, newItem in
             Task { await applyPickedPhoto(newItem) }
         }

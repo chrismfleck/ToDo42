@@ -66,9 +66,7 @@ extension Notification.Name {
 }
 
 private struct PaletteHost: View {
-    @Environment(\.colorScheme) private var colorScheme
-
     var body: some View {
-        Palette.canvas(colorScheme).ignoresSafeArea()
+        AppCanvasBackground()
     }
 }
