@@ -289,32 +289,30 @@ struct ContentView: View {
                 .ignoresSafeArea()
 
             VStack(alignment: .leading, spacing: 22) {
-                HStack(spacing: 0) {
-                    HStack(spacing: isListEditing ? 14 : 0) {
-                        Button {
-                            toggleListEditing()
-                        } label: {
-                            Image(systemName: isListEditing ? "checkmark" : "pencil")
+                HStack(alignment: .center, spacing: 12) {
+                    Button {
+                        toggleListEditing()
+                    } label: {
+                        Image(systemName: isListEditing ? "checkmark" : "pencil")
+                            .font(.system(size: 22, weight: .semibold))
+                            .foregroundStyle(Palette.brandBlue(colorScheme))
+                            .frame(width: Self.headerIconHit, height: Self.headerIconHit)
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.borderless)
+                    .accessibilityLabel(isListEditing ? "Done editing" : "Edit list")
+
+                    if isListEditing {
+                        Button { showHelp = true } label: {
+                            Image(systemName: "info.circle")
                                 .font(.system(size: 22, weight: .semibold))
                                 .foregroundStyle(Palette.brandBlue(colorScheme))
-                                .frame(width: 48, height: 48)
+                                .frame(width: Self.headerIconHit, height: Self.headerIconHit)
                                 .contentShape(Rectangle())
                         }
-                        .buttonStyle(.plain)
-                        .accessibilityLabel(isListEditing ? "Done editing" : "Edit list")
-
-                        if isListEditing {
-                            Button { showHelp = true } label: {
-                                Image(systemName: "info.circle")
-                                    .font(.system(size: 22, weight: .semibold))
-                                    .foregroundStyle(Palette.brandBlue(colorScheme))
-                                    .frame(width: 32, height: 32)
-                            }
-                            .accessibilityLabel("Help")
-                        }
+                        .buttonStyle(.borderless)
+                        .accessibilityLabel("Help")
                     }
-
-                    Spacer(minLength: 10)
 
                     if pairSession.isPaired, !isListEditing {
                         PairHeadButton(
@@ -336,8 +334,6 @@ struct ContentView: View {
                                 ? "Switch list. You are \(pairSession.myHeartLabel)"
                                 : "You, \(pairSession.myHeartLabel)"
                         )
-
-                        Spacer(minLength: 8)
                     }
 
                     Image("TitleWordmark")
@@ -347,11 +343,11 @@ struct ContentView: View {
                         .frame(height: 28)
                         .foregroundStyle(Palette.brandBlue(colorScheme))
                         .accessibilityLabel("Save 4 Two")
+                        .frame(maxWidth: .infinity)
                         .layoutPriority(1)
+                        .allowsHitTesting(false)
 
                     if pairSession.isPaired, !isListEditing {
-                        Spacer(minLength: 8)
-
                         PairHeadButton(
                             label: pairSession.partnerHeartLabel,
                             tint: Color(red: 0.22, green: 0.78, blue: 0.55),
@@ -373,27 +369,29 @@ struct ContentView: View {
                         )
                     }
 
-                    Spacer(minLength: 10)
-
-                    HStack(spacing: isListEditing ? 14 : 0) {
-                        if isListEditing {
-                            Button { showPairing = true } label: {
-                                PairHeartPlusIcon(size: 22)
-                                    .frame(width: 32, height: 32)
-                            }
-                            .accessibilityLabel("Pair phones")
+                    if isListEditing {
+                        Button { showPairing = true } label: {
+                            PairHeartPlusIcon(size: 22)
+                                .frame(width: Self.headerIconHit, height: Self.headerIconHit)
+                                .contentShape(Rectangle())
                         }
-
-                        Button { showAdd = true } label: {
-                            Image(systemName: "plus.circle.fill")
-                                .font(.system(size: 32))
-                                .foregroundStyle(Palette.brandBlue(colorScheme))
-                        }
-                        .accessibilityLabel("Add item")
+                        .buttonStyle(.borderless)
+                        .accessibilityLabel("Pair phones")
                     }
+
+                    Button { showAdd = true } label: {
+                        Image(systemName: "plus.circle.fill")
+                            .font(.system(size: 30, weight: .regular))
+                            .foregroundStyle(Palette.brandBlue(colorScheme))
+                            .frame(width: Self.headerIconHit, height: Self.headerIconHit)
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.borderless)
+                    .accessibilityLabel("Add item")
                 }
                 .padding(.top, 10)
-                .padding(.horizontal, 24)
+                .padding(.horizontal, 20)
+                .zIndex(2)
 
                 TabView(selection: $categoryPage) {
                     categoryPageView(ItemCategory.primaryPage, page: 0)
@@ -558,6 +556,10 @@ struct ContentView: View {
     }
 
     private func toggleListEditing() {
+        let now = Date()
+        // Ignore bounce / double taps that flip edit mode twice.
+        guard now.timeIntervalSince(lastEditToggleAt) > 0.5 else { return }
+        lastEditToggleAt = now
         if isListEditing {
             reorderDrag = nil
             isListEditing = false
