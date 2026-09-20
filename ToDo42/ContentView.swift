@@ -1444,6 +1444,7 @@ struct ItemDetailView: View {
         .frame(maxWidth: .infinity)
     }
 
+    @ViewBuilder
     private var titleView: some View {
         let titleText = Text(verbatim: SharedText.normalized(item.title))
             .font(.body)
