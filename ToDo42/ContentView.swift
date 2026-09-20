@@ -1824,7 +1824,8 @@ struct AddItemView: View {
             urlString: trimmedLink.lowercased().hasPrefix("http") ? trimmedLink : nil,
             imageData: photoData,
             notes: cut.notes,
-            sortOrder: nextSortOrder
+            sortOrder: nextSortOrder,
+            pairID: PairSession.shared.pairID
         )
         modelContext.insert(item)
         PairSession.shared.noteLocalEdit(item, kind: "add")
