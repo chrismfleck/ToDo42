@@ -49,6 +49,8 @@ final class PairSession {
     var savedPairs: [PairProfile] = []
     /// True while the pair sheet is collecting a second (or first) invite/join.
     var isComposingNewPair = false
+    /// Bumps when a local head photo changes so SwiftUI refreshes initials/photos.
+    var headPhotoRevision = 0
 
     private let defaults = UserDefaults.standard
     private let appGroupDefaults = UserDefaults(suiteName: AppGroup.id)
@@ -187,6 +189,9 @@ final class PairSession {
     func persistLocal() {
         snapshotActiveIntoSavedPairs()
         rememberPairID(pairID)
+        if let id = pairID {
+            PairHeadPhotos.promoteDraft(to: id)
+        }
         defaults.set(pairID, forKey: pairKey)
         defaults.set(role?.rawValue, forKey: roleKey)
         defaults.set(inviteCode, forKey: codeKey)
@@ -196,6 +201,20 @@ final class PairSession {
             defaults.set(data, forKey: savedPairsKey)
         }
         mirrorActivePairToAppGroup()
+    }
+
+    func headPairKey(for pairID: String? = nil) -> String {
+        PairHeadPhotos.pairKey(for: pairID ?? self.pairID)
+    }
+
+    func headImageData(slot: PairHeadPhotos.Slot, pairID: String? = nil) -> Data? {
+        _ = headPhotoRevision
+        return PairHeadPhotos.load(pairKey: headPairKey(for: pairID), slot: slot)
+    }
+
+    func setHeadPhoto(slot: PairHeadPhotos.Slot, data: Data?, pairID: String? = nil) {
+        PairHeadPhotos.save(pairKey: headPairKey(for: pairID), slot: slot, data: data)
+        headPhotoRevision += 1
     }
 
     /// Call before createInvite/join when replacing the active CloudKit pair in place

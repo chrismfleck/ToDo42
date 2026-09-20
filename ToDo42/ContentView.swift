@@ -62,11 +62,12 @@ struct PairHeadButton: View {
     var tint: Color
     var isActive: Bool = true
     var size: CGFloat = 30
+    var imageData: Data? = nil
     var action: () -> Void
 
     var body: some View {
         Button(action: action) {
-            PairHeadAvatar(label: label, tint: tint, isActive: isActive, size: size)
+            PairHeadAvatar(label: label, tint: tint, isActive: isActive, size: size, imageData: imageData)
         }
         .buttonStyle(.plain)
     }
@@ -77,6 +78,7 @@ struct PairHeadAvatar: View {
     var tint: Color
     var isActive: Bool = true
     var size: CGFloat = 30
+    var imageData: Data? = nil
 
     private var initials: String {
         let parts = label
@@ -92,15 +94,26 @@ struct PairHeadAvatar: View {
     }
 
     var body: some View {
-        Text(initials)
-            .font(.system(size: fontSize, weight: .bold, design: .rounded))
-            .foregroundStyle(.white)
-            .frame(width: size, height: size)
-            .background(tint.opacity(isActive ? 1 : 0.45), in: Circle())
-            .overlay {
-                Circle()
-                    .strokeBorder(Color.white.opacity(0.85), lineWidth: isActive && size >= 28 ? 2 : 1)
+        Group {
+            if let imageData, let uiImage = UIImage(data: imageData) {
+                Image(uiImage: uiImage)
+                    .resizable()
+                    .scaledToFill()
+            } else {
+                Text(initials)
+                    .font(.system(size: fontSize, weight: .bold, design: .rounded))
+                    .foregroundStyle(.white)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .background(tint.opacity(isActive ? 1 : 0.45))
             }
+        }
+        .frame(width: size, height: size)
+        .clipShape(Circle())
+        .overlay {
+            Circle()
+                .strokeBorder(Color.white.opacity(0.85), lineWidth: isActive && size >= 28 ? 2 : 1)
+        }
+        .opacity(isActive ? 1 : 0.55)
     }
 }
 
@@ -268,7 +281,8 @@ struct ContentView: View {
                         PairHeadButton(
                             label: pairSession.partnerHeartLabel,
                             tint: Color(red: 0.22, green: 0.78, blue: 0.55),
-                            isActive: true
+                            isActive: true,
+                            imageData: pairSession.headImageData(slot: .partner)
                         ) {
                             if pairSession.hasMultiplePairs {
                                 pairSession.switchToNextPair()
@@ -301,7 +315,8 @@ struct ContentView: View {
                         PairHeadButton(
                             label: pairSession.myHeartLabel,
                             tint: Color(red: 0.20, green: 0.48, blue: 0.98),
-                            isActive: true
+                            isActive: true,
+                            imageData: pairSession.headImageData(slot: .me)
                         ) {
                             if pairSession.hasMultiplePairs {
                                 pairSession.switchToNextPair()
@@ -1159,7 +1174,8 @@ struct ItemDetailView: View {
                                 PairHeadButton(
                                     label: pairSession.myHeartLabel,
                                     tint: Color(red: 0.20, green: 0.48, blue: 0.98),
-                                    size: 31
+                                    size: 31,
+                                    imageData: pairSession.headImageData(slot: .me)
                                 ) {
                                     if pairSession.hasMultiplePairs {
                                         pairSession.switchToNextPair()
@@ -1183,7 +1199,8 @@ struct ItemDetailView: View {
                                 PairHeadButton(
                                     label: pairSession.partnerHeartLabel,
                                     tint: Color(red: 0.22, green: 0.78, blue: 0.55),
-                                    size: 31
+                                    size: 31,
+                                    imageData: pairSession.headImageData(slot: .partner)
                                 ) {
                                     if pairSession.hasMultiplePairs {
                                         pairSession.switchToNextPair()

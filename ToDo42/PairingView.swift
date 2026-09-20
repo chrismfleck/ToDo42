@@ -1,5 +1,7 @@
 import SwiftUI
 import SwiftData
+import PhotosUI
+import UIKit
 
 struct PairingView: View {
     @Environment(\.dismiss) private var dismiss
@@ -10,6 +12,8 @@ struct PairingView: View {
     @State private var restoreCode = ""
     @State private var errorText = ""
     @State private var showShare = false
+    @State private var myHeadPicker: PhotosPickerItem?
+    @State private var partnerHeadPicker: PhotosPickerItem?
 
     private var showInviteJoin: Bool {
         !session.isPaired || session.isComposingNewPair
@@ -133,7 +137,8 @@ struct PairingView: View {
                         PairHeadAvatar(
                             label: profile.partnerName.isEmpty ? "Partner" : profile.partnerName,
                             tint: Color(red: 0.22, green: 0.78, blue: 0.55),
-                            isActive: isActive
+                            isActive: isActive,
+                            imageData: session.headImageData(slot: .partner, pairID: profile.pairID)
                         )
                         VStack(alignment: .leading, spacing: 2) {
                             Text(profile.partnerName.isEmpty ? "Partner" : profile.partnerName)
@@ -183,12 +188,71 @@ struct PairingView: View {
     private var namesCard: some View {
         pairCard {
             cardTitle("Add names", number: 1, icon: "person.fill", tint: Color(red: 0.20, green: 0.48, blue: 0.98))
-            Text("These show on hearts and notifications.")
+            Text("These show on hearts and notifications. Tap a head to add a photo.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
-            pairField("Your name", text: myNameBinding)
-            pairField("Partner’s name", text: partnerNameBinding)
+            HStack(spacing: 10) {
+                editableHead(
+                    slot: .me,
+                    label: session.myHeartLabel,
+                    tint: Color(red: 0.20, green: 0.48, blue: 0.98),
+                    picker: $myHeadPicker
+                )
+                pairField("Your name", text: myNameBinding)
+            }
+            HStack(spacing: 10) {
+                editableHead(
+                    slot: .partner,
+                    label: session.partnerHeartLabel,
+                    tint: Color(red: 0.22, green: 0.78, blue: 0.55),
+                    picker: $partnerHeadPicker
+                )
+                pairField("Partner’s name", text: partnerNameBinding)
+            }
         }
+    }
+
+    private func editableHead(
+        slot: PairHeadPhotos.Slot,
+        label: String,
+        tint: Color,
+        picker: Binding<PhotosPickerItem?>
+    ) -> some View {
+        PhotosPicker(selection: picker, matching: .images) {
+            ZStack(alignment: .bottomTrailing) {
+                PairHeadAvatar(
+                    label: label,
+                    tint: tint,
+                    size: 44,
+                    imageData: session.headImageData(slot: slot)
+                )
+                Image(systemName: "camera.fill")
+                    .font(.system(size: 9, weight: .bold))
+                    .foregroundStyle(.white)
+                    .padding(4)
+                    .background(Palette.brandBlue(colorScheme), in: Circle())
+                    .offset(x: 2, y: 2)
+            }
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(slot == .me ? "Your photo" : "Partner photo")
+        .onChange(of: picker.wrappedValue) { _, item in
+            Task { await applyHeadPick(item, slot: slot, picker: picker) }
+        }
+    }
+
+    @MainActor
+    private func applyHeadPick(
+        _ item: PhotosPickerItem?,
+        slot: PairHeadPhotos.Slot,
+        picker: Binding<PhotosPickerItem?>
+    ) async {
+        defer { picker.wrappedValue = nil }
+        guard let item else { return }
+        guard let data = try? await item.loadTransferable(type: Data.self),
+              let image = UIImage(data: data),
+              let jpeg = PairHeadPhotos.compressedHead(image) else { return }
+        session.setHeadPhoto(slot: slot, data: jpeg)
     }
 
     private var inviteCard: some View {
