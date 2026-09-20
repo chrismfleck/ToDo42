@@ -279,10 +279,11 @@ struct ContentView: View {
 
                     if pairSession.isPaired, !isListEditing {
                         PairHeadButton(
-                            label: pairSession.partnerHeartLabel,
-                            tint: Color(red: 0.22, green: 0.78, blue: 0.55),
+                            label: pairSession.myHeartLabel,
+                            tint: Color(red: 0.20, green: 0.48, blue: 0.98),
                             isActive: true,
-                            imageData: pairSession.headImageData(slot: .partner)
+                            size: 39,
+                            imageData: pairSession.headImageData(slot: .me)
                         ) {
                             if pairSession.hasMultiplePairs {
                                 pairSession.switchToNextPair()
@@ -293,8 +294,8 @@ struct ContentView: View {
                         }
                         .accessibilityLabel(
                             pairSession.hasMultiplePairs
-                                ? "Switch list. Current partner \(pairSession.partnerHeartLabel)"
-                                : "Partner \(pairSession.partnerHeartLabel)"
+                                ? "Switch list. You are \(pairSession.myHeartLabel)"
+                                : "You, \(pairSession.myHeartLabel)"
                         )
 
                         Spacer(minLength: 8)
@@ -313,10 +314,11 @@ struct ContentView: View {
                         Spacer(minLength: 8)
 
                         PairHeadButton(
-                            label: pairSession.myHeartLabel,
-                            tint: Color(red: 0.20, green: 0.48, blue: 0.98),
+                            label: pairSession.partnerHeartLabel,
+                            tint: Color(red: 0.22, green: 0.78, blue: 0.55),
                             isActive: true,
-                            imageData: pairSession.headImageData(slot: .me)
+                            size: 39,
+                            imageData: pairSession.headImageData(slot: .partner)
                         ) {
                             if pairSession.hasMultiplePairs {
                                 pairSession.switchToNextPair()
@@ -327,8 +329,8 @@ struct ContentView: View {
                         }
                         .accessibilityLabel(
                             pairSession.hasMultiplePairs
-                                ? "Switch list. You are \(pairSession.myHeartLabel)"
-                                : "You, \(pairSession.myHeartLabel)"
+                                ? "Switch list. Current partner \(pairSession.partnerHeartLabel)"
+                                : "Partner \(pairSession.partnerHeartLabel)"
                         )
                     }
 
