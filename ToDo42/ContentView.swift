@@ -151,8 +151,11 @@ struct PairHeadButton: View {
     var body: some View {
         Button(action: action) {
             PairHeadAvatar(label: label, tint: tint, isActive: isActive, size: size, imageData: imageData)
+                // Keep the hit box to the avatar so it cannot steal taps from
+                // adjacent hearts / Done on the item page.
+                .contentShape(Circle())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.borderless)
     }
 }
 
@@ -1283,69 +1286,26 @@ struct ItemDetailView: View {
                     .padding(.bottom, 8)
             }
 
+            // Hearts/Done (and location) sit above the ScrollView so the item
+            // TabView pager cannot delay/swallow those taps the way it did for title/link.
+            VStack(alignment: .leading, spacing: 12) {
+                locationLine
+                itemActionRow
+            }
+            .padding(.horizontal, 20)
+            .padding(.bottom, 8)
+            .onChange(of: item.chrisHearted) { _, _ in
+                PairSession.shared.noteLocalEdit(item, kind: "heart")
+            }
+            .onChange(of: item.deenaHearted) { _, _ in
+                PairSession.shared.noteLocalEdit(item, kind: "heart")
+            }
+            .onChange(of: item.isDone) { _, _ in
+                PairSession.shared.noteLocalEdit(item, kind: "edit")
+            }
+
             ScrollView {
                 VStack(alignment: .leading, spacing: 16) {
-                    locationLine
-
-                    HStack(spacing: 16) {
-                        HStack(spacing: 6) {
-                            PartnerHeartButton(name: pairSession.myHeartLabel, isOn: myHeart, size: 18)
-                            if pairSession.isPaired {
-                                PairHeadButton(
-                                    label: pairSession.myHeartLabel,
-                                    tint: Color(red: 0.20, green: 0.48, blue: 0.98),
-                                    size: 31,
-                                    imageData: pairSession.headImageData(slot: .me)
-                                ) {
-                                    if pairSession.hasMultiplePairs {
-                                        pairSession.switchToNextPair()
-                                    }
-                                }
-                                .accessibilityLabel(
-                                    pairSession.hasMultiplePairs
-                                        ? "Switch list. You are \(pairSession.myHeartLabel)"
-                                        : "You, \(pairSession.myHeartLabel)"
-                                )
-                            }
-                        }
-                        HStack(spacing: 6) {
-                            PartnerHeartButton(
-                                name: pairSession.partnerHeartLabel,
-                                isOn: partnerHeart,
-                                interactive: false,
-                                size: 18
-                            )
-                            if pairSession.isPaired {
-                                PairHeadButton(
-                                    label: pairSession.partnerHeartLabel,
-                                    tint: Color(red: 0.22, green: 0.78, blue: 0.55),
-                                    size: 31,
-                                    imageData: pairSession.headImageData(slot: .partner)
-                                ) {
-                                    if pairSession.hasMultiplePairs {
-                                        pairSession.switchToNextPair()
-                                    }
-                                }
-                                .accessibilityLabel(
-                                    pairSession.hasMultiplePairs
-                                        ? "Switch list. Current partner \(pairSession.partnerHeartLabel)"
-                                        : "Partner \(pairSession.partnerHeartLabel)"
-                                )
-                            }
-                        }
-                        DoneCheckButton(isDone: $item.isDone, size: 18, name: "Done")
-                    }
-                    .frame(maxWidth: .infinity)
-                    .onChange(of: item.chrisHearted) { _, _ in
-                        PairSession.shared.noteLocalEdit(item, kind: "heart")
-                    }
-                    .onChange(of: item.deenaHearted) { _, _ in
-                        PairSession.shared.noteLocalEdit(item, kind: "heart")
-                    }
-                    .onChange(of: item.isDone) { _, _ in
-                        PairSession.shared.noteLocalEdit(item, kind: "edit")
-                    }
-
                     photosBlock
 
                     if isEditing {
@@ -1432,6 +1392,58 @@ struct ItemDetailView: View {
     }
 
     @ViewBuilder
+    private var itemActionRow: some View {
+        HStack(spacing: 16) {
+            HStack(spacing: 6) {
+                PartnerHeartButton(name: pairSession.myHeartLabel, isOn: myHeart, size: 18)
+                if pairSession.isPaired {
+                    PairHeadButton(
+                        label: pairSession.myHeartLabel,
+                        tint: Color(red: 0.20, green: 0.48, blue: 0.98),
+                        size: 31,
+                        imageData: pairSession.headImageData(slot: .me)
+                    ) {
+                        if pairSession.hasMultiplePairs {
+                            pairSession.switchToNextPair()
+                        }
+                    }
+                    .accessibilityLabel(
+                        pairSession.hasMultiplePairs
+                            ? "Switch list. You are \(pairSession.myHeartLabel)"
+                            : "You, \(pairSession.myHeartLabel)"
+                    )
+                }
+            }
+            HStack(spacing: 6) {
+                PartnerHeartButton(
+                    name: pairSession.partnerHeartLabel,
+                    isOn: partnerHeart,
+                    interactive: false,
+                    size: 18
+                )
+                if pairSession.isPaired {
+                    PairHeadButton(
+                        label: pairSession.partnerHeartLabel,
+                        tint: Color(red: 0.22, green: 0.78, blue: 0.55),
+                        size: 31,
+                        imageData: pairSession.headImageData(slot: .partner)
+                    ) {
+                        if pairSession.hasMultiplePairs {
+                            pairSession.switchToNextPair()
+                        }
+                    }
+                    .accessibilityLabel(
+                        pairSession.hasMultiplePairs
+                            ? "Switch list. Current partner \(pairSession.partnerHeartLabel)"
+                            : "Partner \(pairSession.partnerHeartLabel)"
+                    )
+                }
+            }
+            DoneCheckButton(isDone: $item.isDone, size: 18, name: "Done")
+        }
+        .frame(maxWidth: .infinity)
+    }
+
     private var titleView: some View {
         let titleText = Text(verbatim: SharedText.normalized(item.title))
             .font(.body)
@@ -1721,11 +1733,10 @@ struct DoneCheckButton: View {
                         .foregroundStyle(.secondary)
                 }
             }
-            .frame(minWidth: name == nil ? size + 8 : 44)
-            .padding(.vertical, 0)
+            .frame(minWidth: name == nil ? size + 8 : 48, minHeight: 44)
             .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.borderless)
         .accessibilityLabel("Done")
         .accessibilityAddTraits(isDone ? .isSelected : [])
     }
@@ -1747,9 +1758,10 @@ struct PartnerHeartButton: View {
                 } label: {
                     heartMark
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.borderless)
             } else {
                 heartMark
+                    .allowsHitTesting(false)
             }
         }
         .accessibilityLabel("\(name) heart")
@@ -1766,8 +1778,8 @@ struct PartnerHeartButton: View {
                 .font(.system(size: 10, weight: .semibold))
                 .foregroundStyle(.secondary)
         }
-        .frame(minWidth: 44)
-        .padding(.vertical, 0)
+        .frame(minWidth: 48, minHeight: 44)
+        .contentShape(Rectangle())
     }
 }
 
