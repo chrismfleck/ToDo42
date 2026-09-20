@@ -32,19 +32,20 @@ struct AppCanvasBackground: View {
     @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
-        ZStack {
-            Image("AppBackground")
-                .resizable()
-                .scaledToFill()
-                .frame(minWidth: 0, maxWidth: .infinity, minHeight: 0, maxHeight: .infinity)
-                .clipped()
-            // Soft wash so blue chrome and list text stay readable.
-            Color.white.opacity(Palette.isDark(colorScheme) ? 0.08 : 0.22)
-            if Palette.isDark(colorScheme) {
-                Color.black.opacity(0.35)
+        GeometryReader { geo in
+            ZStack {
+                Image("AppBackground")
+                    .resizable()
+                    .scaledToFill()
+                    .frame(width: geo.size.width, height: geo.size.height)
+                    .clipped()
+                // Soft wash so blue chrome and list text stay readable.
+                Color.white.opacity(Palette.isDark(colorScheme) ? 0.08 : 0.22)
+                if Palette.isDark(colorScheme) {
+                    Color.black.opacity(0.35)
+                }
             }
         }
-        .ignoresSafeArea()
         .allowsHitTesting(false)
     }
 }
@@ -283,6 +284,7 @@ struct ContentView: View {
     var body: some View {
         ZStack {
             AppCanvasBackground()
+                .ignoresSafeArea()
 
             VStack(alignment: .leading, spacing: 22) {
                 HStack(spacing: 0) {
@@ -1036,13 +1038,18 @@ struct ItemPagerView: View {
                         openLink(url)
                     }
                 )
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .tag(item.id)
             }
         }
         .tabViewStyle(.page(indexDisplayMode: .never))
         // Lock only the pager swipe. `.scrollDisabled` also freezes the item page itself.
         .background { PagingScrollLock(locked: isEditing) }
-        .background { AppCanvasBackground() }
+        .background {
+            AppCanvasBackground()
+                .ignoresSafeArea()
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
         .onChange(of: selectedID) { _, newID in
             if let match = items.first(where: { $0.id == newID }) {
                 selectedItem = match
@@ -1110,6 +1117,7 @@ private struct PagingScrollLock: UIViewRepresentable {
 struct ItemDetailView: View {
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.scenePhase) private var scenePhase
     @Environment(PairSession.self) private var pairSession
     @Environment(HomeBase.self) private var homeBase
     @Bindable var item: TodoItem
@@ -1122,6 +1130,10 @@ struct ItemDetailView: View {
     @State private var photoItem: PhotosPickerItem?
     @State private var placeCaption: String?
     @State private var isApplyingPhoto = false
+    /// Set before opening Maps/Safari; cleared when we become active again.
+    @State private var awaitingReturnFromLink = false
+    /// Remounts the page once after an external link so TabView height restores.
+    @State private var layoutRefresh = 0
 
     private var isGuest: Bool { pairSession.role == .deena }
 
@@ -1303,10 +1315,22 @@ struct ItemDetailView: View {
                 .padding(20)
                 .padding(.bottom, isEditing ? 180 : 0)
             }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
             .scrollContentBackground(.hidden)
             .scrollDismissesKeyboard(.interactively)
         }
-        .background { AppCanvasBackground() }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background {
+            AppCanvasBackground()
+                .ignoresSafeArea()
+        }
+        .id(layoutRefresh)
+        .onChange(of: scenePhase) { _, phase in
+            if phase == .active {
+                // Returning from Maps/Safari can leave the page TabView half-height.
+                layoutRefresh += 1
+            }
+        }
         .onChange(of: photoItem) { _, newItem in
             Task { await applyPickedPhoto(newItem) }
         }

@@ -68,5 +68,6 @@ extension Notification.Name {
 private struct PaletteHost: View {
     var body: some View {
         AppCanvasBackground()
+            .ignoresSafeArea()
     }
 }
