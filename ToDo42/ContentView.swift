@@ -27,23 +27,25 @@ enum Palette {
     }
 }
 
-/// Full-bleed romantic balcony photo used behind Home, Pair, Help, and item pages.
+/// Full-bleed balcony photo in dark mode; solid canvas in light mode.
 struct AppCanvasBackground: View {
     @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
-        GeometryReader { geo in
-            ZStack {
-                Image("AppBackground")
-                    .resizable()
-                    .scaledToFill()
-                    .frame(width: geo.size.width, height: geo.size.height)
-                    .clipped()
-                // Soft wash so blue chrome and list text stay readable.
-                Color.white.opacity(Palette.isDark(colorScheme) ? 0.08 : 0.22)
-                if Palette.isDark(colorScheme) {
-                    Color.black.opacity(0.35)
+        Group {
+            if Palette.isDark(colorScheme) {
+                GeometryReader { geo in
+                    ZStack {
+                        Image("AppBackground")
+                            .resizable()
+                            .scaledToFill()
+                            .frame(width: geo.size.width, height: geo.size.height)
+                            .clipped()
+                        Color.black.opacity(0.35)
+                    }
                 }
+            } else {
+                Palette.canvas(colorScheme)
             }
         }
         .allowsHitTesting(false)
