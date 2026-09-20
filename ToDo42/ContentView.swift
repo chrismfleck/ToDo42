@@ -287,8 +287,10 @@ struct ContentView: View {
                             Image(systemName: isListEditing ? "checkmark" : "pencil")
                                 .font(.system(size: 22, weight: .semibold))
                                 .foregroundStyle(Palette.brandBlue(colorScheme))
-                                .frame(width: 32, height: 32)
+                                .frame(width: 48, height: 48)
+                                .contentShape(Rectangle())
                         }
+                        .buttonStyle(.plain)
                         .accessibilityLabel(isListEditing ? "Done editing" : "Edit list")
 
                         if isListEditing {
@@ -1166,8 +1168,10 @@ struct ItemDetailView: View {
                     Image(systemName: isEditing ? "checkmark" : "pencil")
                         .font(.system(size: 22, weight: .semibold))
                         .foregroundStyle(Palette.brandBlue(colorScheme))
-                        .frame(width: 32, height: 32)
+                        .frame(width: 48, height: 48)
+                        .contentShape(Rectangle())
                 }
+                .buttonStyle(.plain)
                 .disabled(isEditing && draftTitle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                 .accessibilityLabel(isEditing ? "Done editing" : "Edit item")
             }
