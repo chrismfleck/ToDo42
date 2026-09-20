@@ -943,7 +943,7 @@ struct ItemRowView: View {
             HStack(alignment: .top, spacing: 6) {
                 LockedText(
                     text: item.title,
-                    font: UIFont.systemFont(ofSize: 14, weight: .semibold),
+                    font: UIFont.systemFont(ofSize: 12, weight: .bold),
                     color: .label,
                     lines: 2
                 )
