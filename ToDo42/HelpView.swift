@@ -38,7 +38,7 @@ struct HelpView: View {
 
                         HelpStep(
                             number: 3,
-                            spoken: "To add a partner tap the red heart with a plus. Enter names, send invite to partner. Or enter a code if you are sent one. To add a second partner tap Add a pair."
+                            spoken: "To add a partner tap the red heart with a plus. Enter names, send invite to partner. Or enter a code if you are sent one. To add second partner tap Add a pair."
                         ) {
                             partnerHelpRow
                         }
@@ -160,11 +160,12 @@ struct HelpView: View {
 
     private var partnerHelpRow: some View {
         VStack(alignment: .leading, spacing: 8) {
-            HStack(spacing: 6) {
+            HStack(alignment: .firstTextBaseline, spacing: 6) {
                 Text("To add a partner tap")
                 PairHeartPlusIcon(size: 18)
             }
             Text("Enter names, send invite to partner. Or enter a code if you are sent one.")
+            Text("To add second partner tap Add a pair.")
         }
         .font(.body)
         .foregroundStyle(.primary)
