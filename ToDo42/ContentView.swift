@@ -255,24 +255,26 @@ struct ContentView: View {
 
             VStack(alignment: .leading, spacing: 22) {
                 HStack(spacing: 0) {
-                    Button {
-                        toggleListEditing()
-                    } label: {
-                        Image(systemName: isListEditing ? "checkmark" : "pencil")
-                            .font(.system(size: 22, weight: .semibold))
-                            .foregroundStyle(Palette.brandBlue(colorScheme))
-                            .frame(width: 32, height: 32)
-                    }
-                    .accessibilityLabel(isListEditing ? "Done editing" : "Edit list")
-
-                    if isListEditing {
-                        Button { showHelp = true } label: {
-                            Image(systemName: "info.circle")
+                    HStack(spacing: isListEditing ? 14 : 0) {
+                        Button {
+                            toggleListEditing()
+                        } label: {
+                            Image(systemName: isListEditing ? "checkmark" : "pencil")
                                 .font(.system(size: 22, weight: .semibold))
                                 .foregroundStyle(Palette.brandBlue(colorScheme))
                                 .frame(width: 32, height: 32)
                         }
-                        .accessibilityLabel("Help")
+                        .accessibilityLabel(isListEditing ? "Done editing" : "Edit list")
+
+                        if isListEditing {
+                            Button { showHelp = true } label: {
+                                Image(systemName: "info.circle")
+                                    .font(.system(size: 22, weight: .semibold))
+                                    .foregroundStyle(Palette.brandBlue(colorScheme))
+                                    .frame(width: 32, height: 32)
+                            }
+                            .accessibilityLabel("Help")
+                        }
                     }
 
                     Spacer(minLength: 10)
@@ -336,19 +338,22 @@ struct ContentView: View {
 
                     Spacer(minLength: 10)
 
-                    if isListEditing {
-                        Button { showPairing = true } label: {
-                            PairHeartPlusIcon(size: 22)
+                    HStack(spacing: isListEditing ? 14 : 0) {
+                        if isListEditing {
+                            Button { showPairing = true } label: {
+                                PairHeartPlusIcon(size: 22)
+                                    .frame(width: 32, height: 32)
+                            }
+                            .accessibilityLabel("Pair phones")
                         }
-                        .accessibilityLabel("Pair phones")
-                    }
 
-                    Button { showAdd = true } label: {
-                        Image(systemName: "plus.circle.fill")
-                            .font(.system(size: 32))
-                            .foregroundStyle(Palette.brandBlue(colorScheme))
+                        Button { showAdd = true } label: {
+                            Image(systemName: "plus.circle.fill")
+                                .font(.system(size: 32))
+                                .foregroundStyle(Palette.brandBlue(colorScheme))
+                        }
+                        .accessibilityLabel("Add item")
                     }
-                    .accessibilityLabel("Add item")
                 }
                 .padding(.top, 10)
                 .padding(.horizontal, 24)
