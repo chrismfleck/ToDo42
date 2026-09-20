@@ -289,108 +289,124 @@ struct ContentView: View {
                 .ignoresSafeArea()
 
             VStack(alignment: .leading, spacing: 22) {
-                HStack(alignment: .center, spacing: 12) {
-                    Button {
-                        toggleListEditing()
-                    } label: {
-                        Image(systemName: isListEditing ? "checkmark" : "pencil")
-                            .font(.system(size: 22, weight: .semibold))
-                            .foregroundStyle(Palette.brandBlue(colorScheme))
-                            .frame(width: Self.headerIconHit, height: Self.headerIconHit)
-                            .contentShape(Rectangle())
-                    }
-                    .buttonStyle(.borderless)
-                    .accessibilityLabel(isListEditing ? "Done editing" : "Edit list")
-
-                    if isListEditing {
-                        Button { showHelp = true } label: {
-                            Image(systemName: "info.circle")
+                HStack(alignment: .center, spacing: 0) {
+                    // Fixed leading chrome — never shares space with heads.
+                    HStack(spacing: 10) {
+                        Button {
+                            toggleListEditing()
+                        } label: {
+                            Image(systemName: isListEditing ? "checkmark" : "pencil")
                                 .font(.system(size: 22, weight: .semibold))
                                 .foregroundStyle(Palette.brandBlue(colorScheme))
                                 .frame(width: Self.headerIconHit, height: Self.headerIconHit)
                                 .contentShape(Rectangle())
                         }
                         .buttonStyle(.borderless)
-                        .accessibilityLabel("Help")
-                    }
+                        .accessibilityLabel(isListEditing ? "Done editing" : "Edit list")
 
-                    if pairSession.isPaired, !isListEditing {
-                        PairHeadButton(
-                            label: pairSession.myHeartLabel,
-                            tint: Color(red: 0.20, green: 0.48, blue: 0.98),
-                            isActive: true,
-                            size: 39,
-                            imageData: pairSession.headImageData(slot: .me)
-                        ) {
-                            if pairSession.hasMultiplePairs {
-                                pairSession.switchToNextPair()
-                                Task { await refreshFromCloud() }
-                            } else {
-                                showPairing = true
+                        if isListEditing {
+                            Button { showHelp = true } label: {
+                                Image(systemName: "info.circle")
+                                    .font(.system(size: 22, weight: .semibold))
+                                    .foregroundStyle(Palette.brandBlue(colorScheme))
+                                    .frame(width: Self.headerIconHit, height: Self.headerIconHit)
+                                    .contentShape(Rectangle())
                             }
+                            .buttonStyle(.borderless)
+                            .accessibilityLabel("Help")
                         }
-                        .accessibilityLabel(
-                            pairSession.hasMultiplePairs
-                                ? "Switch list. You are \(pairSession.myHeartLabel)"
-                                : "You, \(pairSession.myHeartLabel)"
-                        )
                     }
+                    .frame(width: isListEditing ? 98 : 48, alignment: .leading)
+                    .zIndex(3)
 
-                    Image("TitleWordmark")
-                        .renderingMode(.template)
-                        .resizable()
-                        .scaledToFit()
-                        .frame(height: 28)
-                        .foregroundStyle(Palette.brandBlue(colorScheme))
-                        .accessibilityLabel("Save 4 Two")
-                        .frame(maxWidth: .infinity)
-                        .layoutPriority(1)
-                        .allowsHitTesting(false)
+                    Spacer(minLength: 24)
 
-                    if pairSession.isPaired, !isListEditing {
-                        PairHeadButton(
-                            label: pairSession.partnerHeartLabel,
-                            tint: Color(red: 0.22, green: 0.78, blue: 0.55),
-                            isActive: true,
-                            size: 39,
-                            imageData: pairSession.headImageData(slot: .partner)
-                        ) {
-                            if pairSession.hasMultiplePairs {
-                                pairSession.switchToNextPair()
-                                Task { await refreshFromCloud() }
-                            } else {
-                                showPairing = true
+                    // Center: heads hug the title, away from chrome.
+                    HStack(spacing: 14) {
+                        if pairSession.isPaired, !isListEditing {
+                            PairHeadButton(
+                                label: pairSession.myHeartLabel,
+                                tint: Color(red: 0.20, green: 0.48, blue: 0.98),
+                                isActive: true,
+                                size: 36,
+                                imageData: pairSession.headImageData(slot: .me)
+                            ) {
+                                if pairSession.hasMultiplePairs {
+                                    pairSession.switchToNextPair()
+                                    Task { await refreshFromCloud() }
+                                } else {
+                                    showPairing = true
+                                }
                             }
+                            .accessibilityLabel(
+                                pairSession.hasMultiplePairs
+                                    ? "Switch list. You are \(pairSession.myHeartLabel)"
+                                    : "You, \(pairSession.myHeartLabel)"
+                            )
                         }
-                        .accessibilityLabel(
-                            pairSession.hasMultiplePairs
-                                ? "Switch list. Current partner \(pairSession.partnerHeartLabel)"
-                                : "Partner \(pairSession.partnerHeartLabel)"
-                        )
-                    }
 
-                    if isListEditing {
-                        Button { showPairing = true } label: {
-                            PairHeartPlusIcon(size: 22)
+                        Image("TitleWordmark")
+                            .renderingMode(.template)
+                            .resizable()
+                            .scaledToFit()
+                            .frame(height: 26)
+                            .foregroundStyle(Palette.brandBlue(colorScheme))
+                            .accessibilityLabel("Save 4 Two")
+                            .allowsHitTesting(false)
+
+                        if pairSession.isPaired, !isListEditing {
+                            PairHeadButton(
+                                label: pairSession.partnerHeartLabel,
+                                tint: Color(red: 0.22, green: 0.78, blue: 0.55),
+                                isActive: true,
+                                size: 36,
+                                imageData: pairSession.headImageData(slot: .partner)
+                            ) {
+                                if pairSession.hasMultiplePairs {
+                                    pairSession.switchToNextPair()
+                                    Task { await refreshFromCloud() }
+                                } else {
+                                    showPairing = true
+                                }
+                            }
+                            .accessibilityLabel(
+                                pairSession.hasMultiplePairs
+                                    ? "Switch list. Current partner \(pairSession.partnerHeartLabel)"
+                                    : "Partner \(pairSession.partnerHeartLabel)"
+                            )
+                        }
+                    }
+                    .frame(maxWidth: .infinity)
+
+                    Spacer(minLength: 24)
+
+                    // Fixed trailing chrome.
+                    HStack(spacing: 10) {
+                        if isListEditing {
+                            Button { showPairing = true } label: {
+                                PairHeartPlusIcon(size: 22)
+                                    .frame(width: Self.headerIconHit, height: Self.headerIconHit)
+                                    .contentShape(Rectangle())
+                            }
+                            .buttonStyle(.borderless)
+                            .accessibilityLabel("Pair phones")
+                        }
+
+                        Button { showAdd = true } label: {
+                            Image(systemName: "plus.circle.fill")
+                                .font(.system(size: 28, weight: .regular))
+                                .foregroundStyle(Palette.brandBlue(colorScheme))
                                 .frame(width: Self.headerIconHit, height: Self.headerIconHit)
                                 .contentShape(Rectangle())
                         }
                         .buttonStyle(.borderless)
-                        .accessibilityLabel("Pair phones")
+                        .accessibilityLabel("Add item")
                     }
-
-                    Button { showAdd = true } label: {
-                        Image(systemName: "plus.circle.fill")
-                            .font(.system(size: 30, weight: .regular))
-                            .foregroundStyle(Palette.brandBlue(colorScheme))
-                            .frame(width: Self.headerIconHit, height: Self.headerIconHit)
-                            .contentShape(Rectangle())
-                    }
-                    .buttonStyle(.borderless)
-                    .accessibilityLabel("Add item")
+                    .frame(width: isListEditing ? 98 : 48, alignment: .trailing)
+                    .zIndex(3)
                 }
                 .padding(.top, 10)
-                .padding(.horizontal, 20)
+                .padding(.horizontal, 16)
                 .zIndex(2)
 
                 TabView(selection: $categoryPage) {
@@ -558,15 +574,17 @@ struct ContentView: View {
     private func toggleListEditing() {
         let now = Date()
         // Ignore bounce / double taps that flip edit mode twice.
-        guard now.timeIntervalSince(lastEditToggleAt) > 0.5 else { return }
+        guard now.timeIntervalSince(lastEditToggleAt) > 0.65 else { return }
         lastEditToggleAt = now
-        if isListEditing {
-            reorderDrag = nil
-            isListEditing = false
-            UserDefaults.standard.set(true, forKey: Self.hasLeftListEditKey)
-        } else {
-            normalizeSortOrders()
-            isListEditing = true
+        withAnimation(nil) {
+            if isListEditing {
+                reorderDrag = nil
+                isListEditing = false
+                UserDefaults.standard.set(true, forKey: Self.hasLeftListEditKey)
+            } else {
+                normalizeSortOrders()
+                isListEditing = true
+            }
         }
     }
 
