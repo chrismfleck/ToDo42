@@ -61,11 +61,12 @@ struct PairHeadButton: View {
     let label: String
     var tint: Color
     var isActive: Bool = true
+    var size: CGFloat = 30
     var action: () -> Void
 
     var body: some View {
         Button(action: action) {
-            PairHeadAvatar(label: label, tint: tint, isActive: isActive)
+            PairHeadAvatar(label: label, tint: tint, isActive: isActive, size: size)
         }
         .buttonStyle(.plain)
     }
@@ -75,6 +76,7 @@ struct PairHeadAvatar: View {
     let label: String
     var tint: Color
     var isActive: Bool = true
+    var size: CGFloat = 30
 
     private var initials: String {
         let parts = label
@@ -85,15 +87,19 @@ struct PairHeadAvatar: View {
         return joined.isEmpty ? "?" : joined
     }
 
+    private var fontSize: CGFloat {
+        max(9, size * 0.36)
+    }
+
     var body: some View {
         Text(initials)
-            .font(.system(size: 11, weight: .bold, design: .rounded))
+            .font(.system(size: fontSize, weight: .bold, design: .rounded))
             .foregroundStyle(.white)
-            .frame(width: 30, height: 30)
+            .frame(width: size, height: size)
             .background(tint.opacity(isActive ? 1 : 0.45), in: Circle())
             .overlay {
                 Circle()
-                    .strokeBorder(Color.white.opacity(0.85), lineWidth: isActive ? 2 : 0)
+                    .strokeBorder(Color.white.opacity(0.85), lineWidth: isActive && size >= 28 ? 2 : 1)
             }
     }
 }
@@ -1154,6 +1160,37 @@ struct ItemDetailView: View {
                             interactive: false,
                             size: 18
                         )
+                        if pairSession.isPaired {
+                            // Match heart glyph + name column (~18 + 1 + 12).
+                            PairHeadButton(
+                                label: pairSession.partnerHeartLabel,
+                                tint: Color(red: 0.22, green: 0.78, blue: 0.55),
+                                size: 31
+                            ) {
+                                if pairSession.hasMultiplePairs {
+                                    pairSession.switchToNextPair()
+                                }
+                            }
+                            .accessibilityLabel(
+                                pairSession.hasMultiplePairs
+                                    ? "Switch list. Current partner \(pairSession.partnerHeartLabel)"
+                                    : "Partner \(pairSession.partnerHeartLabel)"
+                            )
+                            PairHeadButton(
+                                label: pairSession.myHeartLabel,
+                                tint: Color(red: 0.20, green: 0.48, blue: 0.98),
+                                size: 31
+                            ) {
+                                if pairSession.hasMultiplePairs {
+                                    pairSession.switchToNextPair()
+                                }
+                            }
+                            .accessibilityLabel(
+                                pairSession.hasMultiplePairs
+                                    ? "Switch list. You are \(pairSession.myHeartLabel)"
+                                    : "You, \(pairSession.myHeartLabel)"
+                            )
+                        }
                         DoneCheckButton(isDone: $item.isDone, size: 18, name: "Done")
                     }
                     .frame(maxWidth: .infinity)
