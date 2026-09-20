@@ -1153,43 +1153,48 @@ struct ItemDetailView: View {
                     locationLine
 
                     HStack(spacing: 16) {
-                        PartnerHeartButton(name: pairSession.myHeartLabel, isOn: myHeart, size: 18)
-                        PartnerHeartButton(
-                            name: pairSession.partnerHeartLabel,
-                            isOn: partnerHeart,
-                            interactive: false,
-                            size: 18
-                        )
-                        if pairSession.isPaired {
-                            // Match heart glyph + name column (~18 + 1 + 12).
-                            PairHeadButton(
-                                label: pairSession.partnerHeartLabel,
-                                tint: Color(red: 0.22, green: 0.78, blue: 0.55),
-                                size: 31
-                            ) {
-                                if pairSession.hasMultiplePairs {
-                                    pairSession.switchToNextPair()
+                        HStack(spacing: 6) {
+                            PartnerHeartButton(name: pairSession.myHeartLabel, isOn: myHeart, size: 18)
+                            if pairSession.isPaired {
+                                PairHeadButton(
+                                    label: pairSession.myHeartLabel,
+                                    tint: Color(red: 0.20, green: 0.48, blue: 0.98),
+                                    size: 31
+                                ) {
+                                    if pairSession.hasMultiplePairs {
+                                        pairSession.switchToNextPair()
+                                    }
                                 }
+                                .accessibilityLabel(
+                                    pairSession.hasMultiplePairs
+                                        ? "Switch list. You are \(pairSession.myHeartLabel)"
+                                        : "You, \(pairSession.myHeartLabel)"
+                                )
                             }
-                            .accessibilityLabel(
-                                pairSession.hasMultiplePairs
-                                    ? "Switch list. Current partner \(pairSession.partnerHeartLabel)"
-                                    : "Partner \(pairSession.partnerHeartLabel)"
+                        }
+                        HStack(spacing: 6) {
+                            PartnerHeartButton(
+                                name: pairSession.partnerHeartLabel,
+                                isOn: partnerHeart,
+                                interactive: false,
+                                size: 18
                             )
-                            PairHeadButton(
-                                label: pairSession.myHeartLabel,
-                                tint: Color(red: 0.20, green: 0.48, blue: 0.98),
-                                size: 31
-                            ) {
-                                if pairSession.hasMultiplePairs {
-                                    pairSession.switchToNextPair()
+                            if pairSession.isPaired {
+                                PairHeadButton(
+                                    label: pairSession.partnerHeartLabel,
+                                    tint: Color(red: 0.22, green: 0.78, blue: 0.55),
+                                    size: 31
+                                ) {
+                                    if pairSession.hasMultiplePairs {
+                                        pairSession.switchToNextPair()
+                                    }
                                 }
+                                .accessibilityLabel(
+                                    pairSession.hasMultiplePairs
+                                        ? "Switch list. Current partner \(pairSession.partnerHeartLabel)"
+                                        : "Partner \(pairSession.partnerHeartLabel)"
+                                )
                             }
-                            .accessibilityLabel(
-                                pairSession.hasMultiplePairs
-                                    ? "Switch list. You are \(pairSession.myHeartLabel)"
-                                    : "You, \(pairSession.myHeartLabel)"
-                            )
                         }
                         DoneCheckButton(isDone: $item.isDone, size: 18, name: "Done")
                     }
