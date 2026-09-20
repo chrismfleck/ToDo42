@@ -84,6 +84,60 @@ struct PairHeartPlusIcon: View {
     }
 }
 
+/// UIKit-backed icon button so TabView page gestures cannot swallow the tap.
+struct ReliableIconButton: UIViewRepresentable {
+    var systemName: String
+    var tint: Color
+    var side: CGFloat = 48
+    var pointSize: CGFloat = 22
+    var accessibilityLabel: String
+    var action: () -> Void
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(action: action)
+    }
+
+    func makeUIView(context: Context) -> UIButton {
+        let button = UIButton(type: .system)
+        button.addTarget(context.coordinator, action: #selector(Coordinator.tapped), for: .touchUpInside)
+        button.contentHorizontalAlignment = .center
+        button.contentVerticalAlignment = .center
+        // Generous hit area beyond the glyph.
+        button.contentEdgeInsets = UIEdgeInsets(top: 10, left: 10, bottom: 10, right: 10)
+        apply(to: button, context: context)
+        return button
+    }
+
+    func updateUIView(_ button: UIButton, context: Context) {
+        context.coordinator.action = action
+        apply(to: button, context: context)
+    }
+
+    private func apply(to button: UIButton, context: Context) {
+        let config = UIImage.SymbolConfiguration(pointSize: pointSize, weight: .semibold)
+        button.setImage(UIImage(systemName: systemName, withConfiguration: config), for: .normal)
+        button.tintColor = UIColor(tint)
+        button.accessibilityLabel = accessibilityLabel
+    }
+
+    final class Coordinator: NSObject {
+        var action: () -> Void
+        private var lastTap = Date.distantPast
+
+        init(action: @escaping () -> Void) {
+            self.action = action
+        }
+
+        @objc func tapped() {
+            let now = Date()
+            // Hard debounce at the UIKit layer — SwiftUI was double-firing.
+            guard now.timeIntervalSince(lastTap) > 0.55 else { return }
+            lastTap = now
+            action()
+        }
+    }
+}
+
 struct PairHeadButton: View {
     let label: String
     var tint: Color
@@ -239,10 +293,9 @@ struct ContentView: View {
     @State private var isListEditing = !UserDefaults.standard.bool(forKey: Self.hasLeftListEditKey)
     @State private var reorderDrag: ReorderDrag?
     @State private var rowHeights: [UUID: CGFloat] = [:]
-    @State private var lastEditToggleAt = Date.distantPast
 
     private static let hasLeftListEditKey = "todo42.hasLeftListEditMode"
-    private static let headerIconHit: CGFloat = 44
+    private static let headerIconHit: CGFloat = 48
 
     private var pairScopedItems: [TodoItem] {
         let active = pairSession.pairID
@@ -284,144 +337,25 @@ struct ContentView: View {
     }
 
     var body: some View {
-        ZStack {
+        TabView(selection: $categoryPage) {
+            categoryPageView(ItemCategory.primaryPage, page: 0)
+                .tag(0)
+            categoryPageView(ItemCategory.extraPage, page: 1)
+                .tag(1)
+        }
+        .tabViewStyle(.page(indexDisplayMode: .automatic))
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .onChange(of: categoryPage) { _, page in
+            category = pageSelection[page] ?? (page == 0 ? .places : .trip)
+            reorderDrag = nil
+        }
+        // Keep chrome outside the page TabView so swipe gestures cannot steal taps.
+        .safeAreaInset(edge: .top, spacing: 10) {
+            homeHeaderBar
+        }
+        .background {
             AppCanvasBackground()
                 .ignoresSafeArea()
-
-            VStack(alignment: .leading, spacing: 22) {
-                HStack(alignment: .center, spacing: 0) {
-                    // Fixed leading chrome — never shares space with heads.
-                    HStack(spacing: 10) {
-                        Button {
-                            toggleListEditing()
-                        } label: {
-                            Image(systemName: isListEditing ? "checkmark" : "pencil")
-                                .font(.system(size: 22, weight: .semibold))
-                                .foregroundStyle(Palette.brandBlue(colorScheme))
-                                .frame(width: Self.headerIconHit, height: Self.headerIconHit)
-                                .contentShape(Rectangle())
-                        }
-                        .buttonStyle(.borderless)
-                        .accessibilityLabel(isListEditing ? "Done editing" : "Edit list")
-
-                        if isListEditing {
-                            Button { showHelp = true } label: {
-                                Image(systemName: "info.circle")
-                                    .font(.system(size: 22, weight: .semibold))
-                                    .foregroundStyle(Palette.brandBlue(colorScheme))
-                                    .frame(width: Self.headerIconHit, height: Self.headerIconHit)
-                                    .contentShape(Rectangle())
-                            }
-                            .buttonStyle(.borderless)
-                            .accessibilityLabel("Help")
-                        }
-                    }
-                    .frame(width: isListEditing ? 98 : 48, alignment: .leading)
-                    .zIndex(3)
-
-                    Spacer(minLength: 24)
-
-                    // Center: heads hug the title, away from chrome.
-                    HStack(spacing: 14) {
-                        if pairSession.isPaired, !isListEditing {
-                            PairHeadButton(
-                                label: pairSession.myHeartLabel,
-                                tint: Color(red: 0.20, green: 0.48, blue: 0.98),
-                                isActive: true,
-                                size: 36,
-                                imageData: pairSession.headImageData(slot: .me)
-                            ) {
-                                if pairSession.hasMultiplePairs {
-                                    pairSession.switchToNextPair()
-                                    Task { await refreshFromCloud() }
-                                } else {
-                                    showPairing = true
-                                }
-                            }
-                            .accessibilityLabel(
-                                pairSession.hasMultiplePairs
-                                    ? "Switch list. You are \(pairSession.myHeartLabel)"
-                                    : "You, \(pairSession.myHeartLabel)"
-                            )
-                        }
-
-                        Image("TitleWordmark")
-                            .renderingMode(.template)
-                            .resizable()
-                            .scaledToFit()
-                            .frame(height: 26)
-                            .foregroundStyle(Palette.brandBlue(colorScheme))
-                            .accessibilityLabel("Save 4 Two")
-                            .allowsHitTesting(false)
-
-                        if pairSession.isPaired, !isListEditing {
-                            PairHeadButton(
-                                label: pairSession.partnerHeartLabel,
-                                tint: Color(red: 0.22, green: 0.78, blue: 0.55),
-                                isActive: true,
-                                size: 36,
-                                imageData: pairSession.headImageData(slot: .partner)
-                            ) {
-                                if pairSession.hasMultiplePairs {
-                                    pairSession.switchToNextPair()
-                                    Task { await refreshFromCloud() }
-                                } else {
-                                    showPairing = true
-                                }
-                            }
-                            .accessibilityLabel(
-                                pairSession.hasMultiplePairs
-                                    ? "Switch list. Current partner \(pairSession.partnerHeartLabel)"
-                                    : "Partner \(pairSession.partnerHeartLabel)"
-                            )
-                        }
-                    }
-                    .frame(maxWidth: .infinity)
-
-                    Spacer(minLength: 24)
-
-                    // Fixed trailing chrome.
-                    HStack(spacing: 10) {
-                        if isListEditing {
-                            Button { showPairing = true } label: {
-                                PairHeartPlusIcon(size: 22)
-                                    .frame(width: Self.headerIconHit, height: Self.headerIconHit)
-                                    .contentShape(Rectangle())
-                            }
-                            .buttonStyle(.borderless)
-                            .accessibilityLabel("Pair phones")
-                        }
-
-                        Button { showAdd = true } label: {
-                            Image(systemName: "plus.circle.fill")
-                                .font(.system(size: 28, weight: .regular))
-                                .foregroundStyle(Palette.brandBlue(colorScheme))
-                                .frame(width: Self.headerIconHit, height: Self.headerIconHit)
-                                .contentShape(Rectangle())
-                        }
-                        .buttonStyle(.borderless)
-                        .accessibilityLabel("Add item")
-                    }
-                    .frame(width: isListEditing ? 98 : 48, alignment: .trailing)
-                    .zIndex(3)
-                }
-                .padding(.top, 10)
-                .padding(.horizontal, 16)
-                .zIndex(2)
-
-                TabView(selection: $categoryPage) {
-                    categoryPageView(ItemCategory.primaryPage, page: 0)
-                        .tag(0)
-                    categoryPageView(ItemCategory.extraPage, page: 1)
-                        .tag(1)
-                }
-                .tabViewStyle(.page(indexDisplayMode: .automatic))
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .onChange(of: categoryPage) { _, page in
-                    category = pageSelection[page] ?? (page == 0 ? .places : .trip)
-                    reorderDrag = nil
-                }
-            }
         }
         .background(WindowCanvas(color: .clear))
         .tint(Palette.brandBlue(colorScheme))
@@ -472,6 +406,117 @@ struct ContentView: View {
         .onChange(of: category) { _, _ in
             reorderDrag = nil
         }
+    }
+
+    private var homeHeaderBar: some View {
+        HStack(alignment: .center, spacing: 0) {
+            HStack(spacing: 8) {
+                ReliableIconButton(
+                    systemName: isListEditing ? "checkmark" : "pencil",
+                    tint: Palette.brandBlue(colorScheme),
+                    side: Self.headerIconHit,
+                    accessibilityLabel: isListEditing ? "Done editing" : "Edit list",
+                    action: toggleListEditing
+                )
+                .frame(width: Self.headerIconHit, height: Self.headerIconHit)
+
+                if isListEditing {
+                    ReliableIconButton(
+                        systemName: "info.circle",
+                        tint: Palette.brandBlue(colorScheme),
+                        side: Self.headerIconHit,
+                        accessibilityLabel: "Help",
+                        action: { showHelp = true }
+                    )
+                    .frame(width: Self.headerIconHit, height: Self.headerIconHit)
+                }
+            }
+            .frame(minWidth: Self.headerIconHit, alignment: .leading)
+
+            Spacer(minLength: 20)
+
+            HStack(spacing: 14) {
+                if pairSession.isPaired, !isListEditing {
+                    PairHeadButton(
+                        label: pairSession.myHeartLabel,
+                        tint: Color(red: 0.20, green: 0.48, blue: 0.98),
+                        isActive: true,
+                        size: 36,
+                        imageData: pairSession.headImageData(slot: .me)
+                    ) {
+                        if pairSession.hasMultiplePairs {
+                            pairSession.switchToNextPair()
+                            Task { await refreshFromCloud() }
+                        } else {
+                            showPairing = true
+                        }
+                    }
+                    .accessibilityLabel(
+                        pairSession.hasMultiplePairs
+                            ? "Switch list. You are \(pairSession.myHeartLabel)"
+                            : "You, \(pairSession.myHeartLabel)"
+                    )
+                }
+
+                Image("TitleWordmark")
+                    .renderingMode(.template)
+                    .resizable()
+                    .scaledToFit()
+                    .frame(height: 26)
+                    .foregroundStyle(Palette.brandBlue(colorScheme))
+                    .accessibilityLabel("Save 4 Two")
+                    .allowsHitTesting(false)
+
+                if pairSession.isPaired, !isListEditing {
+                    PairHeadButton(
+                        label: pairSession.partnerHeartLabel,
+                        tint: Color(red: 0.22, green: 0.78, blue: 0.55),
+                        isActive: true,
+                        size: 36,
+                        imageData: pairSession.headImageData(slot: .partner)
+                    ) {
+                        if pairSession.hasMultiplePairs {
+                            pairSession.switchToNextPair()
+                            Task { await refreshFromCloud() }
+                        } else {
+                            showPairing = true
+                        }
+                    }
+                    .accessibilityLabel(
+                        pairSession.hasMultiplePairs
+                            ? "Switch list. Current partner \(pairSession.partnerHeartLabel)"
+                            : "Partner \(pairSession.partnerHeartLabel)"
+                    )
+                }
+            }
+
+            Spacer(minLength: 20)
+
+            HStack(spacing: 8) {
+                if isListEditing {
+                    Button { showPairing = true } label: {
+                        PairHeartPlusIcon(size: 22)
+                            .frame(width: Self.headerIconHit, height: Self.headerIconHit)
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.borderless)
+                    .accessibilityLabel("Pair phones")
+                }
+
+                ReliableIconButton(
+                    systemName: "plus.circle.fill",
+                    tint: Palette.brandBlue(colorScheme),
+                    side: Self.headerIconHit,
+                    pointSize: 28,
+                    accessibilityLabel: "Add item",
+                    action: { showAdd = true }
+                )
+                .frame(width: Self.headerIconHit, height: Self.headerIconHit)
+            }
+            .frame(minWidth: Self.headerIconHit, alignment: .trailing)
+        }
+        .padding(.horizontal, 16)
+        .padding(.bottom, 4)
     }
 
     private func selectCategory(_ cat: ItemCategory) {
@@ -572,19 +617,13 @@ struct ContentView: View {
     }
 
     private func toggleListEditing() {
-        let now = Date()
-        // Ignore bounce / double taps that flip edit mode twice.
-        guard now.timeIntervalSince(lastEditToggleAt) > 0.65 else { return }
-        lastEditToggleAt = now
-        withAnimation(nil) {
-            if isListEditing {
-                reorderDrag = nil
-                isListEditing = false
-                UserDefaults.standard.set(true, forKey: Self.hasLeftListEditKey)
-            } else {
-                normalizeSortOrders()
-                isListEditing = true
-            }
+        if isListEditing {
+            reorderDrag = nil
+            isListEditing = false
+            UserDefaults.standard.set(true, forKey: Self.hasLeftListEditKey)
+        } else {
+            normalizeSortOrders()
+            isListEditing = true
         }
     }
 
