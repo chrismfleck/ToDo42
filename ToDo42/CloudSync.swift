@@ -508,6 +508,7 @@ final class CloudSync {
                 try? await self.subscribe()
                 try? await self.requestNotifications()
                 ItemStore.migrateUnscopedItems(in: modelContext, to: PairSession.shared.pairID)
+                ItemStore.purgeBlankTitleGhosts(in: modelContext)
                 ItemStore.deduplicate(in: modelContext)
                 let pairItems = ItemStore.items(forPair: PairSession.shared.pairID, in: modelContext)
                 if allowCreate {
@@ -708,6 +709,10 @@ final class CloudSync {
 
         var localByID = ItemStore.keyedByID(ItemStore.allItems(in: modelContext))
         for record in remote {
+            // Companion photo rows must never become home-list tiles.
+            if RemoteItemApply.extraSlot(recordName: record.recordID.recordName) != nil {
+                continue
+            }
             guard let itemID = record["itemID"] as? String, let uuid = UUID(uuidString: itemID) else { continue }
             let notifyKind = record["notifyKind"] as? String
             if RemoteItemApply.isTombstone(notifyKind: notifyKind) {
@@ -1204,6 +1209,17 @@ final class CloudSync {
         record["createdAt"] = item.createdAt
         record["updatedAt"] = item.updatedAt ?? item.createdAt
         record["lastEditor"] = item.lastEditor
+        // Never leave list fields on companion rows — pull used to promote
+        // titled extras into duplicate home-list tiles.
+        record["title"] = nil
+        record["urlString"] = nil
+        record["notes"] = nil
+        record["categoryRaw"] = nil
+        record["chrisHearted"] = nil
+        record["deenaHearted"] = nil
+        record["isDone"] = nil
+        record["notifyKind"] = nil
+        record["notifyText"] = nil
         let extraURL = FileManager.default.temporaryDirectory.appendingPathComponent("\(item.id.uuidString)-\(fileSuffix).jpg")
         guard (try? extra.write(to: extraURL)) != nil else { return }
         record["image"] = CKAsset(fileURL: extraURL)

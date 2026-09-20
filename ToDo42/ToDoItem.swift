@@ -250,6 +250,21 @@ enum ItemStore {
         }
     }
 
+    /// Drop blank-title companion ghosts that used to appear as duplicate tiles.
+    @MainActor
+    static func purgeBlankTitleGhosts(in context: ModelContext) {
+        var didDelete = false
+        for item in allItems(in: context) {
+            let blank = item.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            guard blank else { continue }
+            context.delete(item)
+            didDelete = true
+        }
+        if didDelete {
+            try? context.save()
+        }
+    }
+
     static func item(id: UUID, in context: ModelContext) -> TodoItem? {
         allItems(in: context).first { $0.id == id }
     }

@@ -243,10 +243,16 @@ struct ContentView: View {
 
     private var pairScopedItems: [TodoItem] {
         let active = pairSession.pairID
+        let scoped: [TodoItem]
         if let active, !active.isEmpty {
-            return items.filter { $0.pairID == active || $0.pairID.isEmpty }
+            scoped = items.filter { $0.pairID == active || $0.pairID.isEmpty }
+        } else {
+            scoped = Array(items)
         }
-        return items
+        // Hide blank-title companion ghosts that used to land on the list.
+        return scoped.filter {
+            !$0.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        }
     }
 
     private var filtered: [TodoItem] {
@@ -427,6 +433,8 @@ struct ContentView: View {
         }
         .onAppear {
             ItemStore.migrateUnscopedItems(in: modelContext, to: pairSession.pairID)
+            ItemStore.purgeBlankTitleGhosts(in: modelContext)
+            ItemStore.deduplicate(in: modelContext)
             pairSession.persistLocal()
             importSharedDrafts()
             seedIfNeeded()
@@ -1113,6 +1121,7 @@ struct ItemDetailView: View {
     @State private var draftNotes = ""
     @State private var photoItem: PhotosPickerItem?
     @State private var placeCaption: String?
+    @State private var isApplyingPhoto = false
 
     private var isGuest: Bool { pairSession.role == .deena }
 
@@ -1505,6 +1514,9 @@ struct ItemDetailView: View {
 
     private func applyPickedPhoto(_ picked: PhotosPickerItem?) async {
         guard let picked else { return }
+        guard !isApplyingPhoto else { return }
+        isApplyingPhoto = true
+        defer { isApplyingPhoto = false }
         guard let data = try? await picked.loadTransferable(type: Data.self),
               let image = UIImage(data: data),
               let jpeg = PhotoJPEG.compressed(image) else { return }

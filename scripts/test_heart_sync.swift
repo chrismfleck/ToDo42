@@ -358,8 +358,8 @@ expect(
     "extra2- records are companion photos"
 )
 expect(
-    TDItemRecordKind.classify(recordName: sampleID, title: "Lake House", sortOrder: -1) == .listItem,
-    "A titled row is a list item even if sortOrder is -1"
+    TDItemRecordKind.classify(recordName: sampleID, title: "Lake House", sortOrder: -1) == .extraPhoto,
+    "Negative sortOrder marks companion photos even with a leftover title"
 )
 expect(
     RemoteItemApply.shouldCreateMissingRecord(allowCreate: false, notifyKind: "", title: "Lake House"),

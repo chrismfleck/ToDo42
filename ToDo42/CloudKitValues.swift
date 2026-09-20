@@ -85,10 +85,14 @@ enum TDItemRecordKind: Equatable {
     case unknown
 
     static func classify(recordName: String, title: String?, sortOrder: Int?) -> TDItemRecordKind {
-        if recordName.hasPrefix("extra3-") || recordName.hasPrefix("extra2-") || recordName.hasPrefix("extra-") { return .extraPhoto }
+        if recordName.hasPrefix("extra3-") || recordName.hasPrefix("extra2-") || recordName.hasPrefix("extra-") {
+            return .extraPhoto
+        }
         if recordName.hasPrefix("item-") { return .listItem }
+        // Negative sortOrder is reserved for companion photo rows, even if a
+        // leftover title was written onto the CloudKit record.
+        if let sortOrder, sortOrder < 0 { return .extraPhoto }
         let emptyTitle = (title ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-        if let sortOrder, sortOrder <= -1, emptyTitle { return .extraPhoto }
         if emptyTitle { return .extraPhoto }
         return .listItem
     }
