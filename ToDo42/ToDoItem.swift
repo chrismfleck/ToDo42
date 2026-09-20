@@ -256,9 +256,62 @@ enum ItemStore {
         var didDelete = false
         for item in allItems(in: context) {
             let blank = item.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-            guard blank else { continue }
+            // Companion photo rows use negative sortOrder; if one was ever
+            // materialised as a local list item it shows up as a duplicate tile.
+            let companionSort = item.sortOrder < 0
+            guard blank || companionSort else { continue }
             context.delete(item)
             didDelete = true
+        }
+        if didDelete {
+            try? context.save()
+        }
+    }
+
+    /// Collapse same-title + same-link copies within a pair (sync ghosts).
+    @MainActor
+    static func deduplicateContentTwins(in context: ModelContext) {
+        let items = allItems(in: context)
+        var groups: [String: [TodoItem]] = [:]
+        for item in items {
+            let title = item.title.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+            guard !title.isEmpty else { continue }
+            let url = (item.urlString ?? "").trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+            guard !url.isEmpty else { continue }
+            let key = "\(item.pairID)|\(title)|\(url)"
+            groups[key, default: []].append(item)
+        }
+        var didDelete = false
+        for copies in groups.values where copies.count > 1 {
+            let ranked = copies.sorted { lhs, rhs in
+                if lhs.photoCount != rhs.photoCount { return lhs.photoCount > rhs.photoCount }
+                if lhs.notes.count != rhs.notes.count { return lhs.notes.count > rhs.notes.count }
+                let l = lhs.updatedAt ?? lhs.createdAt
+                let r = rhs.updatedAt ?? rhs.createdAt
+                return l > r
+            }
+            let keep = ranked[0]
+            for extra in ranked.dropFirst() {
+                keep.chrisHearted = keep.chrisHearted || extra.chrisHearted
+                keep.deenaHearted = keep.deenaHearted || extra.deenaHearted
+                if keep.imageData == nil, let data = extra.imageData, !data.isEmpty {
+                    keep.imageData = data
+                }
+                if keep.extraImageData == nil, let data = extra.extraImageData, !data.isEmpty {
+                    keep.extraImageData = data
+                }
+                if keep.extraImageData2 == nil, let data = extra.extraImageData2, !data.isEmpty {
+                    keep.extraImageData2 = data
+                }
+                if keep.extraImageData3 == nil, let data = extra.extraImageData3, !data.isEmpty {
+                    keep.extraImageData3 = data
+                }
+                if keep.notes.isEmpty, !extra.notes.isEmpty {
+                    keep.notes = extra.notes
+                }
+                context.delete(extra)
+                didDelete = true
+            }
         }
         if didDelete {
             try? context.save()

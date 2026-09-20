@@ -317,16 +317,16 @@ final class PairSession {
     }
 
     func noteLocalEdit(_ item: TodoItem, kind: String) {
-        // Adds must always upload. Skipping them while a pull is applying
-        // leaves the item on this phone only; catch-up used to refuse to create it.
-        if kind != "add" {
-            guard !isApplyingRemote else { return }
-        }
+        // Always stamp locally first. Skipping the stamp while a pull runs let
+        // catalog cleanup treat a just-added bottom photo as "missing remotely"
+        // and delete it before the companion upload landed.
         if item.pairID.isEmpty, let pairID {
             item.pairID = pairID
         }
         item.updatedAt = Date()
         item.lastEditor = role?.rawValue ?? ""
+        // Uploads are serialized on CloudSync's queue, so this waits for any
+        // in-flight pull instead of dropping the edit.
         Task { await CloudSync.shared.upload(item, notifyKind: kind) }
     }
 
@@ -510,6 +510,7 @@ final class CloudSync {
                 ItemStore.migrateUnscopedItems(in: modelContext, to: PairSession.shared.pairID)
                 ItemStore.purgeBlankTitleGhosts(in: modelContext)
                 ItemStore.deduplicate(in: modelContext)
+                ItemStore.deduplicateContentTwins(in: modelContext)
                 let pairItems = ItemStore.items(forPair: PairSession.shared.pairID, in: modelContext)
                 if allowCreate {
                     try await self.pushAll(pairItems, allowCreate: true)
@@ -842,17 +843,25 @@ final class CloudSync {
                     let remoteUpdated = remoteItem?["updatedAt"] as? Date
                         ?? remoteItem?.modificationDate
                         ?? .distantPast
-                    if local.hasExtraPhoto, !extrasByItemID.contains(local.id.uuidString),
-                       remoteUpdated >= (local.updatedAt ?? local.createdAt) {
-                        local.extraImageData = nil
-                    }
-                    if local.hasExtraPhoto2, !extra2ByItemID.contains(local.id.uuidString),
-                       remoteUpdated >= (local.updatedAt ?? local.createdAt) {
-                        local.extraImageData2 = nil
-                    }
-                    if local.hasExtraPhoto3, !extra3ByItemID.contains(local.id.uuidString),
-                       remoteUpdated >= (local.updatedAt ?? local.createdAt) {
-                        local.extraImageData3 = nil
+                    let localUpdated = local.updatedAt ?? local.createdAt
+                    // Item record save and companion photo save are not atomic.
+                    // A pull that sees the updated item but not the companion yet
+                    // must not erase a bottom photo we just added. Only clear when
+                    // the remote item is strictly newer (partner removed it) and
+                    // we were not the last editor.
+                    let remoteClearlyNewer = remoteUpdated > localUpdated
+                    let iAmLastEditor = local.lastEditor == session.role?.rawValue
+                        && !(session.role?.rawValue ?? "").isEmpty
+                    if remoteClearlyNewer, !iAmLastEditor {
+                        if local.hasExtraPhoto, !extrasByItemID.contains(local.id.uuidString) {
+                            local.extraImageData = nil
+                        }
+                        if local.hasExtraPhoto2, !extra2ByItemID.contains(local.id.uuidString) {
+                            local.extraImageData2 = nil
+                        }
+                        if local.hasExtraPhoto3, !extra3ByItemID.contains(local.id.uuidString) {
+                            local.extraImageData3 = nil
+                        }
                     }
                     continue
                 }
@@ -1137,6 +1146,8 @@ final class CloudSync {
         if !notifyKind.isEmpty {
             record["notifyText"] = Self.pushBody(kind: notifyKind, title: item.title)
         }
+        // Stop legacy image2 from resurfacing as a duplicate bottom photo on pull.
+        record["image2"] = nil
         if let data = item.imageData, !data.isEmpty {
             let url = FileManager.default.temporaryDirectory.appendingPathComponent("\(item.id.uuidString).jpg")
             try data.write(to: url)
@@ -1230,13 +1241,25 @@ final class CloudSync {
     private func applyExtraPhoto(_ record: CKRecord, to item: TodoItem) {
         if let asset = record["image"] as? CKAsset, let url = asset.fileURL,
            let data = try? Data(contentsOf: url), !data.isEmpty, data.count < 8_000_000 {
+            let remoteUpdated = record["updatedAt"] as? Date
+                ?? record.modificationDate
+                ?? .distantPast
+            let localUpdated = item.updatedAt ?? item.createdAt
+            // Never clobber a newer local bottom photo with a stale companion.
+            let remoteMayOverwrite = remoteUpdated > localUpdated
             switch RemoteItemApply.extraSlot(recordName: record.recordID.recordName) {
             case 3:
-                item.extraImageData3 = data
+                if item.extraImageData3 == nil || remoteMayOverwrite {
+                    item.extraImageData3 = data
+                }
             case 2:
-                item.extraImageData2 = data
+                if item.extraImageData2 == nil || remoteMayOverwrite {
+                    item.extraImageData2 = data
+                }
             default:
-                item.extraImageData = data
+                if item.extraImageData == nil || remoteMayOverwrite {
+                    item.extraImageData = data
+                }
             }
         }
     }
@@ -1272,7 +1295,11 @@ final class CloudSync {
            let data = try? Data(contentsOf: url), data.count < 8_000_000 {
             item.imageData = data
         }
-        if let asset = record["image2"] as? CKAsset, let url = asset.fileURL,
+        // Legacy image2 on the item record is superseded by companion extra-*
+        // rows. Only fill an empty slot so a stale image2 cannot replace a
+        // photo the user just added (looked like "deleted + duplicate").
+        if item.extraImageData == nil,
+           let asset = record["image2"] as? CKAsset, let url = asset.fileURL,
            let data = try? Data(contentsOf: url), data.count < 8_000_000 {
             item.extraImageData = data
         }

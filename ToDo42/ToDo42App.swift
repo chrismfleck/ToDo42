@@ -12,7 +12,9 @@ struct ToDo42App: App {
         // must not switch to an empty iCloud store when that entitlement is on.
         let config = ModelConfiguration(cloudKitDatabase: .none)
         let container = try! ModelContainer(for: TodoItem.self, configurations: config)
+        ItemStore.purgeBlankTitleGhosts(in: container.mainContext)
         ItemStore.deduplicate(in: container.mainContext)
+        ItemStore.deduplicateContentTwins(in: container.mainContext)
         return container
     }()
 

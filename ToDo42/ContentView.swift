@@ -311,8 +311,10 @@ struct ContentView: View {
             scoped = Array(items)
         }
         // Hide blank-title companion ghosts that used to land on the list.
+        // Negative sortOrder is reserved for companion photo rows.
         return scoped.filter {
             !$0.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                && $0.sortOrder >= 0
         }
     }
 
@@ -392,6 +394,7 @@ struct ContentView: View {
             ItemStore.migrateUnscopedItems(in: modelContext, to: pairSession.pairID)
             ItemStore.purgeBlankTitleGhosts(in: modelContext)
             ItemStore.deduplicate(in: modelContext)
+            ItemStore.deduplicateContentTwins(in: modelContext)
             pairSession.persistLocal()
             importSharedDrafts()
             seedIfNeeded()
