@@ -411,7 +411,8 @@ struct ContentView: View {
     }
 
     private var homeHeaderBar: some View {
-        HStack(alignment: .center, spacing: 0) {
+        let showPairChrome = isListEditing || !pairSession.isPaired
+        return HStack(alignment: .center, spacing: 0) {
             HStack(spacing: 8) {
                 ReliableIconButton(
                     systemName: isListEditing ? "checkmark" : "pencil",
@@ -422,7 +423,7 @@ struct ContentView: View {
                 )
                 .frame(width: Self.headerIconHit, height: Self.headerIconHit)
 
-                if isListEditing {
+                if showPairChrome {
                     ReliableIconButton(
                         systemName: "info.circle",
                         tint: Palette.brandBlue(colorScheme),
@@ -495,7 +496,7 @@ struct ContentView: View {
             Spacer(minLength: 20)
 
             HStack(spacing: 8) {
-                if isListEditing {
+                if showPairChrome {
                     Button { showPairing = true } label: {
                         PairHeartPlusIcon(size: 22)
                             .frame(width: Self.headerIconHit, height: Self.headerIconHit)
