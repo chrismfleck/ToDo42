@@ -718,7 +718,8 @@ struct ContentView: View {
                 urlString: link.isEmpty ? nil : link,
                 imageData: imageData,
                 notes: SharedText.reflowNotes(cut.notes),
-                sortOrder: sortOrder
+                sortOrder: sortOrder,
+                pairID: PairSession.shared.pairID
             )
             modelContext.insert(item)
             PairSession.shared.noteLocalEdit(item, kind: "add")

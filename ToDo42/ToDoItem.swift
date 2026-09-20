@@ -173,7 +173,9 @@ final class TodoItem {
         self.updatedAt = Date()
         self.sortOrder = sortOrder
         self.lastEditor = ""
-        self.pairID = pairID ?? PairSession.shared.pairID ?? ""
+        // Callers on the main actor stamp the active pair; do not read PairSession here
+        // (init is nonisolated and PairSession is @MainActor).
+        self.pairID = pairID ?? ""
     }
 
     var category: ItemCategory {
@@ -477,14 +479,15 @@ enum SampleData {
         seeds.first { $0.title == title }
     }
 
-    static func makeItem(_ seed: Seed, sortOrder: Int = 0) -> TodoItem {
+    static func makeItem(_ seed: Seed, sortOrder: Int = 0, pairID: String? = nil) -> TodoItem {
         TodoItem(
             title: seed.title,
             category: seed.category,
             urlString: seed.urlString,
             imageAssetName: seed.imageAssetName,
             notes: seed.notes,
-            sortOrder: sortOrder
+            sortOrder: sortOrder,
+            pairID: pairID
         )
     }
 }
