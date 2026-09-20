@@ -1326,10 +1326,10 @@ struct ItemDetailView: View {
         }
         .id(layoutRefresh)
         .onChange(of: scenePhase) { _, phase in
-            if phase == .active {
-                // Returning from Maps/Safari can leave the page TabView half-height.
-                layoutRefresh += 1
-            }
+            guard phase == .active, awaitingReturnFromLink else { return }
+            awaitingReturnFromLink = false
+            // Returning from Maps/Safari can leave the page TabView half-height.
+            layoutRefresh += 1
         }
         .onChange(of: photoItem) { _, newItem in
             Task { await applyPickedPhoto(newItem) }
@@ -1359,6 +1359,7 @@ struct ItemDetailView: View {
             item.urlString = url.absoluteString
             PairSession.shared.noteLocalEdit(item, kind: "edit")
         }
+        awaitingReturnFromLink = true
         if let onOpenLink {
             onOpenLink(url)
         } else {
