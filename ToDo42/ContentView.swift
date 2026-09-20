@@ -239,8 +239,10 @@ struct ContentView: View {
     @State private var isListEditing = !UserDefaults.standard.bool(forKey: Self.hasLeftListEditKey)
     @State private var reorderDrag: ReorderDrag?
     @State private var rowHeights: [UUID: CGFloat] = [:]
+    @State private var lastEditToggleAt = Date.distantPast
 
     private static let hasLeftListEditKey = "todo42.hasLeftListEditMode"
+    private static let headerIconHit: CGFloat = 44
 
     private var pairScopedItems: [TodoItem] {
         let active = pairSession.pairID
