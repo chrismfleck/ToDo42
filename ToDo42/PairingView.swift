@@ -207,7 +207,10 @@ struct PairingView: View {
                     tint: Color(red: 0.22, green: 0.78, blue: 0.55),
                     picker: $partnerHeadPicker
                 )
-                pairField("Partner’s name", text: partnerNameBinding)
+                pairField(
+                    session.isComposingNewPair ? "Second Partner’s name" : "Partner’s name",
+                    text: partnerNameBinding
+                )
             }
         }
     }
