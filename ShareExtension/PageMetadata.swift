@@ -88,12 +88,25 @@ enum PageMetadata {
         var found: [String] = []
         func add(_ value: String?) {
             guard let value else { return }
-            let trimmed = decodeHTML(value)
+            var trimmed = decodeHTML(value)
                 .replacingOccurrences(of: "\\/", with: "/")
                 .trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !trimmed.isEmpty, !found.contains(trimmed) else { return }
+            guard !trimmed.isEmpty else { return }
             if looksLikeLogo(trimmed) { return }
+            // X serves og:image as webp; ask for a large JPEG that UIImage always decodes.
+            if trimmed.lowercased().contains("pbs.twimg.com/media/") {
+                trimmed = preferredTwitterMediaURL(trimmed)
+            }
+            guard !found.contains(trimmed) else { return }
             found.append(trimmed)
+        }
+
+        // X/Twitter: prefer real post media over the generic SSR og:image card.
+        for media in twitterMediaURLs(in: html) {
+            add(media)
+        }
+        for thumb in twitterVideoThumbURLs(in: html) {
+            add(thumb)
         }
 
         add(meta(html, property: "og:image"))
@@ -202,6 +215,9 @@ enum PageMetadata {
         if host.contains("tiktokcdn") || host.contains("muscdn") || host.contains("tiktok.com") {
             return URL(string: "https://www.tiktok.com/") ?? fallback
         }
+        if host.contains("twimg.com") || host.contains("pscp.tv") {
+            return URL(string: "https://x.com/") ?? fallback
+        }
         return fallback
     }
 
@@ -209,10 +225,13 @@ enum PageMetadata {
         let lower = url.lowercased()
         if lower.contains("favicon") { return true }
         if lower.contains("apple-touch-icon") { return true }
+        // X often sets og:image to a generic SSR card, not the post media.
+        if lower.contains("abs.twimg.com") { return true }
+        if lower.contains("/rweb/") && lower.contains("/og/image") { return true }
         if lower.contains("/static/") && (lower.contains("/images/") || lower.contains("/rsrc") || lower.contains("/ico/")) {
             return true
         }
-        if lower.contains("logo") && (lower.contains("instagram") || lower.contains("facebook") || lower.contains("tiktok")) {
+        if lower.contains("logo") && (lower.contains("instagram") || lower.contains("facebook") || lower.contains("tiktok") || lower.contains("twitter") || lower.contains("x.com")) {
             return true
         }
         if (lower.contains("tiktokcdn") || lower.contains("muscdn"))
@@ -220,6 +239,55 @@ enum PageMetadata {
             return true
         }
         return false
+    }
+
+    /// Post photos on X live under pbs.twimg.com/media/…, not the default og:image.
+    private static func twitterMediaURLs(in html: String) -> [String] {
+        uniqueMatches(
+            #"https?://pbs\.twimg\.com/media/[A-Za-z0-9_-]+(?:\.(?:jpe?g|png|webp))?(?:\?[^"'\\\s]*)?"#,
+            in: html
+        )
+    }
+
+    /// Video posts often only expose amplify / ext_tw thumbs.
+    private static func twitterVideoThumbURLs(in html: String) -> [String] {
+        uniqueMatches(
+            #"https?://pbs\.twimg\.com/(?:amplify_video_thumb|ext_tw_video_thumb|tweet_video_thumb)/[0-9]+/img/[A-Za-z0-9_-]+(?:\.(?:jpe?g|png|webp))?(?:\?[^"'\\\s]*)?"#,
+            in: html
+        )
+    }
+
+    private static func uniqueMatches(_ pattern: String, in html: String) -> [String] {
+        let normalized = html.replacingOccurrences(of: "\\/", with: "/")
+        guard let regex = try? NSRegularExpression(pattern: pattern, options: [.caseInsensitive]) else {
+            return []
+        }
+        let range = NSRange(normalized.startIndex..<normalized.endIndex, in: normalized)
+        var urls: [String] = []
+        for match in regex.matches(in: normalized, options: [], range: range) {
+            guard let swiftRange = Range(match.range, in: normalized) else { continue }
+            let raw = decodeHTML(String(normalized[swiftRange]))
+            if !urls.contains(raw) { urls.append(raw) }
+        }
+        return urls
+    }
+
+    private static func preferredTwitterMediaURL(_ url: String) -> String {
+        // Ask for a larger JPEG — webp thumbs are tiny and some iOS builds are picky.
+        guard let parsed = URL(string: url),
+              var comps = URLComponents(url: parsed, resolvingAgainstBaseURL: false) else {
+            return url
+        }
+        let path = comps.path
+        if path.hasSuffix(".jpg") || path.hasSuffix(".jpeg") || path.hasSuffix(".png") || path.hasSuffix(".webp") {
+            comps.path = (path as NSString).deletingPathExtension
+        }
+        var items = comps.queryItems ?? []
+        items.removeAll { $0.name == "format" || $0.name == "name" }
+        items.append(URLQueryItem(name: "format", value: "jpg"))
+        items.append(URLQueryItem(name: "name", value: "large"))
+        comps.queryItems = items
+        return comps.url?.absoluteString ?? url
     }
 
     private static func fetchTikTokOEmbed(_ url: URL) async -> Result {

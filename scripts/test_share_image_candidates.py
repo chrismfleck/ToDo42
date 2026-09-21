@@ -24,15 +24,62 @@ def looks_like_logo(url):
         return True
     if "apple-touch-icon" in lower:
         return True
+    # X often sets og:image to a generic SSR card, not the post media.
+    if "abs.twimg.com" in lower:
+        return True
+    if "/rweb/" in lower and "/og/image" in lower:
+        return True
     if "/static/" in lower and ("/images/" in lower or "/rsrc" in lower or "/ico/" in lower):
         return True
-    if "logo" in lower and ("instagram" in lower or "facebook" in lower or "tiktok" in lower):
+    if "logo" in lower and (
+        "instagram" in lower or "facebook" in lower or "tiktok" in lower or "twitter" in lower or "x.com" in lower
+    ):
         return True
     if ("tiktokcdn" in lower or "muscdn" in lower) and (
         "static" in lower or ".js" in lower or ".css" in lower or "obj/tiktok-web" in lower
     ):
         return True
     return False
+
+
+def preferred_twitter_media_url(url):
+    from urllib.parse import urlparse, urlunparse, parse_qsl, urlencode
+
+    parsed = urlparse(url)
+    path = parsed.path
+    for suffix in (".jpg", ".jpeg", ".png", ".webp"):
+        if path.lower().endswith(suffix):
+            path = path[: -len(suffix)]
+            break
+    query = [(k, v) for k, v in parse_qsl(parsed.query, keep_blank_values=True) if k not in ("format", "name")]
+    query.append(("format", "jpg"))
+    query.append(("name", "large"))
+    return urlunparse(parsed._replace(path=path, query=urlencode(query)))
+
+
+def twitter_media_urls(html):
+    normalized = html.replace("\\/", "/")
+    pattern = r'https?://pbs\.twimg\.com/media/[A-Za-z0-9_-]+(?:\.(?:jpe?g|png|webp))?(?:\?[^"\'\\\s]*)?'
+    found = []
+    for match in re.finditer(pattern, normalized, flags=re.IGNORECASE):
+        raw = decode_html(match.group(0))
+        if raw not in found:
+            found.append(raw)
+    return found
+
+
+def twitter_video_thumb_urls(html):
+    normalized = html.replace("\\/", "/")
+    pattern = (
+        r"https?://pbs\.twimg\.com/(?:amplify_video_thumb|ext_tw_video_thumb|tweet_video_thumb)/"
+        r'[0-9]+/img/[A-Za-z0-9_-]+(?:\.(?:jpe?g|png|webp))?(?:\?[^"\'\\\s]*)?'
+    )
+    found = []
+    for match in re.finditer(pattern, normalized, flags=re.IGNORECASE):
+        raw = decode_html(match.group(0))
+        if raw not in found:
+            found.append(raw)
+    return found
 
 
 def decode_html(value):
@@ -77,11 +124,20 @@ def image_candidates(html):
         if not value:
             return
         trimmed = decode_html(value).strip()
-        if not trimmed or trimmed in found:
+        if not trimmed:
             return
         if looks_like_logo(trimmed):
             return
+        if "pbs.twimg.com/media/" in trimmed.lower():
+            trimmed = preferred_twitter_media_url(trimmed)
+        if trimmed in found:
+            return
         found.append(trimmed)
+
+    for media in twitter_media_urls(html):
+        add(media)
+    for thumb in twitter_video_thumb_urls(html):
+        add(thumb)
 
     add(meta(html, property="og:image"))
     add(meta(html, property="og:image:secure_url"))
@@ -200,6 +256,35 @@ def main():
     check(
         image_candidates('{"cover":"https://lf16-tiktok-web.tiktokcdn-us.com/obj/tiktok-web-tx/logo.png"}') == [],
         "skip tiktok static",
+    )
+
+    x_html = """
+    <meta property="og:image" content="https://abs.twimg.com/rweb/ssr/default/v2/og/image.png">
+    <meta name="twitter:image" content="https://abs.twimg.com/rweb/ssr/default/v2/og/image.png">
+    <img src="https://pbs.twimg.com/media/HSwNyiIXoAAtDdx?format=webp&amp;name=small">
+    media_url_https:"https://pbs.twimg.com/media/HSwNyiIXoAAtDdx.jpg"
+    """
+    x_found = image_candidates(x_html)
+    check(
+        x_found[0] == "https://pbs.twimg.com/media/HSwNyiIXoAAtDdx?format=jpg&name=large",
+        f"X media preferred as jpg large, got {x_found}",
+    )
+    check(all("abs.twimg.com" not in u for u in x_found), f"X default og should be skipped: {x_found}")
+
+    x_webp_og = """
+    <meta property="og:image" content="https://pbs.twimg.com/media/AbCdEfG?format=webp&amp;name=large">
+    """
+    webp_found = image_candidates(x_webp_og)
+    check(
+        webp_found == ["https://pbs.twimg.com/media/AbCdEfG?format=jpg&name=large"],
+        f"webp og rewritten to jpg: {webp_found}",
+    )
+
+    video_html = 'thumb https://pbs.twimg.com/amplify_video_thumb/123456/img/AbCdEfGh.jpg'
+    video_found = image_candidates(video_html)
+    check(
+        video_found == ["https://pbs.twimg.com/amplify_video_thumb/123456/img/AbCdEfGh.jpg"],
+        f"video thumb: {video_found}",
     )
 
     print("ok")
