@@ -7,19 +7,15 @@ compatibility_date = "2026-01-01"
 
 [[kv_namespaces]]
 binding = "DEVICES"
-# Replace with real IDs after: wrangler kv namespace create S42_DEVICES
-id = "REPLACE_DEVICES_KV_ID"
-preview_id = "REPLACE_DEVICES_KV_PREVIEW_ID"
+id = "f3b2093c24d2458a88d365bfed9dfd6c"
 
 [[kv_namespaces]]
 binding = "CODES"
-id = "REPLACE_CODES_KV_ID"
-preview_id = "REPLACE_CODES_KV_PREVIEW_ID"
+id = "8644699a066d4e339c2b2dab4d4789c8"
 
 [[kv_namespaces]]
 binding = "INBOX"
-id = "REPLACE_INBOX_KV_ID"
-preview_id = "REPLACE_INBOX_KV_PREVIEW_ID"
+id = "3e229fff9dee4105807132f9365cda2f"
 
 [vars]
 # public; real CloudKit writes optional later
