@@ -34,6 +34,7 @@ async function main() {
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data.error || "send_failed");
       status.textContent = "Sent — open From desktop in Save 4 Two on iPhone.";
+      button.disabled = false;
     } catch (err) {
       status.textContent = String(err.message || err);
       status.classList.add("err");
