@@ -1,30 +1,29 @@
-# Xcode
-DerivedData/
+
+.AppleDouble
+.build/
 build/
-*.pbxuser
-!default.pbxuser
-*.mode1v3
+# CocoaPods
 !default.mode1v3
-*.mode2v3
 !default.mode2v3
-*.perspectivev3
+!default.pbxuser
 !default.perspectivev3
-xcuserdata/
-*.xccheckout
-*.moved-aside
+DerivedData/
+.DS_Store
 *.hmap
 *.ipa
-*.xcuserstate
-*.xcscmblueprint
-
-# Swift Package Manager
-.build/
-.swiftpm/
-
-# CocoaPods
-Pods/
-
-# macOS
-.DS_Store
-.AppleDouble
 .LSOverride
+# macOS
+*.mode1v3
+*.mode2v3
+*.moved-aside
+*.pbxuser
+*.perspectivev3
+Pods/
+scripts/__pycache__/
+# Swift Package Manager
+.swiftpm/
+*.xccheckout
+# Xcode
+*.xcscmblueprint
+xcuserdata/
+*.xcuserstate
