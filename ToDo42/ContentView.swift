@@ -465,14 +465,21 @@ struct ContentView: View {
                     )
                 }
 
-                Image("TitleWordmark")
-                    .renderingMode(.template)
-                    .resizable()
-                    .scaledToFit()
-                    .frame(height: 26)
-                    .foregroundStyle(Palette.brandBlue(colorScheme))
-                    .accessibilityLabel("Save 4 Two")
-                    .allowsHitTesting(false)
+                VStack(spacing: 2) {
+                    Image("TitleWordmark")
+                        .renderingMode(.template)
+                        .resizable()
+                        .scaledToFit()
+                        .frame(height: 26)
+                        .foregroundStyle(Palette.brandBlue(colorScheme))
+                        .accessibilityLabel("Save 4 Two")
+                        .allowsHitTesting(false)
+
+                    Text(AppBuild.label)
+                        .font(.caption2.weight(.semibold).monospacedDigit())
+                        .foregroundStyle(.secondary)
+                        .accessibilityLabel(AppBuild.versionLine)
+                }
 
                 if pairSession.isPaired, !isListEditing {
                     PairHeadButton(
@@ -1909,7 +1916,18 @@ struct AddItemView: View {
                 }
             }
             .navigationTitle("Add item")
+            .navigationBarTitleDisplayMode(.inline)
             .toolbar {
+                ToolbarItem(placement: .principal) {
+                    VStack(spacing: 1) {
+                        Text("Add item")
+                            .font(.headline)
+                        Text(AppBuild.label)
+                            .font(.caption2.weight(.semibold).monospacedDigit())
+                            .foregroundStyle(.secondary)
+                    }
+                    .accessibilityElement(children: .combine)
+                }
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel") { dismiss() }
                 }
@@ -1981,7 +1999,11 @@ struct AddItemView: View {
             return
         }
         urlString = link
-        if lastFetchedLink == link, !title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+        // Always re-fetch when photo is still missing — title-only success used to
+        // short-circuit and leave X/link previews without an image.
+        if lastFetchedLink == link,
+           !title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+           photoData != nil {
             if saveIfReady { saveOnce() }
             return
         }

@@ -103,6 +103,9 @@ struct PairingView: View {
                     Text("Save 4 Two")
                         .font(.caption.weight(.semibold))
                         .foregroundStyle(.secondary)
+                    Text(AppBuild.label)
+                        .font(.caption2.weight(.semibold).monospacedDigit())
+                        .foregroundStyle(.tertiary)
                 }
                 Text(session.isComposingNewPair ? "Add a pair" : "Pair phones")
                     .font(.title2.bold())

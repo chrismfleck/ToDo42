@@ -249,12 +249,7 @@ struct HelpView: View {
     }
 
     private var versionText: String {
-        let short = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "1.0"
-        let build = Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? ""
-        if build.isEmpty {
-            return "Version \(short)"
-        }
-        return "Version \(short) (\(build))"
+        AppBuild.versionLine
     }
 
     private func helpText(_ string: String) -> Text {
