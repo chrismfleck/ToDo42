@@ -311,10 +311,8 @@ struct ContentView: View {
             scoped = Array(items)
         }
         // Hide blank-title companion ghosts that used to land on the list.
-        // Negative sortOrder is reserved for companion photo rows.
         return scoped.filter {
             !$0.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                && $0.sortOrder >= 0
         }
     }
 

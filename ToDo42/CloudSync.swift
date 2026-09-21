@@ -1146,8 +1146,6 @@ final class CloudSync {
         if !notifyKind.isEmpty {
             record["notifyText"] = Self.pushBody(kind: notifyKind, title: item.title)
         }
-        // Stop legacy image2 from resurfacing as a duplicate bottom photo on pull.
-        record["image2"] = nil
         if let data = item.imageData, !data.isEmpty {
             let url = FileManager.default.temporaryDirectory.appendingPathComponent("\(item.id.uuidString).jpg")
             try data.write(to: url)

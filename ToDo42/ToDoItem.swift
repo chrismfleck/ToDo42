@@ -256,10 +256,7 @@ enum ItemStore {
         var didDelete = false
         for item in allItems(in: context) {
             let blank = item.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-            // Companion photo rows use negative sortOrder; if one was ever
-            // materialised as a local list item it shows up as a duplicate tile.
-            let companionSort = item.sortOrder < 0
-            guard blank || companionSort else { continue }
+            guard blank else { continue }
             context.delete(item)
             didDelete = true
         }
