@@ -42,8 +42,7 @@ async function main() {
   }
 
   button.addEventListener("click", send);
-  // One click on the toolbar icon opens this popup and sends immediately.
-  await send();
+  status.textContent = "Ready — tap Save to send this page.";
 }
 
 main();

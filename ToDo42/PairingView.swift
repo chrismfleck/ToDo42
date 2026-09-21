@@ -356,7 +356,7 @@ struct PairingView: View {
 
     private var desktopLinkCard: some View {
         pairCard {
-            cardTitle("Link desktop", icon: "desktopcomputer", tint: Palette.brandBlue(colorScheme))
+            cardTitle("Link desktop & iPhone", icon: "desktopcomputer", tint: Palette.brandBlue(colorScheme))
             Text("Get a code for the S42 browser extension (Chrome or Safari). Sent links show under From desktop when you add an item.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
