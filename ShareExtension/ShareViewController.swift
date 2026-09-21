@@ -243,11 +243,6 @@ struct ShareFormView: View {
     var onCancel: () -> Void
     var onSave: (SharePayload, UIImage?) -> Void
 
-    private var shareBuildLabel: String {
-        let build = Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "?"
-        return "Build \(build)"
-    }
-
     init(
         title: String,
         urlString: String,
@@ -320,13 +315,6 @@ struct ShareFormView: View {
             }
             .navigationTitle("Add to Save4Two")
             .navigationBarTitleDisplayMode(.inline)
-            .safeAreaInset(edge: .bottom) {
-                Text(shareBuildLabel)
-                    .font(.caption2.weight(.semibold).monospacedDigit())
-                    .foregroundStyle(.secondary)
-                    .frame(maxWidth: .infinity)
-                    .padding(.bottom, 4)
-            }
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel", action: onCancel)

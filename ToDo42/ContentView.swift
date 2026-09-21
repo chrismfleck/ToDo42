@@ -465,21 +465,14 @@ struct ContentView: View {
                     )
                 }
 
-                VStack(spacing: 2) {
-                    Image("TitleWordmark")
-                        .renderingMode(.template)
-                        .resizable()
-                        .scaledToFit()
-                        .frame(height: 26)
-                        .foregroundStyle(Palette.brandBlue(colorScheme))
-                        .accessibilityLabel("Save 4 Two")
-                        .allowsHitTesting(false)
-
-                    Text(AppBuild.label)
-                        .font(.caption2.weight(.semibold).monospacedDigit())
-                        .foregroundStyle(.secondary)
-                        .accessibilityLabel(AppBuild.versionLine)
-                }
+                Image("TitleWordmark")
+                    .renderingMode(.template)
+                    .resizable()
+                    .scaledToFit()
+                    .frame(height: 26)
+                    .foregroundStyle(Palette.brandBlue(colorScheme))
+                    .accessibilityLabel("Save 4 Two")
+                    .allowsHitTesting(false)
 
                 if pairSession.isPaired, !isListEditing {
                     PairHeadButton(
@@ -1549,10 +1542,25 @@ struct ItemDetailView: View {
         VStack(spacing: 14) {
             if item.hasPhoto {
                 stackedPhotoCard(deleteLabel: "Delete photo", onDelete: clearPhoto) {
-                    ItemPhotoView(item: item, cornerRadius: 18, placeholderIconSize: 48)
-                        .frame(maxWidth: .infinity)
-                        .frame(height: 280)
-                        .clipped()
+                    Group {
+                        if !isEditing, savedURL != nil {
+                            Button(action: openSavedLink) {
+                                ItemPhotoView(item: item, cornerRadius: 18, placeholderIconSize: 48)
+                                    .frame(maxWidth: .infinity)
+                                    .frame(height: 280)
+                                    .clipped()
+                                    .contentShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+                            }
+                            .buttonStyle(.plain)
+                            .accessibilityLabel("Open link")
+                            .accessibilityHint(savedURL?.absoluteString ?? "")
+                        } else {
+                            ItemPhotoView(item: item, cornerRadius: 18, placeholderIconSize: 48)
+                                .frame(maxWidth: .infinity)
+                                .frame(height: 280)
+                                .clipped()
+                        }
+                    }
                 }
             }
             if item.hasExtraPhoto, let data = item.extraImageData, let image = UIImage(data: data) {
@@ -1916,18 +1924,7 @@ struct AddItemView: View {
                 }
             }
             .navigationTitle("Add item")
-            .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .principal) {
-                    VStack(spacing: 1) {
-                        Text("Add item")
-                            .font(.headline)
-                        Text(AppBuild.label)
-                            .font(.caption2.weight(.semibold).monospacedDigit())
-                            .foregroundStyle(.secondary)
-                    }
-                    .accessibilityElement(children: .combine)
-                }
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel") { dismiss() }
                 }
