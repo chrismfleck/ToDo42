@@ -1,20 +1,23 @@
 import Foundation
 
 enum AppBuild {
-    static var number: String {
-        Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "?"
-    }
+    /// Bump together with CURRENT_PROJECT_VERSION in the Xcode project.
+    /// UI reads this stamp (not Info.plist) so a stale install cannot hide the real code.
+    static let number = "117"
 
     static var marketing: String {
         Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "1.0"
     }
 
-    /// Always include the build integer so TestFlight / local installs are obvious.
     static var label: String {
         "Build \(number)"
     }
 
     static var versionLine: String {
-        "Version \(marketing) · \(label)"
+        let plist = Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "?"
+        if plist == number {
+            return "Version \(marketing) · \(label)"
+        }
+        return "Version \(marketing) · \(label) (plist \(plist))"
     }
 }
