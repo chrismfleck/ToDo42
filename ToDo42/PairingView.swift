@@ -14,6 +14,7 @@ struct PairingView: View {
     @State private var showShare = false
     @State private var myHeadPicker: PhotosPickerItem?
     @State private var partnerHeadPicker: PhotosPickerItem?
+    @Bindable private var desktopInbox = DesktopInboxStore.shared
 
     private var showInviteJoin: Bool {
         !session.isPaired || session.isComposingNewPair
@@ -31,6 +32,7 @@ struct PairingView: View {
                     namesCard
                     if session.isPaired, !session.isComposingNewPair {
                         connectedCard
+                        desktopLinkCard
                     }
                     if showInviteJoin {
                         inviteCard
@@ -349,6 +351,49 @@ struct PairingView: View {
             }
             .foregroundStyle(.red)
             .accessibilityLabel("Unpair \(session.partnerHeartLabel)")
+        }
+    }
+
+    private var desktopLinkCard: some View {
+        pairCard {
+            cardTitle("Link desktop", icon: "desktopcomputer", tint: Palette.brandBlue(colorScheme))
+            Text("Get a code for the S42 browser extension (Chrome or Safari). Sent links show under From desktop when you add an item.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            if let code = desktopInbox.linkCode {
+                Text(code)
+                    .font(.system(size: 34, weight: .bold, design: .rounded))
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 6)
+                    .accessibilityLabel("Desktop link code \(code)")
+                if let expires = desktopInbox.linkCodeExpiresAt {
+                    Text("Expires \(expires, style: .relative)")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                        .frame(maxWidth: .infinity)
+                }
+            }
+            Button {
+                guard let pairID = session.pairID else { return }
+                let label = "\(session.myHeartLabel) & \(session.partnerHeartLabel)"
+                Task {
+                    await desktopInbox.startDesktopLink(pairID: pairID, pairLabel: label)
+                }
+            } label: {
+                Text(desktopInbox.linkCode == nil ? "Create desktop code" : "New desktop code")
+                    .font(.subheadline.weight(.semibold))
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 10)
+                    .foregroundStyle(Palette.brandBlue(colorScheme))
+                    .background(softButtonFill, in: Capsule())
+            }
+            .buttonStyle(.plain)
+            .disabled(desktopInbox.isLoading || session.pairID == nil)
+            if !desktopInbox.lastError.isEmpty {
+                Text(desktopInbox.lastError)
+                    .font(.footnote)
+                    .foregroundStyle(.red)
+            }
         }
     }
 

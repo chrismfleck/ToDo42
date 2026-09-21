@@ -1,0 +1,16 @@
+{
+  "manifest_version": 3,
+  "name": "Save 4 Two",
+  "version": "0.1.0",
+  "description": "Send the current page URL to Save 4 Two on your phone.",
+  "action": {
+    "default_title": "Send to Save 4 Two",
+    "default_popup": "popup.html"
+  },
+  "permissions": ["activeTab", "storage"],
+  "host_permissions": ["https://api.save4two.com/*"],
+  "options_page": "options.html",
+  "icons": {
+    "128": "icon128.png"
+  }
+}

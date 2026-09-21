@@ -1789,6 +1789,7 @@ struct AddItemView: View {
     @Environment(\.modelContext) private var modelContext
     @Environment(\.dismiss) private var dismiss
     @Environment(\.colorScheme) private var colorScheme
+    @Environment(PairSession.self) private var pairSession
     @Query private var items: [TodoItem]
     var category: ItemCategory
 
@@ -1801,6 +1802,9 @@ struct AddItemView: View {
     @State private var isLoadingMeta = false
     @State private var isSaving = false
     @State private var lastFetchedLink = ""
+    @State private var showDesktopInbox = false
+    @State private var pendingDesktopItem: DesktopInboxItem?
+    @Bindable private var desktopInbox = DesktopInboxStore.shared
 
     private var resolvedLink: String? {
         OpenableURL.from(urlString)?.absoluteString
@@ -1818,6 +1822,26 @@ struct AddItemView: View {
     var body: some View {
         NavigationStack {
             Form {
+                if desktopInbox.pendingCount > 0 {
+                    Section {
+                        Button {
+                            showDesktopInbox = true
+                        } label: {
+                            HStack {
+                                Label(
+                                    "From desktop (\(desktopInbox.pendingCount))",
+                                    systemImage: "desktopcomputer"
+                                )
+                                Spacer()
+                                Image(systemName: "chevron.right")
+                                    .font(.caption.weight(.semibold))
+                                    .foregroundStyle(.tertiary)
+                            }
+                        }
+                        .accessibilityLabel("From desktop, \(desktopInbox.pendingCount) pending")
+                    }
+                }
+
                 Section {
                     NavigationLink {
                         FindIdeasView { pageURL in
@@ -1895,6 +1919,20 @@ struct AddItemView: View {
                     }
                     .disabled(!canSave)
                 }
+            }
+            .sheet(isPresented: $showDesktopInbox) {
+                DesktopInboxView { item in
+                    showDesktopInbox = false
+                    pendingDesktopItem = item
+                    urlString = item.url
+                    if title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+                       !item.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                        title = item.title
+                    }
+                }
+            }
+            .task {
+                await desktopInbox.refresh(pairID: pairSession.pairID)
             }
             .onAppear { selectedCategories = [category] }
             .onChange(of: photoItem) { _, newItem in
@@ -2039,6 +2077,11 @@ struct AddItemView: View {
         )
         modelContext.insert(item)
         PairSession.shared.noteLocalEdit(item, kind: "add")
+        if let desktop = pendingDesktopItem {
+            let pairID = PairSession.shared.pairID
+            Task { await DesktopInboxStore.shared.consume(desktop, pairID: pairID) }
+            pendingDesktopItem = nil
+        }
         dismiss()
     }
 }
