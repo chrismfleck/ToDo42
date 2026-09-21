@@ -93,8 +93,8 @@ enum PageMetadata {
                 .trimmingCharacters(in: .whitespacesAndNewlines)
             guard !trimmed.isEmpty else { return }
             if looksLikeLogo(trimmed) { return }
-            // X serves og:image as webp; ask for a large JPEG that UIImage always decodes.
-            if trimmed.lowercased().contains("pbs.twimg.com/media/") {
+            // X serves og/card images as webp; request JPEG so UIImage always decodes.
+            if isTwitterImageCDN(trimmed) {
                 trimmed = preferredTwitterMediaURL(trimmed)
             }
             guard !found.contains(trimmed) else { return }
@@ -107,6 +107,9 @@ enum PageMetadata {
         }
         for thumb in twitterVideoThumbURLs(in: html) {
             add(thumb)
+        }
+        for card in twitterCardImageURLs(in: html) {
+            add(card)
         }
 
         add(meta(html, property: "og:image"))
@@ -195,12 +198,35 @@ enum PageMetadata {
     }
 
     private static func downloadImage(_ url: URL, referer: URL) async -> UIImage? {
+        if let image = await downloadImageOnce(url, referer: referer) {
+            return image
+        }
+        // Link-preview cards and og images are often webp; retry as JPEG if decode fails.
+        let raw = url.absoluteString
+        if isTwitterImageCDN(raw) {
+            let jpegURLString = preferredTwitterMediaURL(raw)
+            if jpegURLString != raw, let jpegURL = URL(string: jpegURLString) {
+                return await downloadImageOnce(jpegURL, referer: referer)
+            }
+        }
+        return nil
+    }
+
+    private static func downloadImageOnce(_ url: URL, referer: URL) async -> UIImage? {
         do {
             var request = URLRequest(url: url, timeoutInterval: 12)
             request.setValue(safariUA, forHTTPHeaderField: "User-Agent")
-            request.setValue("image/avif,image/webp,image/apng,image/jpeg,image/png,*/*;q=0.8", forHTTPHeaderField: "Accept")
+            request.setValue("image/jpeg,image/png,image/webp,image/apng,image/avif,*/*;q=0.8", forHTTPHeaderField: "Accept")
             request.setValue(cdnReferer(for: url, fallback: referer).absoluteString, forHTTPHeaderField: "Referer")
-            let (data, _) = try await URLSession.shared.data(for: request)
+            let (data, response) = try await URLSession.shared.data(for: request)
+            if let http = response as? HTTPURLResponse, !(200...299).contains(http.statusCode) {
+                return nil
+            }
+            // Reject HTML error pages masquerading as image bytes.
+            if data.count >= 15, let head = String(data: data.prefix(64), encoding: .utf8)?.lowercased(),
+               head.contains("<html") || head.contains("<!doctype") {
+                return nil
+            }
             return UIImage(data: data)
         } catch {
             return nil
@@ -249,6 +275,14 @@ enum PageMetadata {
         )
     }
 
+    /// Link-preview posts (summary_large_image) use card_img instead of /media/.
+    private static func twitterCardImageURLs(in html: String) -> [String] {
+        uniqueMatches(
+            #"https?://pbs\.twimg\.com/card_img/[0-9]+/[A-Za-z0-9_-]+(?:\?[^"'\\\s]*)?"#,
+            in: html
+        )
+    }
+
     /// Video posts often only expose amplify / ext_tw thumbs.
     private static func twitterVideoThumbURLs(in html: String) -> [String] {
         uniqueMatches(
@@ -270,6 +304,16 @@ enum PageMetadata {
             if !urls.contains(raw) { urls.append(raw) }
         }
         return urls
+    }
+
+    private static func isTwitterImageCDN(_ url: String) -> Bool {
+        let lower = url.lowercased()
+        guard lower.contains("pbs.twimg.com/") else { return false }
+        return lower.contains("/media/")
+            || lower.contains("/card_img/")
+            || lower.contains("/amplify_video_thumb/")
+            || lower.contains("/ext_tw_video_thumb/")
+            || lower.contains("/tweet_video_thumb/")
     }
 
     private static func preferredTwitterMediaURL(_ url: String) -> String {

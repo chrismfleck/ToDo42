@@ -20,7 +20,7 @@ GetPageMetadata.prototype = {
             return false;
         }
         function preferredTwitterMedia(url) {
-            if (!url || url.toLowerCase().indexOf("pbs.twimg.com/media/") === -1) { return url; }
+            if (!url || !isTwitterImageCDN(url)) { return url; }
             try {
                 var parsed = new URL(url, document.baseURI);
                 parsed.searchParams.delete("format");
@@ -34,11 +34,20 @@ GetPageMetadata.prototype = {
                 return url;
             }
         }
+        function isTwitterImageCDN(url) {
+            var lower = (url || "").toLowerCase();
+            if (lower.indexOf("pbs.twimg.com/") === -1) { return false; }
+            return lower.indexOf("/media/") !== -1
+                || lower.indexOf("/card_img/") !== -1
+                || lower.indexOf("/amplify_video_thumb/") !== -1
+                || lower.indexOf("/ext_tw_video_thumb/") !== -1
+                || lower.indexOf("/tweet_video_thumb/") !== -1;
+        }
         function firstTwitterMedia() {
             var html = document.documentElement ? document.documentElement.innerHTML : "";
-            var match = html.match(/https?:\/\/pbs\.twimg\.com\/media\/[A-Za-z0-9_-]+(?:\.(?:jpe?g|png|webp))?(?:\?[^"'\\\s]*)?/i);
+            var match = html.match(/https?:\/\/pbs\.twimg\.com\/(?:media|card_img)\/[A-Za-z0-9_\/-]+(?:\.(?:jpe?g|png|webp))?(?:\?[^"'\\\s]*)?/i);
             if (match) { return preferredTwitterMedia(match[0]); }
-            var img = document.querySelector('img[src*="pbs.twimg.com/media/"]');
+            var img = document.querySelector('img[src*="pbs.twimg.com/media/"], img[src*="pbs.twimg.com/card_img/"]');
             if (img) { return preferredTwitterMedia(img.currentSrc || img.src || ""); }
             return "";
         }
@@ -51,7 +60,7 @@ GetPageMetadata.prototype = {
             || content('meta[name="twitter:image:src"]')
             || content('meta[itemprop="image"]');
         if (looksLikeLogo(image)) { image = ""; }
-        if (image && image.toLowerCase().indexOf("pbs.twimg.com/media/") !== -1) {
+        if (image && isTwitterImageCDN(image)) {
             image = preferredTwitterMedia(image);
         }
         if (!image) {

@@ -57,9 +57,33 @@ def preferred_twitter_media_url(url):
     return urlunparse(parsed._replace(path=path, query=urlencode(query)))
 
 
+def is_twitter_image_cdn(url):
+    lower = url.lower()
+    if "pbs.twimg.com/" not in lower:
+        return False
+    return (
+        "/media/" in lower
+        or "/card_img/" in lower
+        or "/amplify_video_thumb/" in lower
+        or "/ext_tw_video_thumb/" in lower
+        or "/tweet_video_thumb/" in lower
+    )
+
+
 def twitter_media_urls(html):
     normalized = html.replace("\\/", "/")
     pattern = r'https?://pbs\.twimg\.com/media/[A-Za-z0-9_-]+(?:\.(?:jpe?g|png|webp))?(?:\?[^"\'\\\s]*)?'
+    found = []
+    for match in re.finditer(pattern, normalized, flags=re.IGNORECASE):
+        raw = decode_html(match.group(0))
+        if raw not in found:
+            found.append(raw)
+    return found
+
+
+def twitter_card_image_urls(html):
+    normalized = html.replace("\\/", "/")
+    pattern = r'https?://pbs\.twimg\.com/card_img/[0-9]+/[A-Za-z0-9_-]+(?:\?[^"\'\\\s]*)?'
     found = []
     for match in re.finditer(pattern, normalized, flags=re.IGNORECASE):
         raw = decode_html(match.group(0))
@@ -128,7 +152,7 @@ def image_candidates(html):
             return
         if looks_like_logo(trimmed):
             return
-        if "pbs.twimg.com/media/" in trimmed.lower():
+        if is_twitter_image_cdn(trimmed):
             trimmed = preferred_twitter_media_url(trimmed)
         if trimmed in found:
             return
@@ -138,6 +162,8 @@ def image_candidates(html):
         add(media)
     for thumb in twitter_video_thumb_urls(html):
         add(thumb)
+    for card in twitter_card_image_urls(html):
+        add(card)
 
     add(meta(html, property="og:image"))
     add(meta(html, property="og:image:secure_url"))
@@ -283,8 +309,21 @@ def main():
     video_html = 'thumb https://pbs.twimg.com/amplify_video_thumb/123456/img/AbCdEfGh.jpg'
     video_found = image_candidates(video_html)
     check(
-        video_found == ["https://pbs.twimg.com/amplify_video_thumb/123456/img/AbCdEfGh.jpg"],
+        video_found
+        == ["https://pbs.twimg.com/amplify_video_thumb/123456/img/AbCdEfGh?format=jpg&name=large"],
         f"video thumb: {video_found}",
+    )
+
+    # Link-preview posts (e.g. mercola status) only expose card_img, often as webp.
+    card_html = """
+    <meta property="og:image" content="https://pbs.twimg.com/card_img/2101756674830954496/MJxX0O-O?format=webp&amp;name=medium">
+    <meta name="twitter:image" content="https://pbs.twimg.com/card_img/2101756674830954496/MJxX0O-O?format=webp&amp;name=medium">
+    """
+    card_found = image_candidates(card_html)
+    check(
+        card_found[0]
+        == "https://pbs.twimg.com/card_img/2101756674830954496/MJxX0O-O?format=jpg&name=large",
+        f"card_img rewritten to jpg large: {card_found}",
     )
 
     print("ok")
