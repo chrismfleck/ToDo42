@@ -10,6 +10,12 @@ struct HelpView: View {
         NavigationStack {
             ScrollView {
                 VStack(alignment: .leading, spacing: 22) {
+                    Text(AppBuild.label)
+                        .font(.title3.weight(.bold).monospacedDigit())
+                        .foregroundStyle(Palette.brandBlue(colorScheme))
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .accessibilityLabel(AppBuild.versionLine)
+
                     Text("How to use Save 4 Two")
                         .font(.title2.bold())
 
