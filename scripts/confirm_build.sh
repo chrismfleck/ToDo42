@@ -1,7 +1,7 @@
 #!/bin/bash
 set -euo pipefail
 cd "$(dirname "$0")/.."
-EXPECTED=126
+EXPECTED=127
 echo "branch: $(git branch --show-current)"
 echo "commit: $(git rev-parse --short HEAD)"
 PROJECT=$(grep -m1 'CURRENT_PROJECT_VERSION' ToDo42.xcodeproj/project.pbxproj | tr -dc '0-9')

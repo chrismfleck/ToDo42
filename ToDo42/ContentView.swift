@@ -454,7 +454,7 @@ struct ContentView: View {
     }
 
     var body: some View {
-        VStack(spacing: Self.homeChromeGap) {
+        VStack(spacing: 0) {
             homeHeaderBar
                 .zIndex(2)
 
@@ -677,6 +677,10 @@ struct ContentView: View {
                 .padding(.horizontal, 24)
             itemList(for: selected.wrappedValue)
         }
+        // TabView pages otherwise vertically center their content, which opened a
+        // huge gap under the heads while categories sat on the item cards.
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        .padding(.top, Self.homeChromeGap)
     }
 
     private func itemList(for cat: ItemCategory) -> some View {
