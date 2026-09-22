@@ -667,52 +667,19 @@ struct ContentView: View {
         .padding(.bottom, 0)
     }
 
-    private var pageControls: some View {
-        HStack(spacing: 16) {
-            Button {
-                guard categoryPage > 0 else { return }
-                withAnimation(.easeInOut(duration: 0.2)) { categoryPage -= 1 }
-            } label: {
-                Image(systemName: "chevron.left.circle.fill")
-                    .font(.title3)
-                    .foregroundStyle(
-                        categoryPage > 0
-                            ? Palette.brandBlue(colorScheme)
-                            : Palette.brandBlue(colorScheme).opacity(0.25)
-                    )
+    private var pageDots: some View {
+        HStack(spacing: 7) {
+            ForEach(0..<ItemCategory.pages.count, id: \.self) { index in
+                Circle()
+                    .fill(index == categoryPage
+                          ? Palette.brandBlue(colorScheme)
+                          : Palette.brandBlue(colorScheme).opacity(0.28))
+                    .frame(width: 7, height: 7)
+                    .accessibilityHidden(true)
             }
-            .disabled(categoryPage <= 0)
-            .accessibilityLabel("Previous category page")
-
-            HStack(spacing: 7) {
-                ForEach(0..<ItemCategory.pages.count, id: \.self) { index in
-                    Circle()
-                        .fill(index == categoryPage
-                              ? Palette.brandBlue(colorScheme)
-                              : Palette.brandBlue(colorScheme).opacity(0.28))
-                        .frame(width: 7, height: 7)
-                        .accessibilityHidden(true)
-                }
-            }
-            .accessibilityElement(children: .ignore)
-            .accessibilityLabel("Category page \(categoryPage + 1) of \(ItemCategory.pages.count)")
-
-            Button {
-                let last = ItemCategory.pages.count - 1
-                guard categoryPage < last else { return }
-                withAnimation(.easeInOut(duration: 0.2)) { categoryPage += 1 }
-            } label: {
-                Image(systemName: "chevron.right.circle.fill")
-                    .font(.title3)
-                    .foregroundStyle(
-                        categoryPage < ItemCategory.pages.count - 1
-                            ? Palette.brandBlue(colorScheme)
-                            : Palette.brandBlue(colorScheme).opacity(0.25)
-                    )
-            }
-            .disabled(categoryPage >= ItemCategory.pages.count - 1)
-            .accessibilityLabel("Next category page")
         }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("Category page \(categoryPage + 1) of \(ItemCategory.pages.count)")
     }
 
     private var categoryPageSwipeGesture: some Gesture {
