@@ -411,6 +411,8 @@ struct ContentView: View {
     private static let headerGlyphPoint: CGFloat = 28
     /// Explicit ring: ~25% thinner than a typical SF Symbol circle stroke.
     private static let headerCircleLineWidth: CGFloat = 28 * 0.054
+    /// Equal vertical gap: heads → categories, and categories → item cards.
+    private static let homeChromeGap: CGFloat = 10
 
     private var pairScopedItems: [TodoItem] {
         let active = pairSession.pairID
