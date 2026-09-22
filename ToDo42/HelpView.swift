@@ -44,11 +44,14 @@ struct HelpView: View {
 
                         HelpStep(
                             number: 2,
-                            spoken: "To find ideas tap plus."
+                            spoken: "To find ideas tap plus. Then enter search keywords: location, features, guests, etc. Then select an item and tap Save 4 Two."
                         ) {
-                            HStack(alignment: .center, spacing: 5) {
-                                helpText("To find ideas tap")
-                                chromePlus
+                            VStack(alignment: .leading, spacing: 6) {
+                                HStack(alignment: .center, spacing: 5) {
+                                    helpText("To find ideas tap")
+                                    chromePlus
+                                }
+                                helpText("Then enter search keywords: location, features, guests, etc. Then select an item and tap Save 4 Two.")
                             }
                         }
 
