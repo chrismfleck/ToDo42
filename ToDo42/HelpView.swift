@@ -187,7 +187,16 @@ struct HelpView: View {
             )
             .fixedSize(horizontal: false, vertical: true)
 
-            helpText("Look for Save 4 Two.")
+            HStack(alignment: .center, spacing: 6) {
+                helpText("Look for Save 4 Two")
+                Image("HelpAppIcon")
+                    .resizable()
+                    .scaledToFit()
+                    .frame(width: Self.helpAppIconSize, height: Self.helpAppIconSize)
+                    .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
+                    .accessibilityHidden(true)
+            }
+            .fixedSize(horizontal: false, vertical: true)
 
             (
                 helpText("You may need to swipe left and/or tap")
