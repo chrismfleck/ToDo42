@@ -11,7 +11,7 @@ struct HelpView: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 22) {
                     Text("How to use Save 4 Two")
-                        .font(.system(size: 20, weight: .bold))
+                        .font(.system(size: 18, weight: .regular))
 
                     openingScreenshot
 
@@ -36,15 +36,11 @@ struct HelpView: View {
 
                         HelpStep(
                             number: 2,
-                            spoken: "To find ideas and add items, tap plus. Then enter search keywords: location, features, guests, etc. Then select an item and tap Save 4 Two."
+                            spoken: "To find ideas tap plus."
                         ) {
-                            VStack(alignment: .leading, spacing: 6) {
-                                HStack(alignment: .center, spacing: 5) {
-                                    helpText("To find ideas and add items tap")
-                                    chromePlus
-                                    helpText(".")
-                                }
-                                helpText("Then enter search keywords: location, features, guests, etc. Then select an item and tap Save 4 Two.")
+                            HStack(alignment: .center, spacing: 5) {
+                                helpText("To find ideas tap")
+                                chromePlus
                             }
                         }
 
