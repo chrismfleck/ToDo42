@@ -86,6 +86,31 @@ struct PairHeartPlusIcon: View {
     }
 }
 
+/// Toolbar circle icons with an explicit ring width (SF Symbol `.circle` weight was not thin enough).
+struct ChromeCircleIcon: View {
+    var systemName: String
+    var diameter: CGFloat = 28
+    var tint: Color
+    /// Baseline SF ring ≈ 7.2% of diameter; 25% thinner → 5.4%.
+    var lineWidth: CGFloat? = nil
+
+    private var ringWidth: CGFloat {
+        lineWidth ?? max(1.0, diameter * 0.054)
+    }
+
+    var body: some View {
+        ZStack {
+            Circle()
+                .strokeBorder(tint, lineWidth: ringWidth)
+            Image(systemName: systemName)
+                .font(.system(size: diameter * 0.42, weight: .semibold))
+                .foregroundStyle(tint)
+        }
+        .frame(width: diameter, height: diameter)
+        .accessibilityHidden(true)
+    }
+}
+
 /// UIKit-backed icon button so TabView page gestures cannot swallow the tap.
 struct ReliableIconButton: UIViewRepresentable {
     var systemName: String
@@ -304,8 +329,10 @@ struct ContentView: View {
     private static let headerIconHit: CGFloat = 44
     /// Home headshots — larger than the toolbar circle glyphs.
     private static let headerHeadSize: CGFloat = 52
-    /// pencil / ? / + circles — same point size for all three.
+    /// pencil / ? / + circles — same diameter for all.
     private static let headerGlyphPoint: CGFloat = 28
+    /// Explicit ring: ~25% thinner than a typical SF Symbol circle stroke.
+    private static let headerCircleLineWidth: CGFloat = 28 * 0.054
 
     private var pairScopedItems: [TodoItem] {
         let active = pairSession.pairID
@@ -423,26 +450,32 @@ struct ContentView: View {
         let showPairChrome = isListEditing || !pairSession.isPaired
         return HStack(alignment: .center, spacing: 0) {
             HStack(spacing: 8) {
-                ReliableIconButton(
-                    systemName: isListEditing ? "checkmark.circle" : "pencil.circle",
-                    tint: Palette.brandBlue(colorScheme),
-                    side: Self.headerIconHit,
-                    pointSize: Self.headerGlyphPoint,
-                    accessibilityLabel: isListEditing ? "Done editing" : "Edit list",
-                    action: toggleListEditing
-                )
-                .frame(width: Self.headerIconHit, height: Self.headerIconHit)
-
-                if showPairChrome {
-                    ReliableIconButton(
-                        systemName: "questionmark.circle",
+                Button(action: toggleListEditing) {
+                    ChromeCircleIcon(
+                        systemName: isListEditing ? "checkmark" : "pencil",
+                        diameter: Self.headerGlyphPoint,
                         tint: Palette.brandBlue(colorScheme),
-                        side: Self.headerIconHit,
-                        pointSize: Self.headerGlyphPoint,
-                        accessibilityLabel: "Help",
-                        action: { showHelp = true }
+                        lineWidth: Self.headerCircleLineWidth
                     )
                     .frame(width: Self.headerIconHit, height: Self.headerIconHit)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.borderless)
+                .accessibilityLabel(isListEditing ? "Done editing" : "Edit list")
+
+                if showPairChrome {
+                    Button { showHelp = true } label: {
+                        ChromeCircleIcon(
+                            systemName: "questionmark",
+                            diameter: Self.headerGlyphPoint,
+                            tint: Palette.brandBlue(colorScheme),
+                            lineWidth: Self.headerCircleLineWidth
+                        )
+                        .frame(width: Self.headerIconHit, height: Self.headerIconHit)
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.borderless)
+                    .accessibilityLabel("Help")
                 }
             }
             .frame(minWidth: Self.headerIconHit, alignment: .leading)
@@ -517,15 +550,18 @@ struct ContentView: View {
                     .accessibilityLabel("Pair phones")
                 }
 
-                ReliableIconButton(
-                    systemName: "plus.circle.fill",
-                    tint: Palette.brandBlue(colorScheme),
-                    side: Self.headerIconHit,
-                    pointSize: Self.headerGlyphPoint,
-                    accessibilityLabel: "Add item",
-                    action: { showAdd = true }
-                )
-                .frame(width: Self.headerIconHit, height: Self.headerIconHit)
+                Button { showAdd = true } label: {
+                    ChromeCircleIcon(
+                        systemName: "plus",
+                        diameter: Self.headerGlyphPoint,
+                        tint: Palette.brandBlue(colorScheme),
+                        lineWidth: Self.headerCircleLineWidth
+                    )
+                    .frame(width: Self.headerIconHit, height: Self.headerIconHit)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.borderless)
+                .accessibilityLabel("Add item")
             }
             .frame(minWidth: Self.headerIconHit, alignment: .trailing)
         }
@@ -1261,11 +1297,14 @@ struct ItemDetailView: View {
                         beginEditing()
                     }
                 } label: {
-                    Image(systemName: isEditing ? "checkmark.circle" : "pencil.circle")
-                        .font(.system(size: 28, weight: .semibold))
-                        .foregroundStyle(Palette.brandBlue(colorScheme))
-                        .frame(width: 44, height: 44)
-                        .contentShape(Rectangle())
+                    ChromeCircleIcon(
+                        systemName: isEditing ? "checkmark" : "pencil",
+                        diameter: 28,
+                        tint: Palette.brandBlue(colorScheme),
+                        lineWidth: 28 * 0.054
+                    )
+                    .frame(width: 44, height: 44)
+                    .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
                 .disabled(isEditing && draftTitle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
@@ -1408,7 +1447,7 @@ struct ItemDetailView: View {
                     PairHeadButton(
                         label: pairSession.myHeartLabel,
                         tint: Color(red: 0.20, green: 0.48, blue: 0.98),
-                        size: 44,
+                        size: 52,
                         imageData: pairSession.headImageData(slot: .me)
                     ) {
                         if pairSession.hasMultiplePairs {
@@ -1433,7 +1472,7 @@ struct ItemDetailView: View {
                     PairHeadButton(
                         label: pairSession.partnerHeartLabel,
                         tint: Color(red: 0.22, green: 0.78, blue: 0.55),
-                        size: 44,
+                        size: 52,
                         imageData: pairSession.headImageData(slot: .partner)
                     ) {
                         if pairSession.hasMultiplePairs {
