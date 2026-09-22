@@ -765,81 +765,83 @@ struct ContentView: View {
             }
     }
 
+    @ViewBuilder
     private func itemList(for cat: ItemCategory) -> some View {
         let rows = items(in: cat)
         let columns = [
             GridItem(.flexible(minimum: 120), spacing: 12),
             GridItem(.flexible(minimum: 120), spacing: 12),
         ]
-        return GeometryReader { geo in
-            ScrollView(.vertical, showsIndicators: false) {
-                LazyVGrid(columns: columns, spacing: 12) {
-                    ForEach(rows, id: \.persistentModelID) { item in
-                        Group {
-                            if isListEditing {
-                                ItemRowView(
-                                    item: item,
-                                    showsDragHandle: true,
-                                    onDelete: { deleteItem(item) },
-                                    onHandleDragChanged: { translation in
-                                        handleReorderChanged(item: item, translation: translation)
-                                    },
-                                    onHandleDragEnded: {
-                                        handleReorderEnded(item: item)
-                                    }
-                                )
-                            } else {
-                                Button {
-                                    selectedItem = item
-                                } label: {
-                                    ItemRowView(item: item)
-                                }
-                                .buttonStyle(.plain)
-                            }
-                        }
-                        .offset(y: reorderOffset(for: item))
-                        .zIndex(reorderDrag?.id == item.id ? 1 : 0)
-                        .scaleEffect(reorderDrag?.id == item.id ? 1.02 : 1)
-                        .shadow(
-                            color: reorderDrag?.id == item.id ? Color.black.opacity(0.18) : .clear,
-                            radius: 12,
-                            y: 6
-                        )
-                        .animation(
-                            reorderDrag?.id == item.id
-                                ? nil
-                                : .interactiveSpring(response: 0.25, dampingFraction: 0.86),
-                            value: reorderOffset(for: item)
-                        )
-                        .background {
-                            GeometryReader { rowGeo in
-                                Color.clear.preference(
-                                    key: RowHeightPreferenceKey.self,
-                                    value: [item.id: rowGeo.size.height]
-                                )
-                            }
-                        }
-                    }
 
-                    // Empty (and short) pages need hit targets — same size as cards —
-                    // so horizontal page swipes work below the category row.
-                    if rows.isEmpty {
-                        ForEach(0..<6, id: \.self) { _ in
-                            Color.clear
-                                .frame(maxWidth: .infinity)
-                                .frame(height: 148)
-                                .contentShape(Rectangle())
-                                .accessibilityHidden(true)
+        if rows.isEmpty {
+            // No ScrollView: Color.clear often ignores hits. Near-invisible fill +
+            // the same .gesture as the category row makes blank-page swipes work.
+            Rectangle()
+                .fill(Color.primary.opacity(0.001))
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .contentShape(Rectangle())
+                .gesture(categoryPageSwipeGesture)
+                .accessibilityLabel("No items. Swipe sideways for the next category page.")
+        } else {
+            GeometryReader { geo in
+                ScrollView(.vertical, showsIndicators: false) {
+                    LazyVGrid(columns: columns, spacing: 12) {
+                        ForEach(rows, id: \.persistentModelID) { item in
+                            Group {
+                                if isListEditing {
+                                    ItemRowView(
+                                        item: item,
+                                        showsDragHandle: true,
+                                        onDelete: { deleteItem(item) },
+                                        onHandleDragChanged: { translation in
+                                            handleReorderChanged(item: item, translation: translation)
+                                        },
+                                        onHandleDragEnded: {
+                                            handleReorderEnded(item: item)
+                                        }
+                                    )
+                                } else {
+                                    Button {
+                                        selectedItem = item
+                                    } label: {
+                                        ItemRowView(item: item)
+                                    }
+                                    .buttonStyle(.plain)
+                                }
+                            }
+                            .offset(y: reorderOffset(for: item))
+                            .zIndex(reorderDrag?.id == item.id ? 1 : 0)
+                            .scaleEffect(reorderDrag?.id == item.id ? 1.02 : 1)
+                            .shadow(
+                                color: reorderDrag?.id == item.id ? Color.black.opacity(0.18) : .clear,
+                                radius: 12,
+                                y: 6
+                            )
+                            .animation(
+                                reorderDrag?.id == item.id
+                                    ? nil
+                                    : .interactiveSpring(response: 0.25, dampingFraction: 0.86),
+                                value: reorderOffset(for: item)
+                            )
+                            .background {
+                                GeometryReader { rowGeo in
+                                    Color.clear.preference(
+                                        key: RowHeightPreferenceKey.self,
+                                        value: [item.id: rowGeo.size.height]
+                                    )
+                                }
+                            }
                         }
                     }
+                    .padding(.horizontal, 20)
+                    .padding(.bottom, 24)
+                    .frame(maxWidth: .infinity, minHeight: geo.size.height, alignment: .top)
+                    .contentShape(Rectangle())
+                    .onPreferenceChange(RowHeightPreferenceKey.self) { rowHeights = $0 }
                 }
-                .padding(.horizontal, 20)
-                .padding(.bottom, 24)
-                .frame(maxWidth: .infinity, minHeight: geo.size.height, alignment: .top)
-                .contentShape(Rectangle())
-                .onPreferenceChange(RowHeightPreferenceKey.self) { rowHeights = $0 }
+                .scrollDisabled(reorderDrag != nil)
             }
-            .scrollDisabled(reorderDrag != nil)
+            .simultaneousGesture(categoryPageSwipeGesture)
         }
     }
 
