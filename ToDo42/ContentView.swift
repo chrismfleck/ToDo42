@@ -128,39 +128,61 @@ struct ReliableIconButton: UIViewRepresentable {
         Coordinator(action: action)
     }
 
-    func makeUIView(context: Context) -> UIButton {
-        let button = UIButton(type: .system)
-        button.addTarget(context.coordinator, action: #selector(Coordinator.tapped), for: .touchUpInside)
-        button.contentHorizontalAlignment = .center
-        button.contentVerticalAlignment = .center
-        button.contentEdgeInsets = .zero
-        apply(to: button, context: context)
-        return button
+    func makeUIView(context: Context) -> UIView {
+        let container = HitContainerView()
+        container.backgroundColor = .clear
+        container.isUserInteractionEnabled = true
+        container.isAccessibilityElement = true
+        container.accessibilityTraits = .button
+
+        let imageView = UIImageView()
+        imageView.translatesAutoresizingMaskIntoConstraints = false
+        imageView.contentMode = .center
+        imageView.isUserInteractionEnabled = false
+        container.addSubview(imageView)
+
+        NSLayoutConstraint.activate([
+            imageView.centerXAnchor.constraint(equalTo: container.centerXAnchor),
+            imageView.centerYAnchor.constraint(equalTo: container.centerYAnchor),
+            container.widthAnchor.constraint(equalToConstant: side),
+            container.heightAnchor.constraint(equalToConstant: side),
+        ])
+
+        let tap = UITapGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.tapped))
+        tap.cancelsTouchesInView = true
+        tap.delaysTouchesBegan = false
+        tap.delaysTouchesEnded = false
+        container.addGestureRecognizer(tap)
+
+        context.coordinator.imageView = imageView
+        context.coordinator.container = container
+        apply(context: context)
+        return container
     }
 
-    func updateUIView(_ button: UIButton, context: Context) {
+    func updateUIView(_ container: UIView, context: Context) {
         context.coordinator.action = action
-        apply(to: button, context: context)
+        apply(context: context)
     }
 
-    private func apply(to button: UIButton, context: Context) {
+    private func apply(context: Context) {
+        guard let imageView = context.coordinator.imageView else { return }
         let color = UIColor(tint)
         if let diameter = chromeDiameter {
             let line = chromeLineWidth ?? max(1, diameter * 0.054)
-            let image = Self.chromeImage(
+            imageView.image = Self.chromeImage(
                 systemName: systemName,
                 diameter: diameter,
                 lineWidth: line,
                 tint: color
             )
-            button.setImage(image.withRenderingMode(.alwaysOriginal), for: .normal)
-            button.tintColor = color
+            imageView.tintColor = nil
         } else {
             let config = UIImage.SymbolConfiguration(pointSize: pointSize, weight: weight)
-            button.setImage(UIImage(systemName: systemName, withConfiguration: config), for: .normal)
-            button.tintColor = color
+            imageView.image = UIImage(systemName: systemName, withConfiguration: config)
+            imageView.tintColor = color
         }
-        button.accessibilityLabel = accessibilityLabel
+        context.coordinator.container?.accessibilityLabel = accessibilityLabel
     }
 
     private static func chromeImage(
@@ -197,6 +219,8 @@ struct ReliableIconButton: UIViewRepresentable {
 
     final class Coordinator: NSObject {
         var action: () -> Void
+        weak var imageView: UIImageView?
+        weak var container: UIView?
         private var lastTap = Date.distantPast
 
         init(action: @escaping () -> Void) {
@@ -205,10 +229,17 @@ struct ReliableIconButton: UIViewRepresentable {
 
         @objc func tapped() {
             let now = Date()
-            // Hard debounce at the UIKit layer — SwiftUI was double-firing.
-            guard now.timeIntervalSince(lastTap) > 0.55 else { return }
+            guard now.timeIntervalSince(lastTap) > 0.28 else { return }
             lastTap = now
+            UIImpactFeedbackGenerator(style: .light).impactOccurred()
             action()
+        }
+    }
+
+    /// Claims the full layout box for hit-testing even when the image is smaller.
+    private final class HitContainerView: UIView {
+        override func point(inside point: CGPoint, with event: UIEvent?) -> Bool {
+            bounds.insetBy(dx: -4, dy: -4).contains(point)
         }
     }
 }
@@ -421,21 +452,22 @@ struct ContentView: View {
     }
 
     var body: some View {
-        TabView(selection: $categoryPage) {
-            categoryPageView(ItemCategory.primaryPage, page: 0)
-                .tag(0)
-            categoryPageView(ItemCategory.extraPage, page: 1)
-                .tag(1)
+        VStack(spacing: 0) {
+            homeHeaderBar
+                .zIndex(2)
+
+            TabView(selection: $categoryPage) {
+                categoryPageView(ItemCategory.primaryPage, page: 0)
+                    .tag(0)
+                categoryPageView(ItemCategory.extraPage, page: 1)
+                    .tag(1)
+            }
+            .tabViewStyle(.page(indexDisplayMode: .automatic))
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
-        .tabViewStyle(.page(indexDisplayMode: .automatic))
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
         .onChange(of: categoryPage) { _, page in
             category = pageSelection[page] ?? (page == 0 ? .places : .trip)
             reorderDrag = nil
-        }
-        // Keep chrome outside the page TabView so swipe gestures cannot steal taps.
-        .safeAreaInset(edge: .top, spacing: 10) {
-            homeHeaderBar
         }
         .background {
             AppCanvasBackground()
@@ -497,32 +529,28 @@ struct ContentView: View {
         let showPairChrome = isListEditing || !pairSession.isPaired
         return HStack(alignment: .center, spacing: 0) {
             HStack(spacing: 8) {
-                Button(action: toggleListEditing) {
-                    ChromeCircleIcon(
-                        systemName: isListEditing ? "checkmark" : "pencil",
-                        diameter: Self.headerGlyphPoint,
-                        tint: Palette.brandBlue(colorScheme),
-                        lineWidth: Self.headerCircleLineWidth
-                    )
-                    .frame(width: Self.headerIconHit, height: Self.headerIconHit)
-                    .contentShape(Rectangle())
-                }
-                .buttonStyle(.borderless)
-                .accessibilityLabel(isListEditing ? "Done editing" : "Edit list")
+                ReliableIconButton(
+                    systemName: isListEditing ? "checkmark" : "pencil",
+                    tint: Palette.brandBlue(colorScheme),
+                    side: Self.headerIconHit,
+                    chromeDiameter: Self.headerGlyphPoint,
+                    chromeLineWidth: Self.headerCircleLineWidth,
+                    accessibilityLabel: isListEditing ? "Done editing" : "Edit list",
+                    action: toggleListEditing
+                )
+                .frame(width: Self.headerIconHit, height: Self.headerIconHit)
 
                 if showPairChrome {
-                    Button { showHelp = true } label: {
-                        ChromeCircleIcon(
-                            systemName: "questionmark",
-                            diameter: Self.headerGlyphPoint,
-                            tint: Palette.brandBlue(colorScheme),
-                            lineWidth: Self.headerCircleLineWidth
-                        )
-                        .frame(width: Self.headerIconHit, height: Self.headerIconHit)
-                        .contentShape(Rectangle())
-                    }
-                    .buttonStyle(.borderless)
-                    .accessibilityLabel("Help")
+                    ReliableIconButton(
+                        systemName: "questionmark",
+                        tint: Palette.brandBlue(colorScheme),
+                        side: Self.headerIconHit,
+                        chromeDiameter: Self.headerGlyphPoint,
+                        chromeLineWidth: Self.headerCircleLineWidth,
+                        accessibilityLabel: "Help",
+                        action: { showHelp = true }
+                    )
+                    .frame(width: Self.headerIconHit, height: Self.headerIconHit)
                 }
             }
             .frame(minWidth: Self.headerIconHit, alignment: .leading)
@@ -597,18 +625,16 @@ struct ContentView: View {
                     .accessibilityLabel("Pair phones")
                 }
 
-                Button { showAdd = true } label: {
-                    ChromeCircleIcon(
-                        systemName: "plus",
-                        diameter: Self.headerGlyphPoint,
-                        tint: Palette.brandBlue(colorScheme),
-                        lineWidth: Self.headerCircleLineWidth
-                    )
-                    .frame(width: Self.headerIconHit, height: Self.headerIconHit)
-                    .contentShape(Rectangle())
-                }
-                .buttonStyle(.borderless)
-                .accessibilityLabel("Add item")
+                ReliableIconButton(
+                    systemName: "plus",
+                    tint: Palette.brandBlue(colorScheme),
+                    side: Self.headerIconHit,
+                    chromeDiameter: Self.headerGlyphPoint,
+                    chromeLineWidth: Self.headerCircleLineWidth,
+                    accessibilityLabel: "Add item",
+                    action: { showAdd = true }
+                )
+                .frame(width: Self.headerIconHit, height: Self.headerIconHit)
             }
             .frame(minWidth: Self.headerIconHit, alignment: .trailing)
         }
@@ -1337,25 +1363,23 @@ struct ItemDetailView: View {
                     .accessibilityLabel("Open link")
                 }
 
-                Button {
-                    if isEditing {
-                        commitEdits()
-                    } else {
-                        beginEditing()
+                ReliableIconButton(
+                    systemName: isEditing ? "checkmark" : "pencil",
+                    tint: Palette.brandBlue(colorScheme),
+                    side: 44,
+                    chromeDiameter: 28,
+                    chromeLineWidth: 28 * 0.054,
+                    accessibilityLabel: isEditing ? "Done editing" : "Edit item",
+                    action: {
+                        if isEditing {
+                            commitEdits()
+                        } else {
+                            beginEditing()
+                        }
                     }
-                } label: {
-                    ChromeCircleIcon(
-                        systemName: isEditing ? "checkmark" : "pencil",
-                        diameter: 28,
-                        tint: Palette.brandBlue(colorScheme),
-                        lineWidth: 28 * 0.054
-                    )
-                    .frame(width: 44, height: 44)
-                    .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
+                )
+                .frame(width: 44, height: 44)
                 .disabled(isEditing && draftTitle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                .accessibilityLabel(isEditing ? "Done editing" : "Edit item")
             }
             .padding(.horizontal, 20)
             .padding(.vertical, 8)
