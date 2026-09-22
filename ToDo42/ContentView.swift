@@ -478,14 +478,8 @@ struct ContentView: View {
                 .id("cat-page-\(categoryPage)-\(pageSelection[categoryPage]?.rawValue ?? "x")")
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
 
-            pageControls
-                .padding(.bottom, 4)
-
-            Text(AppBuild.label)
-                .font(.caption2.weight(.bold))
-                .foregroundStyle(Palette.brandBlue(colorScheme))
-                .padding(.bottom, 8)
-                .accessibilityLabel(AppBuild.versionLine)
+            pageDots
+                .padding(.bottom, 10)
         }
         .onChange(of: categoryPage) { _, page in
             let fallback: ItemCategory = {
