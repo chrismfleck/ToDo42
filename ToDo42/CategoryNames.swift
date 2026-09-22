@@ -25,16 +25,37 @@ final class CategoryNames {
         titles = defaults.dictionary(forKey: Self.storageKey) as? [String: String] ?? [:]
         let stamp = defaults.double(forKey: Self.updatedAtKey)
         updatedAt = stamp > 0 ? Date(timeIntervalSince1970: stamp) : .distantPast
+        migrateLegacyTripTitleIfNeeded()
+    }
+
+    /// Old single Trip tab renames (e.g. to "Vegas Trip 4 Two") lived under "trip".
+    /// Move those onto the matching trip tab so Projects keeps its own name.
+    private func migrateLegacyTripTitleIfNeeded() {
+        guard let tripTitle = titles["trip"]?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !tripTitle.isEmpty else { return }
+        let lower = tripTitle.lowercased()
+        if titles["vegasTrip"] == nil,
+           lower.contains("vegas") || tripTitle == "Vegas Trip 4 Two" {
+            titles["vegasTrip"] = tripTitle
+        } else if titles["londonTrip"] == nil, lower.contains("london") {
+            titles["londonTrip"] = tripTitle
+        } else if titles["dcTrip"] == nil,
+                  lower.contains("dc") || lower.contains("washington") {
+            titles["dcTrip"] = tripTitle
+        }
+        titles.removeValue(forKey: "trip")
+        // Drop a mistaken Projects override that copied the old Trip label.
+        if let projects = titles["projects"]?.trimmingCharacters(in: .whitespacesAndNewlines),
+           projects.compare("Vegas Trip 4 Two", options: .caseInsensitive) == .orderedSame
+            || projects.compare("Trip 4 Two", options: .caseInsensitive) == .orderedSame {
+            titles.removeValue(forKey: "projects")
+        }
+        persist()
     }
 
     func title(for category: ItemCategory) -> String {
         let custom = titles[category.rawValue]?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         if !custom.isEmpty { return custom }
-        // Old Trip 4 Two renames lived under the "trip" key.
-        if category == .projects {
-            let legacy = titles["trip"]?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-            if !legacy.isEmpty { return legacy }
-        }
         return category.defaultTitle
     }
 

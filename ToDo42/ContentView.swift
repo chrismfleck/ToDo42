@@ -467,6 +467,8 @@ struct ContentView: View {
             }
             .tabViewStyle(.page(indexDisplayMode: .automatic))
             .frame(maxWidth: .infinity, maxHeight: .infinity)
+            // Nested item ScrollViews otherwise steal horizontal swipes (esp. page 3).
+            .background { CategoryPagingScrollFix() }
         }
         .onChange(of: categoryPage) { _, page in
             let fallback: ItemCategory = {
@@ -1307,6 +1309,42 @@ private struct PagingScrollLock: UIViewRepresentable {
         }
         for child in view.subviews {
             found.append(contentsOf: pagingScrollViews(in: child))
+        }
+        return found
+    }
+}
+
+/// Prefer category-page TabView swipes over nested item-grid ScrollViews.
+private struct CategoryPagingScrollFix: UIViewRepresentable {
+    func makeUIView(context: Context) -> UIView {
+        let view = UIView()
+        view.isUserInteractionEnabled = false
+        view.backgroundColor = .clear
+        return view
+    }
+
+    func updateUIView(_ uiView: UIView, context: Context) {
+        DispatchQueue.main.async {
+            guard let root = uiView.superview else { return }
+            let pagers = Self.scrollViews(in: root).filter(\.isPagingEnabled)
+            guard let pager = pagers.first, let pagerPan = pager.panGestureRecognizer else { return }
+            for scroll in Self.scrollViews(in: root) where !scroll.isPagingEnabled {
+                scroll.isDirectionalLockEnabled = true
+                if let innerPan = scroll.panGestureRecognizer {
+                    // Inner vertical scroll waits; horizontal page swipe can win first.
+                    innerPan.require(toFail: pagerPan)
+                }
+            }
+        }
+    }
+
+    private static func scrollViews(in view: UIView) -> [UIScrollView] {
+        var found: [UIScrollView] = []
+        if let scroll = view as? UIScrollView {
+            found.append(scroll)
+        }
+        for child in view.subviews {
+            found.append(contentsOf: scrollViews(in: child))
         }
         return found
     }
