@@ -104,8 +104,8 @@ struct ReliableIconButton: UIViewRepresentable {
         button.addTarget(context.coordinator, action: #selector(Coordinator.tapped), for: .touchUpInside)
         button.contentHorizontalAlignment = .center
         button.contentVerticalAlignment = .center
-        // Generous hit area beyond the glyph.
-        button.contentEdgeInsets = UIEdgeInsets(top: 10, left: 10, bottom: 10, right: 10)
+        // Light inset — glyphs are sized to match headshots and need the full hit box.
+        button.contentEdgeInsets = UIEdgeInsets(top: 4, left: 4, bottom: 4, right: 4)
         apply(to: button, context: context)
         return button
     }
@@ -300,7 +300,10 @@ struct ContentView: View {
     @State private var rowHeights: [UUID: CGFloat] = [:]
 
     private static let hasLeftListEditKey = "todo42.hasLeftListEditMode"
-    private static let headerIconHit: CGFloat = 48
+    private static let headerIconHit: CGFloat = 52
+    /// Home headshots (+20% from 36). Circle toolbar glyphs match this diameter.
+    private static let headerHeadSize: CGFloat = 43
+    private static let headerGlyphPoint: CGFloat = 43
 
     private var pairScopedItems: [TodoItem] {
         let active = pairSession.pairID
@@ -419,9 +422,10 @@ struct ContentView: View {
         return HStack(alignment: .center, spacing: 0) {
             HStack(spacing: 8) {
                 ReliableIconButton(
-                    systemName: isListEditing ? "checkmark" : "pencil",
+                    systemName: isListEditing ? "checkmark.circle" : "pencil.circle",
                     tint: Palette.brandBlue(colorScheme),
                     side: Self.headerIconHit,
+                    pointSize: Self.headerGlyphPoint,
                     accessibilityLabel: isListEditing ? "Done editing" : "Edit list",
                     action: toggleListEditing
                 )
@@ -429,9 +433,10 @@ struct ContentView: View {
 
                 if showPairChrome {
                     ReliableIconButton(
-                        systemName: "info.circle",
+                        systemName: "questionmark.circle",
                         tint: Palette.brandBlue(colorScheme),
                         side: Self.headerIconHit,
+                        pointSize: Self.headerGlyphPoint,
                         accessibilityLabel: "Help",
                         action: { showHelp = true }
                     )
@@ -448,7 +453,7 @@ struct ContentView: View {
                         label: pairSession.myHeartLabel,
                         tint: Color(red: 0.20, green: 0.48, blue: 0.98),
                         isActive: true,
-                        size: 36,
+                        size: Self.headerHeadSize,
                         imageData: pairSession.headImageData(slot: .me)
                     ) {
                         if pairSession.hasMultiplePairs {
@@ -479,7 +484,7 @@ struct ContentView: View {
                         label: pairSession.partnerHeartLabel,
                         tint: Color(red: 0.22, green: 0.78, blue: 0.55),
                         isActive: true,
-                        size: 36,
+                        size: Self.headerHeadSize,
                         imageData: pairSession.headImageData(slot: .partner)
                     ) {
                         if pairSession.hasMultiplePairs {
@@ -502,7 +507,7 @@ struct ContentView: View {
             HStack(spacing: 8) {
                 if showPairChrome {
                     Button { showPairing = true } label: {
-                        PairHeartPlusIcon(size: 22)
+                        PairHeartPlusIcon(size: Self.headerHeadSize * 0.55)
                             .frame(width: Self.headerIconHit, height: Self.headerIconHit)
                             .contentShape(Rectangle())
                     }
@@ -514,7 +519,7 @@ struct ContentView: View {
                     systemName: "plus.circle.fill",
                     tint: Palette.brandBlue(colorScheme),
                     side: Self.headerIconHit,
-                    pointSize: 28,
+                    pointSize: Self.headerGlyphPoint,
                     accessibilityLabel: "Add item",
                     action: { showAdd = true }
                 )
@@ -1254,8 +1259,8 @@ struct ItemDetailView: View {
                         beginEditing()
                     }
                 } label: {
-                    Image(systemName: isEditing ? "checkmark" : "pencil")
-                        .font(.system(size: 22, weight: .semibold))
+                    Image(systemName: isEditing ? "checkmark.circle" : "pencil.circle")
+                        .font(.system(size: 37, weight: .semibold))
                         .foregroundStyle(Palette.brandBlue(colorScheme))
                         .frame(width: 48, height: 48)
                         .contentShape(Rectangle())
@@ -1401,7 +1406,7 @@ struct ItemDetailView: View {
                     PairHeadButton(
                         label: pairSession.myHeartLabel,
                         tint: Color(red: 0.20, green: 0.48, blue: 0.98),
-                        size: 31,
+                        size: 37,
                         imageData: pairSession.headImageData(slot: .me)
                     ) {
                         if pairSession.hasMultiplePairs {
@@ -1426,7 +1431,7 @@ struct ItemDetailView: View {
                     PairHeadButton(
                         label: pairSession.partnerHeartLabel,
                         tint: Color(red: 0.22, green: 0.78, blue: 0.55),
-                        size: 31,
+                        size: 37,
                         imageData: pairSession.headImageData(slot: .partner)
                     ) {
                         if pairSession.hasMultiplePairs {

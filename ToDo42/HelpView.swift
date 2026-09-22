@@ -77,11 +77,11 @@ struct HelpView: View {
                             spoken: "In list view, items can be reordered by tapping the pencil and dragging the hamburger handle up or down. Then tap the check."
                         ) {
                             helpText("In list view, items can be reordered by tapping ")
-                            + chrome("pencil")
+                            + chrome("pencil.circle")
                             + helpText(" and dragging ")
                             + chrome("line.3.horizontal")
                             + helpText(" up or down. Then tap ")
-                            + chrome("checkmark")
+                            + chrome("checkmark.circle")
                             + helpText(".")
                         }
 
@@ -90,9 +90,9 @@ struct HelpView: View {
                             spoken: "To edit an item, tap it in the list, then tap the pencil on that page. Details can be edited and the original plus three more photos can be added. Tap your heart so your partner sees you like it. Tap the check when you are done."
                         ) {
                             helpText("To edit an item, tap it in the list, then tap ")
-                            + chrome("pencil")
+                            + chrome("pencil.circle")
                             + helpText(" on that page. Details can be edited and the original plus three more photos can be added. Tap your heart so your partner sees you like it. Tap ")
-                            + chrome("checkmark")
+                            + chrome("checkmark.circle")
                             + helpText(" when you are done.")
                         }
 
@@ -101,11 +101,11 @@ struct HelpView: View {
                             spoken: "To delete an item from the home page, tap the pencil, tap the red minus, then tap the check to save. Either person can delete."
                         ) {
                             helpText("To delete item from home page, tap ")
-                            + chrome("pencil")
+                            + chrome("pencil.circle")
                             + helpText(", tap ")
                             + redChrome("minus.circle.fill")
                             + helpText(", tap ")
-                            + chrome("checkmark")
+                            + chrome("checkmark.circle")
                             + helpText(" to save. Either person can delete.")
                         }
 
