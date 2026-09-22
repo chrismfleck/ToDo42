@@ -1327,13 +1327,12 @@ private struct CategoryPagingScrollFix: UIViewRepresentable {
         DispatchQueue.main.async {
             guard let root = uiView.superview else { return }
             let pagers = Self.scrollViews(in: root).filter(\.isPagingEnabled)
-            guard let pager = pagers.first, let pagerPan = pager.panGestureRecognizer else { return }
+            guard let pager = pagers.first else { return }
+            let pagerPan = pager.panGestureRecognizer
             for scroll in Self.scrollViews(in: root) where !scroll.isPagingEnabled {
                 scroll.isDirectionalLockEnabled = true
-                if let innerPan = scroll.panGestureRecognizer {
-                    // Inner vertical scroll waits; horizontal page swipe can win first.
-                    innerPan.require(toFail: pagerPan)
-                }
+                // Inner vertical scroll waits; horizontal page swipe can win first.
+                scroll.panGestureRecognizer.require(toFail: pagerPan)
             }
         }
     }
