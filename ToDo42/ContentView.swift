@@ -472,23 +472,17 @@ struct ContentView: View {
             .contentShape(Rectangle())
             .gesture(categoryPageSwipeGesture)
 
-            // One page at a time. UISwipeGestureRecognizers (not a competing pan/scroll
-            // pager) flip pages — they coexist with vertical item scrolling.
+            // Same horizontal page DragGesture as the category strip — works on empty
+            // space too (UISwipe on the scroll view did not).
             itemList(for: pageSelection[categoryPage] ?? ItemCategory.pages[categoryPage][0])
                 .id("cat-page-\(categoryPage)-\(pageSelection[categoryPage]?.rawValue ?? "x")")
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .background {
-                    CategoryPageSwipeInstaller(
-                        page: $categoryPage,
-                        pageCount: ItemCategory.pages.count,
-                        isEnabled: reorderDrag == nil
-                    )
-                }
+                .contentShape(Rectangle())
+                .simultaneousGesture(categoryPageSwipeGesture)
 
             pageControls
                 .padding(.bottom, 4)
 
-            // Always-visible stamp so a stale phone install cannot hide as “Help only”.
             Text(AppBuild.label)
                 .font(.caption2.weight(.bold))
                 .foregroundStyle(Palette.brandBlue(colorScheme))
@@ -779,60 +773,76 @@ struct ContentView: View {
             GridItem(.flexible(minimum: 120), spacing: 12),
             GridItem(.flexible(minimum: 120), spacing: 12),
         ]
-        return ScrollView(.vertical, showsIndicators: false) {
-            LazyVGrid(columns: columns, spacing: 12) {
-                ForEach(rows, id: \.persistentModelID) { item in
-                    Group {
-                        if isListEditing {
-                            ItemRowView(
-                                item: item,
-                                showsDragHandle: true,
-                                onDelete: { deleteItem(item) },
-                                onHandleDragChanged: { translation in
-                                    handleReorderChanged(item: item, translation: translation)
-                                },
-                                onHandleDragEnded: {
-                                    handleReorderEnded(item: item)
+        return GeometryReader { geo in
+            ScrollView(.vertical, showsIndicators: false) {
+                LazyVGrid(columns: columns, spacing: 12) {
+                    ForEach(rows, id: \.persistentModelID) { item in
+                        Group {
+                            if isListEditing {
+                                ItemRowView(
+                                    item: item,
+                                    showsDragHandle: true,
+                                    onDelete: { deleteItem(item) },
+                                    onHandleDragChanged: { translation in
+                                        handleReorderChanged(item: item, translation: translation)
+                                    },
+                                    onHandleDragEnded: {
+                                        handleReorderEnded(item: item)
+                                    }
+                                )
+                            } else {
+                                Button {
+                                    selectedItem = item
+                                } label: {
+                                    ItemRowView(item: item)
                                 }
-                            )
-                        } else {
-                            Button {
-                                selectedItem = item
-                            } label: {
-                                ItemRowView(item: item)
+                                .buttonStyle(.plain)
                             }
-                            .buttonStyle(.plain)
+                        }
+                        .offset(y: reorderOffset(for: item))
+                        .zIndex(reorderDrag?.id == item.id ? 1 : 0)
+                        .scaleEffect(reorderDrag?.id == item.id ? 1.02 : 1)
+                        .shadow(
+                            color: reorderDrag?.id == item.id ? Color.black.opacity(0.18) : .clear,
+                            radius: 12,
+                            y: 6
+                        )
+                        .animation(
+                            reorderDrag?.id == item.id
+                                ? nil
+                                : .interactiveSpring(response: 0.25, dampingFraction: 0.86),
+                            value: reorderOffset(for: item)
+                        )
+                        .background {
+                            GeometryReader { rowGeo in
+                                Color.clear.preference(
+                                    key: RowHeightPreferenceKey.self,
+                                    value: [item.id: rowGeo.size.height]
+                                )
+                            }
                         }
                     }
-                    .offset(y: reorderOffset(for: item))
-                    .zIndex(reorderDrag?.id == item.id ? 1 : 0)
-                    .scaleEffect(reorderDrag?.id == item.id ? 1.02 : 1)
-                    .shadow(
-                        color: reorderDrag?.id == item.id ? Color.black.opacity(0.18) : .clear,
-                        radius: 12,
-                        y: 6
-                    )
-                    .animation(
-                        reorderDrag?.id == item.id
-                            ? nil
-                            : .interactiveSpring(response: 0.25, dampingFraction: 0.86),
-                        value: reorderOffset(for: item)
-                    )
-                    .background {
-                        GeometryReader { geo in
-                            Color.clear.preference(
-                                key: RowHeightPreferenceKey.self,
-                                value: [item.id: geo.size.height]
-                            )
+
+                    // Empty (and short) pages need hit targets — same size as cards —
+                    // so horizontal page swipes work below the category row.
+                    if rows.isEmpty {
+                        ForEach(0..<6, id: \.self) { _ in
+                            Color.clear
+                                .frame(maxWidth: .infinity)
+                                .frame(height: 148)
+                                .contentShape(Rectangle())
+                                .accessibilityHidden(true)
                         }
                     }
                 }
+                .padding(.horizontal, 20)
+                .padding(.bottom, 24)
+                .frame(maxWidth: .infinity, minHeight: geo.size.height, alignment: .top)
+                .contentShape(Rectangle())
+                .onPreferenceChange(RowHeightPreferenceKey.self) { rowHeights = $0 }
             }
-            .padding(.horizontal, 20)
-            .padding(.bottom, 24)
-            .onPreferenceChange(RowHeightPreferenceKey.self) { rowHeights = $0 }
+            .scrollDisabled(reorderDrag != nil)
         }
-        .scrollDisabled(reorderDrag != nil)
     }
 
     private func toggleListEditing() {
@@ -1391,104 +1401,6 @@ private struct PagingScrollLock: UIViewRepresentable {
             found.append(contentsOf: pagingScrollViews(in: child))
         }
         return found
-    }
-}
-
-/// Left/right `UISwipeGestureRecognizer`s on the item list — coexist with vertical scrolling
-/// (unlike a second pan/scroll pager, which ate page-3 swipes).
-private struct CategoryPageSwipeInstaller: UIViewRepresentable {
-    @Binding var page: Int
-    var pageCount: Int
-    var isEnabled: Bool
-
-    func makeCoordinator() -> Coordinator {
-        Coordinator(page: $page, pageCount: pageCount)
-    }
-
-    func makeUIView(context: Context) -> UIView {
-        let view = UIView()
-        view.isUserInteractionEnabled = false
-        view.backgroundColor = .clear
-        return view
-    }
-
-    func updateUIView(_ uiView: UIView, context: Context) {
-        context.coordinator.page = $page
-        context.coordinator.pageCount = pageCount
-        context.coordinator.isEnabled = isEnabled
-        DispatchQueue.main.async {
-            context.coordinator.install(from: uiView)
-        }
-    }
-
-    final class Coordinator: NSObject {
-        var page: Binding<Int>
-        var pageCount: Int
-        var isEnabled = true
-        private var wired = Set<ObjectIdentifier>()
-
-        init(page: Binding<Int>, pageCount: Int) {
-            self.page = page
-            self.pageCount = pageCount
-        }
-
-        func install(from probe: UIView) {
-            guard let host = Self.nearestHost(from: probe) else { return }
-            wire(host)
-            for scroll in Self.scrollViews(in: host) where !scroll.isPagingEnabled {
-                wire(scroll)
-            }
-        }
-
-        private func wire(_ view: UIView) {
-            let id = ObjectIdentifier(view)
-            guard wired.insert(id).inserted else { return }
-            let left = UISwipeGestureRecognizer(target: self, action: #selector(goNext))
-            left.direction = .left
-            left.name = "todo42.categoryPage.left"
-            let right = UISwipeGestureRecognizer(target: self, action: #selector(goPrev))
-            right.direction = .right
-            right.name = "todo42.categoryPage.right"
-            view.addGestureRecognizer(left)
-            view.addGestureRecognizer(right)
-        }
-
-        @objc private func goNext() {
-            guard isEnabled, page.wrappedValue < pageCount - 1 else { return }
-            withAnimation(.easeInOut(duration: 0.2)) {
-                page.wrappedValue += 1
-            }
-        }
-
-        @objc private func goPrev() {
-            guard isEnabled, page.wrappedValue > 0 else { return }
-            withAnimation(.easeInOut(duration: 0.2)) {
-                page.wrappedValue -= 1
-            }
-        }
-
-        private static func nearestHost(from probe: UIView) -> UIView? {
-            var node: UIView? = probe.superview
-            var fallback = probe.superview
-            while let view = node {
-                fallback = view
-                if !scrollViews(in: view).filter({ !$0.isPagingEnabled }).isEmpty {
-                    return view
-                }
-                if view is UIWindow { break }
-                node = view.superview
-            }
-            return fallback
-        }
-
-        private static func scrollViews(in view: UIView) -> [UIScrollView] {
-            var found: [UIScrollView] = []
-            if let scroll = view as? UIScrollView { found.append(scroll) }
-            for child in view.subviews {
-                found.append(contentsOf: scrollViews(in: child))
-            }
-            return found
-        }
     }
 }
 

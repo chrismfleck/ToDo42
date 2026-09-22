@@ -1,5 +1,5 @@
 #!/bin/bash
-# Find every ToDo42 checkout, sync THIS one to Build 135, close Xcode, open the right project.
+# Find every ToDo42 checkout, sync THIS one to Build 136, close Xcode, open the right project.
 set -euo pipefail
 
 echo "=============================================="
@@ -66,12 +66,10 @@ echo "  • Destination = your physical iPhone"
 echo "  • Product → Clean Build Folder"
 echo "  • Product → Run"
 echo
-echo "PROOF YOU GOT 135 (all three):"
-echo "  1. Phone home-screen icon name is:  S4T 135"
-echo "  2. In-app bottom label is:          Build 135"
-echo "  3. Xcode console prints:            >>> Save4Two AppBuild 135 SRC <<<"
+echo "PROOF YOU GOT 136:"
+echo "  1. In-app bottom label:   Build 136"
+echo "  2. Xcode console:         >>> Save4Two AppBuild 136 SRC <<<"
 echo
-echo "If the icon is still Save4Two / Help still says Build 130,"
-echo "Xcode ran a DIFFERENT folder — paste section (2) output back."
+echo "If Help/bottom still says Build 130/135, Xcode opened a different folder."
 echo "Do NOT delete the app (that wipes items). Restore via Pair → iCloud."
 echo "=============================================="

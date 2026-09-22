@@ -235,7 +235,7 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/bash;
-			shellScript = "set -euo pipefail\necho \"SRCROOT=$SRCROOT\"\nSTAMP=$(sed -n 's/.*static let number = \"\\([0-9]*\\)\".*/\\1/p' \"$SRCROOT/ToDo42/AppBuild.swift\" | head -1)\necho \"AppBuild stamp=$STAMP\"\nif [[ \"$STAMP\" != \"135\" ]]; then\n  echo \"error: AppBuild.swift stamp is $STAMP (expected 135). Xcode opened the wrong folder.\"\n  exit 1\nfi\n";
+			shellScript = "set -euo pipefail\necho \"SRCROOT=$SRCROOT\"\nSTAMP=$(sed -n 's/.*static let number = \"\\([0-9]*\\)\".*/\\1/p' \"$SRCROOT/ToDo42/AppBuild.swift\" | head -1)\necho \"AppBuild stamp=$STAMP\"\nif [[ \"$STAMP\" != \"136\" ]]; then\n  echo \"error: AppBuild.swift stamp is $STAMP (expected 136). Xcode opened the wrong folder.\"\n  exit 1\nfi\n";
 		};
 /* End PBXShellScriptBuildPhase section */
 
@@ -393,12 +393,12 @@
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_ENTITLEMENTS = ToDo42/ToDo42.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 135;
+				CURRENT_PROJECT_VERSION = 136;
 				DEVELOPMENT_TEAM = Q392X463G9;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = ToDo42/Info.plist;
-				INFOPLIST_KEY_CFBundleDisplayName = "S4T 135";
+				INFOPLIST_KEY_CFBundleDisplayName = Save4Two;
 				INFOPLIST_KEY_CFBundleVersion = "$(CURRENT_PROJECT_VERSION)";
 				INFOPLIST_KEY_ITSAppUsesNonExemptEncryption = NO;
 				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = "Save4Two uses your location to set an optional home base so item pages can show how many miles away they are.";
@@ -434,12 +434,12 @@
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_ENTITLEMENTS = "ToDo42/ToDo42-Release.entitlements";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 135;
+				CURRENT_PROJECT_VERSION = 136;
 				DEVELOPMENT_TEAM = Q392X463G9;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = ToDo42/Info.plist;
-				INFOPLIST_KEY_CFBundleDisplayName = "S4T 135";
+				INFOPLIST_KEY_CFBundleDisplayName = Save4Two;
 				INFOPLIST_KEY_CFBundleVersion = "$(CURRENT_PROJECT_VERSION)";
 				INFOPLIST_KEY_ITSAppUsesNonExemptEncryption = NO;
 				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = "Save4Two uses your location to set an optional home base so item pages can show how many miles away they are.";
@@ -473,7 +473,7 @@
 			buildSettings = {
 				CODE_SIGN_ENTITLEMENTS = ShareExtension/ShareExtension.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 135;
+				CURRENT_PROJECT_VERSION = 136;
 				DEVELOPMENT_TEAM = Q392X463G9;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = ShareExtension/Info.plist;
@@ -502,7 +502,7 @@
 			buildSettings = {
 				CODE_SIGN_ENTITLEMENTS = ShareExtension/ShareExtension.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 135;
+				CURRENT_PROJECT_VERSION = 136;
 				DEVELOPMENT_TEAM = Q392X463G9;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = ShareExtension/Info.plist;
