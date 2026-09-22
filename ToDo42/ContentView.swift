@@ -69,20 +69,20 @@ extension View {
 private let heartPink = Color(red: 0.92, green: 0.28, blue: 0.45)
 
 struct PairHeartPlusIcon: View {
-    var size: CGFloat = 22
+    /// Match other header chrome circles (`headerGlyphPoint` = 28).
+    var size: CGFloat = 28
+    var tint: Color
+    /// Kept for call-site compatibility; the asset already includes the ring.
+    var lineWidth: CGFloat? = nil
 
     var body: some View {
-        ZStack(alignment: .top) {
-            Image(systemName: "heart.fill")
-                .font(.system(size: size, weight: .semibold))
-                .foregroundStyle(.red)
-            Image(systemName: "plus")
-                .font(.system(size: size * 0.42, weight: .heavy))
-                .foregroundStyle(.white)
-                .offset(y: size * 0.18)
-        }
-        .frame(width: size + 6, height: size + 2)
-        .accessibilityHidden(true)
+        Image("PairHeartsChrome")
+            .renderingMode(.template)
+            .resizable()
+            .scaledToFit()
+            .foregroundStyle(tint)
+            .frame(width: size, height: size)
+            .accessibilityHidden(true)
     }
 }
 
@@ -642,9 +642,13 @@ struct ContentView: View {
             HStack(spacing: 8) {
                 if showPairChrome {
                     Button { showPairing = true } label: {
-                        PairHeartPlusIcon(size: Self.headerHeadSize * 0.55)
-                            .frame(width: Self.headerIconHit, height: Self.headerIconHit)
-                            .contentShape(Rectangle())
+                        PairHeartPlusIcon(
+                            size: Self.headerGlyphPoint,
+                            tint: Palette.brandBlue(colorScheme),
+                            lineWidth: Self.headerCircleLineWidth
+                        )
+                        .frame(width: Self.headerIconHit, height: Self.headerIconHit)
+                        .contentShape(Rectangle())
                     }
                     .buttonStyle(.borderless)
                     .accessibilityLabel("Pair phones")

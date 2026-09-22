@@ -235,7 +235,7 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/bash;
-			shellScript = "set -euo pipefail\necho \"SRCROOT=$SRCROOT\"\nSTAMP=$(sed -n 's/.*static let number = \"\\([0-9]*\\)\".*/\\1/p' \"$SRCROOT/ToDo42/AppBuild.swift\" | head -1)\necho \"AppBuild stamp=$STAMP\"\nif [[ \"$STAMP\" != \"139\" ]]; then\n  echo \"error: AppBuild.swift stamp is $STAMP (expected 139). Xcode opened the wrong folder.\"\n  exit 1\nfi\n";
+			shellScript = "set -euo pipefail\necho \"SRCROOT=$SRCROOT\"\nSTAMP=$(sed -n 's/.*static let number = \"\\([0-9]*\\)\".*/\\1/p' \"$SRCROOT/ToDo42/AppBuild.swift\" | head -1)\necho \"AppBuild stamp=$STAMP\"\nif [[ \"$STAMP\" != \"140\" ]]; then\n  echo \"error: AppBuild.swift stamp is $STAMP (expected 140). Xcode opened the wrong folder.\"\n  exit 1\nfi\n";
 		};
 /* End PBXShellScriptBuildPhase section */
 
@@ -393,7 +393,7 @@
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_ENTITLEMENTS = ToDo42/ToDo42.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 139;
+				CURRENT_PROJECT_VERSION = 140;
 				DEVELOPMENT_TEAM = Q392X463G9;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
@@ -434,7 +434,7 @@
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_ENTITLEMENTS = "ToDo42/ToDo42-Release.entitlements";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 139;
+				CURRENT_PROJECT_VERSION = 140;
 				DEVELOPMENT_TEAM = Q392X463G9;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
@@ -473,7 +473,7 @@
 			buildSettings = {
 				CODE_SIGN_ENTITLEMENTS = ShareExtension/ShareExtension.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 139;
+				CURRENT_PROJECT_VERSION = 140;
 				DEVELOPMENT_TEAM = Q392X463G9;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = ShareExtension/Info.plist;
@@ -502,7 +502,7 @@
 			buildSettings = {
 				CODE_SIGN_ENTITLEMENTS = ShareExtension/ShareExtension.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 139;
+				CURRENT_PROJECT_VERSION = 140;
 				DEVELOPMENT_TEAM = Q392X463G9;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = ShareExtension/Info.plist;

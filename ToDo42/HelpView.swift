@@ -163,7 +163,7 @@ struct HelpView: View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(alignment: .firstTextBaseline, spacing: 6) {
                 Text("To add a partner tap")
-                PairHeartPlusIcon(size: 18)
+                PairHeartPlusIcon(size: 18, tint: Palette.brandBlue(colorScheme))
             }
             Text("Enter names, send invite to partner. Or enter a code if you are sent one.")
             Text("To add second partner tap Add a pair.")
