@@ -300,10 +300,11 @@ struct ContentView: View {
     @State private var rowHeights: [UUID: CGFloat] = [:]
 
     private static let hasLeftListEditKey = "todo42.hasLeftListEditMode"
-    private static let headerIconHit: CGFloat = 52
-    /// Home headshots (+20% from 36). Circle toolbar glyphs match this diameter.
-    private static let headerHeadSize: CGFloat = 43
-    private static let headerGlyphPoint: CGFloat = 43
+    private static let headerIconHit: CGFloat = 44
+    /// Home headshots — larger than the toolbar circle glyphs.
+    private static let headerHeadSize: CGFloat = 52
+    /// pencil / ? / + circles — same point size for all three.
+    private static let headerGlyphPoint: CGFloat = 28
 
     private var pairScopedItems: [TodoItem] {
         let active = pairSession.pairID
