@@ -412,7 +412,7 @@ struct ContentView: View {
     /// Explicit ring: ~25% thinner than a typical SF Symbol circle stroke.
     private static let headerCircleLineWidth: CGFloat = 28 * 0.054
     /// Equal vertical gap: heads → categories, and categories → item cards.
-    private static let homeChromeGap: CGFloat = 10
+    private static let homeChromeGap: CGFloat = 12
 
     private var pairScopedItems: [TodoItem] {
         let active = pairSession.pairID
@@ -454,7 +454,7 @@ struct ContentView: View {
     }
 
     var body: some View {
-        VStack(spacing: 0) {
+        VStack(spacing: Self.homeChromeGap) {
             homeHeaderBar
                 .zIndex(2)
 
@@ -641,7 +641,7 @@ struct ContentView: View {
             .frame(minWidth: Self.headerIconHit, alignment: .trailing)
         }
         .padding(.horizontal, 16)
-        .padding(.bottom, 4)
+        .padding(.bottom, 0)
     }
 
     private func selectCategory(_ cat: ItemCategory) {
@@ -668,7 +668,7 @@ struct ContentView: View {
             get: { pageSelection[page] ?? categories[0] },
             set: { selectCategory($0) }
         )
-        VStack(alignment: .leading, spacing: 14) {
+        VStack(alignment: .leading, spacing: Self.homeChromeGap) {
             CategoryTabStrip(
                 categories: categories,
                 isSelected: { $0 == selected.wrappedValue },
