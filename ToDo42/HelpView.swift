@@ -11,7 +11,7 @@ struct HelpView: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 22) {
                     Text("How to use Save 4 Two")
-                        .font(.system(size: 17, weight: .bold))
+                        .font(.system(size: 20, weight: .bold))
 
                     openingScreenshot
 
@@ -36,13 +36,13 @@ struct HelpView: View {
 
                         HelpStep(
                             number: 2,
-                            spoken: "To Find ideas and add items, tap plus, then tap Find Ideas. Then enter search keywords: location, features, guests, etc. Then select an item and tap Save 4 Two."
+                            spoken: "To find ideas and add items, tap plus. Then enter search keywords: location, features, guests, etc. Then select an item and tap Save 4 Two."
                         ) {
                             VStack(alignment: .leading, spacing: 6) {
                                 HStack(alignment: .center, spacing: 5) {
-                                    helpText("To Find ideas and add items, tap")
+                                    helpText("To find ideas and add items tap")
                                     chromePlus
-                                    helpText(", then tap Find Ideas.")
+                                    helpText(".")
                                 }
                                 helpText("Then enter search keywords: location, features, guests, etc. Then select an item and tap Save 4 Two.")
                             }
@@ -50,31 +50,16 @@ struct HelpView: View {
 
                         HelpStep(
                             number: 3,
-                            spoken: "To add a partner tap the circled double hearts. Enter names, send invite to partner. Or enter a code if you are sent one. To add second partner tap Add a pair."
+                            spoken: "To add a partner tap the circled double hearts. Enter names and headshots, send invite to partner. Or enter a code if you are sent one. To add second partner tap Add a pair."
                         ) {
                             partnerHelpRow
                         }
 
                         HelpStep(
                             number: 4,
-                            spoken: "From a page on Instagram or TikTok, tap Share, then Share to. Look for the Save 4 Two app icon. You may need to swipe left."
+                            spoken: "From a page on Instagram or TikTok, tap Share, then Share to. Look for the Save 4 Two app icon. You may need to swipe left and or tap the circle with three dots."
                         ) {
-                            VStack(alignment: .leading, spacing: 10) {
-                                helpText("From a page on Instagram or TikTok etc, tap ")
-                                + chrome("paperplane")
-                                + helpText(" then ")
-                                + chrome("square.and.arrow.up")
-                                + helpText(". Look for ")
-                                + helpText("Save 4 Two")
-                                    .fontWeight(.semibold)
-                                + helpText(" — you may need to swipe left.")
-                                Image("HelpAppIcon")
-                                    .resizable()
-                                    .scaledToFit()
-                                    .frame(width: 56, height: 56)
-                                    .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-                                    .accessibilityHidden(true)
-                            }
+                            shareToHelpRow
                         }
 
                         HelpStep(
@@ -177,17 +162,50 @@ struct HelpView: View {
                 helpText("To add a partner tap")
                 PairHeartPlusIcon(size: Self.helpChromeSize, tint: Palette.brandBlue(colorScheme))
             }
-            helpText("Enter names, send invite to partner. Or enter a code if you are sent one.")
+            helpText("Enter names and headshots, send invite to partner. Or enter a code if you are sent one.")
             helpText("To add second partner tap Add a pair.")
         }
         .foregroundStyle(.primary)
         .fixedSize(horizontal: false, vertical: true)
     }
 
-    /// Matches home card title size (`ItemRowView` LockedText 12pt bold).
-    private static let helpBodySize: CGFloat = 12
-    private static let helpChromeSize: CGFloat = 18
-    private static let helpChromeLine: CGFloat = 18 * 0.054
+    private var shareToHelpRow: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            (
+                helpText("From a page on Instagram or TikTok etc, tap ")
+                + chrome("paperplane")
+                + helpText(" then ")
+                + chrome("square.and.arrow.up")
+                + helpText(".")
+            )
+            .fixedSize(horizontal: false, vertical: true)
+
+            // Icon sits after “Save 4 Two”; text can wrap onto the next line around it.
+            HStack(alignment: .center, spacing: 6) {
+                helpText("Look for Save 4 Two")
+                Image("HelpAppIcon")
+                    .resizable()
+                    .scaledToFit()
+                    .frame(width: Self.helpAppIconSize, height: Self.helpAppIconSize)
+                    .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                    .accessibilityHidden(true)
+            }
+            .fixedSize(horizontal: false, vertical: true)
+
+            HStack(alignment: .center, spacing: 5) {
+                helpText("You may need to swipe left and/or tap")
+                chrome("ellipsis.circle")
+                helpText(".")
+            }
+            .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+
+    /// Help body matches a readable card-title scale (20pt).
+    private static let helpBodySize: CGFloat = 20
+    private static let helpChromeSize: CGFloat = 24
+    private static let helpChromeLine: CGFloat = 24 * 0.054
+    private static let helpAppIconSize: CGFloat = 28
 
     private var chromePlus: some View {
         ChromeCircleIcon(
@@ -230,17 +248,19 @@ struct HelpView: View {
     private var homeBaseStep: some View {
         VStack(alignment: .leading, spacing: 12) {
             Text("Set home base (optional). Tap Set home while you are at home so item pages can show the town and how many miles away they are.")
+                .font(.system(size: Self.helpBodySize, weight: .bold))
             HStack(spacing: 10) {
                 Image(systemName: "location.fill")
-                    .font(.body.weight(.semibold))
+                    .font(.system(size: Self.helpBodySize, weight: .semibold))
                     .foregroundStyle(Palette.brandBlue(colorScheme))
                 Text(homeBase.isSet ? "Home: \(homeBase.displayLabel)" : "Home: not set")
+                    .font(.system(size: Self.helpBodySize, weight: .bold))
             }
             Button {
                 Task { await homeBase.setFromCurrentLocation() }
             } label: {
                 Text(homeBase.isSetting ? "Setting home…" : "Set home")
-                    .font(.headline)
+                    .font(.system(size: Self.helpBodySize, weight: .bold))
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 12)
                     .appCard(cornerRadius: 12, scheme: colorScheme)
@@ -318,12 +338,12 @@ private struct HelpStep<Content: View>: View {
     var body: some View {
         HStack(alignment: .top, spacing: 10) {
             Text("\(number).")
-                .font(.system(size: 12, weight: .bold).monospacedDigit())
+                .font(.system(size: 20, weight: .bold).monospacedDigit())
                 .foregroundStyle(Palette.brandBlue(colorScheme))
-                .frame(width: 22, alignment: .leading)
+                .frame(width: 28, alignment: .leading)
                 .accessibilityHidden(true)
             content
-                .font(.system(size: 12, weight: .bold))
+                .font(.system(size: 20, weight: .bold))
                 .foregroundStyle(.primary)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .fixedSize(horizontal: false, vertical: true)
