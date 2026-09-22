@@ -11,7 +11,7 @@ struct HelpView: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 22) {
                     Text("How to use Save 4 Two")
-                        .font(.title2.bold())
+                        .font(.system(size: 17, weight: .bold))
 
                     openingScreenshot
 
@@ -20,25 +20,37 @@ struct HelpView: View {
                             number: 1,
                             spoken: "To add an item, tap plus paste a link. Title, photo, and notes auto fill in. Or skip the link and type the details and save. Then tap check for home page."
                         ) {
-                            helpText("To add an item, tap ")
-                            + chrome("plus.circle.fill")
-                            + helpText(" paste a link. Title, photo, and notes auto fill in. Or skip the link and type the details and save. Then tap ")
-                            + chrome("checkmark")
-                            + helpText(" for home page.")
+                            VStack(alignment: .leading, spacing: 6) {
+                                HStack(alignment: .center, spacing: 5) {
+                                    helpText("To add an item, tap")
+                                    chromePlus
+                                }
+                                helpText("Paste a link. Title, photo, and notes auto fill in. Or skip the link and type the details and save.")
+                                HStack(alignment: .center, spacing: 5) {
+                                    helpText("Then tap")
+                                    chromeCheck
+                                    helpText("for home page.")
+                                }
+                            }
                         }
 
                         HelpStep(
                             number: 2,
                             spoken: "To Find ideas and add items, tap plus, then tap Find Ideas. Then enter search keywords: location, features, guests, etc. Then select an item and tap Save 4 Two."
                         ) {
-                            helpText("To Find ideas and add items, tap ")
-                            + chrome("plus.circle.fill")
-                            + helpText(", then tap Find Ideas. Then enter search keywords: location, features, guests, etc. Then select an item and tap Save 4 Two.")
+                            VStack(alignment: .leading, spacing: 6) {
+                                HStack(alignment: .center, spacing: 5) {
+                                    helpText("To Find ideas and add items, tap")
+                                    chromePlus
+                                    helpText(", then tap Find Ideas.")
+                                }
+                                helpText("Then enter search keywords: location, features, guests, etc. Then select an item and tap Save 4 Two.")
+                            }
                         }
 
                         HelpStep(
                             number: 3,
-                            spoken: "To add a partner tap the red heart with a plus. Enter names, send invite to partner. Or enter a code if you are sent one. To add second partner tap Add a pair."
+                            spoken: "To add a partner tap the circled double hearts. Enter names, send invite to partner. Or enter a code if you are sent one. To add second partner tap Add a pair."
                         ) {
                             partnerHelpRow
                         }
@@ -161,16 +173,40 @@ struct HelpView: View {
 
     private var partnerHelpRow: some View {
         VStack(alignment: .leading, spacing: 8) {
-            HStack(alignment: .firstTextBaseline, spacing: 6) {
-                Text("To add a partner tap")
-                PairHeartPlusIcon(size: 18, tint: Palette.brandBlue(colorScheme))
+            HStack(alignment: .center, spacing: 5) {
+                helpText("To add a partner tap")
+                PairHeartPlusIcon(size: Self.helpChromeSize, tint: Palette.brandBlue(colorScheme))
             }
-            Text("Enter names, send invite to partner. Or enter a code if you are sent one.")
-            Text("To add second partner tap Add a pair.")
+            helpText("Enter names, send invite to partner. Or enter a code if you are sent one.")
+            helpText("To add second partner tap Add a pair.")
         }
-        .font(.body)
         .foregroundStyle(.primary)
         .fixedSize(horizontal: false, vertical: true)
+    }
+
+    /// Matches home card title size (`ItemRowView` LockedText 12pt bold).
+    private static let helpBodySize: CGFloat = 12
+    private static let helpChromeSize: CGFloat = 18
+    private static let helpChromeLine: CGFloat = 18 * 0.054
+
+    private var chromePlus: some View {
+        ChromeCircleIcon(
+            systemName: "plus",
+            diameter: Self.helpChromeSize,
+            tint: Palette.brandBlue(colorScheme),
+            lineWidth: Self.helpChromeLine
+        )
+        .accessibilityHidden(true)
+    }
+
+    private var chromeCheck: some View {
+        ChromeCircleIcon(
+            systemName: "checkmark",
+            diameter: Self.helpChromeSize,
+            tint: Palette.brandBlue(colorScheme),
+            lineWidth: Self.helpChromeLine
+        )
+        .accessibilityHidden(true)
     }
 
     private func categoryNameFields(_ categories: [ItemCategory]) -> some View {
@@ -178,10 +214,11 @@ struct HelpView: View {
             ForEach(categories) { cat in
                 HStack(spacing: 10) {
                     Image(systemName: cat.systemImage)
-                        .font(.body.weight(.semibold))
+                        .font(.system(size: Self.helpBodySize, weight: .semibold))
                         .foregroundStyle(cat.iconColor)
                         .frame(width: 22)
                     TextField(cat.defaultTitle, text: categoryNames.binding(for: cat))
+                        .font(.system(size: Self.helpBodySize, weight: .bold))
                         .textInputAutocapitalization(.words)
                         .padding(10)
                         .appCard(cornerRadius: 10, scheme: colorScheme)
@@ -231,7 +268,7 @@ struct HelpView: View {
                         lineWidth: 1
                     )
             }
-            .accessibilityLabel("Screenshot of the home list in edit mode")
+            .accessibilityLabel("Screenshot of the home header and category tabs")
     }
 
     private var footer: some View {
@@ -255,17 +292,18 @@ struct HelpView: View {
 
     private func helpText(_ string: String) -> Text {
         Text(string)
+            .font(.system(size: Self.helpBodySize, weight: .bold))
     }
 
     private func chrome(_ systemName: String) -> Text {
         Text(Image(systemName: systemName))
-            .font(.body.weight(.semibold))
+            .font(.system(size: Self.helpBodySize, weight: .semibold))
             .foregroundColor(Palette.brandBlue(colorScheme))
     }
 
     private func redChrome(_ systemName: String) -> Text {
         Text(Image(systemName: systemName))
-            .font(.body.weight(.semibold))
+            .font(.system(size: Self.helpBodySize, weight: .semibold))
             .foregroundColor(.red)
     }
 }
@@ -280,12 +318,12 @@ private struct HelpStep<Content: View>: View {
     var body: some View {
         HStack(alignment: .top, spacing: 10) {
             Text("\(number).")
-                .font(.headline.monospacedDigit())
+                .font(.system(size: 12, weight: .bold).monospacedDigit())
                 .foregroundStyle(Palette.brandBlue(colorScheme))
-                .frame(width: 26, alignment: .leading)
+                .frame(width: 22, alignment: .leading)
                 .accessibilityHidden(true)
             content
-                .font(.body)
+                .font(.system(size: 12, weight: .bold))
                 .foregroundStyle(.primary)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .fixedSize(horizontal: false, vertical: true)
