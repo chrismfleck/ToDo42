@@ -400,7 +400,7 @@ struct PairingView: View {
     private var restoreCard: some View {
         pairCard {
             cardTitle("Restore from iCloud", icon: "clock.fill", tint: Color(red: 0.98, green: 0.72, blue: 0.20))
-            Text("Deleted the app or lost the list? Enter an older 6-digit invite code from Messages, then restore. Do not delete the app again — that wipes the phone copy until you restore.")
+            Text("Enter the same 6-digit invite code from Messages (the one used to pair before). Restore reconnects that pair and pulls the list. Do not tap Invite / New invite on either phone — that starts a blank list. Leave Deena’s phone as-is if it still has the items.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
             pairField("Older 6-digit code", text: $restoreCode)
@@ -510,8 +510,19 @@ struct PairingView: View {
         errorText = ""
         session.isBusy = true
         defer { session.isBusy = false }
-        await CloudSync.shared.restoreFromCloud(modelContext: modelContext, oldCode: restoreCode)
-        if session.statusMessage.isEmpty == false, session.statusMessage.contains("no saved") {
+        session.persistLocal()
+        let code = restoreCode.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard code.count == 6 else {
+            errorText = "Enter the 6-digit invite code from Messages first."
+            return
+        }
+        await CloudSync.shared.restoreFromCloud(modelContext: modelContext, oldCode: code)
+        if session.isPaired {
+            await CloudSync.shared.sync(modelContext: modelContext, allowCreate: true)
+        }
+        if session.statusMessage.localizedCaseInsensitiveContains("not found")
+            || session.statusMessage.localizedCaseInsensitiveContains("could not find")
+            || session.statusMessage.localizedCaseInsensitiveContains("failed") {
             errorText = session.statusMessage
         }
     }

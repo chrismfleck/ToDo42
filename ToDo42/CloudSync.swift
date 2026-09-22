@@ -566,6 +566,13 @@ final class CloudSync {
                 session.isApplyingRemote = true
                 defer { session.isApplyingRemote = false }
 
+                // Re-attach pairing from the invite code so the list stays in sync
+                // (restore alone used to leave the phone unpaired).
+                let trimmedCode = oldCode.trimmingCharacters(in: .whitespacesAndNewlines)
+                if trimmedCode.count == 6, let reattached = await self.reattachPair(fromInviteCode: trimmedCode) {
+                    _ = reattached
+                }
+
                 var localByID = ItemStore.keyedByID(ItemStore.allItems(in: modelContext))
                 let itemRecords = records.filter { self.recordKind($0) == .listItem }
                 let extraRecords = records.filter { self.recordKind($0) == .extraPhoto }
@@ -589,13 +596,14 @@ final class CloudSync {
                     }
                     let title = RemoteItemApply.resolvedTitle(localTitle: "", remoteTitle: record["title"] as? String)
                     guard !title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { continue }
+                    let resolvedPair = recordPairID.isEmpty ? (session.pairID ?? "") : recordPairID
                     let item = TodoItem(
                         title: title,
                         category: ItemCategory.parse(record["categoryRaw"] as? String ?? "places").first ?? .places,
                         urlString: record["urlString"] as? String,
                         notes: record["notes"] as? String ?? "",
                         sortOrder: CloudKitValues.intValue(record["sortOrder"]) ?? 0,
-                        pairID: recordPairID.isEmpty ? session.pairID : recordPairID
+                        pairID: resolvedPair
                     )
                     item.id = uuid
                     self.apply(record, to: item)
@@ -613,19 +621,68 @@ final class CloudSync {
                 }
                 try? modelContext.save()
                 if session.isPaired {
+                    ItemStore.migrateUnscopedItems(in: modelContext, to: session.pairID)
                     let pairItems = ItemStore.items(forPair: session.pairID, in: modelContext)
                     try await self.pushAll(pairItems, allowCreate: true)
                 }
                 let total = ItemStore.items(forPair: session.pairID, in: modelContext).count
                 if records.isEmpty {
                     session.statusMessage = result.emptyMessage
+                } else if session.isPaired {
+                    session.statusMessage = "Restored \(total) item\(total == 1 ? "" : "s") and reconnected the pair."
                 } else {
-                    session.statusMessage = "Restored \(total) item\(total == 1 ? "" : "s") from iCloud."
+                    session.statusMessage = "Restored \(total) item\(total == 1 ? "" : "s"). Enter the 6-digit code under Join so sync stays on."
                 }
             } catch {
                 PairSession.shared.statusMessage = Self.friendlyMessage(error)
             }
         }
+    }
+
+    /// Puts this phone back on the pair that owned `code` (host if names match, else guest).
+    private func reattachPair(fromInviteCode code: String) async -> String? {
+        guard let codeRecord = try? await database.record(for: CKRecord.ID(recordName: "code-\(code)")),
+              let pairID = codeRecord["pairID"] as? String,
+              !pairID.isEmpty
+        else { return nil }
+
+        let session = PairSession.shared
+        if !session.isComposingNewPair {
+            session.discardActivePairSlotBeforeReplace()
+        }
+        session.pairID = pairID
+        session.inviteCode = code
+
+        var role: PairRole = .chris
+        if let pair = try? await database.record(for: CKRecord.ID(recordName: "pair-\(pairID)")) {
+            let host = (pair["hostName"] as? String ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+            let guest = (pair["guestName"] as? String ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+            let me = session.trimmedMyName
+            let partner = session.trimmedPartnerName
+            if !me.isEmpty, me.caseInsensitiveCompare(guest) == .orderedSame {
+                role = .deena
+            } else if !me.isEmpty, me.caseInsensitiveCompare(host) == .orderedSame {
+                role = .chris
+            } else if !partner.isEmpty, partner.caseInsensitiveCompare(host) == .orderedSame {
+                role = .deena
+            } else {
+                role = .chris
+            }
+            if role == .chris {
+                if session.trimmedMyName.isEmpty, !host.isEmpty { session.myName = host }
+                if session.trimmedPartnerName.isEmpty, !guest.isEmpty { session.partnerName = guest }
+            } else {
+                if session.trimmedMyName.isEmpty, !guest.isEmpty { session.myName = guest }
+                if session.trimmedPartnerName.isEmpty, !host.isEmpty { session.partnerName = host }
+            }
+            CategoryNames.shared.applyRemoteJSON(pair[CategoryNames.cloudField] as? String)
+        }
+        session.role = role
+        session.markComposeFinished()
+        session.persistLocal()
+        try? await subscribe()
+        try? await requestNotifications()
+        return pairID
     }
 
     func deleteRemote(_ id: UUID) async {
