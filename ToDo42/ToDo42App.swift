@@ -37,6 +37,8 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
     ) -> Bool {
         UNUserNotificationCenter.current().delegate = self
         application.registerForRemoteNotifications()
+        // Visible in Xcode console — proves which binary launched.
+        print(">>> Save4Two AppBuild \(AppBuild.number) SRC <<<")
         return true
     }
 
