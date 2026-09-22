@@ -197,11 +197,11 @@ struct HelpView: View {
         }
     }
 
-    /// Help body matches a readable card-title scale (20pt).
-    private static let helpBodySize: CGFloat = 20
-    private static let helpChromeSize: CGFloat = 24
-    private static let helpChromeLine: CGFloat = 24 * 0.054
-    private static let helpAppIconSize: CGFloat = 28
+    /// Help body copy — regular 18pt.
+    private static let helpBodySize: CGFloat = 18
+    private static let helpChromeSize: CGFloat = 22
+    private static let helpChromeLine: CGFloat = 22 * 0.054
+    private static let helpAppIconSize: CGFloat = 26
 
     private var chromePlus: some View {
         ChromeCircleIcon(
@@ -228,11 +228,11 @@ struct HelpView: View {
             ForEach(categories) { cat in
                 HStack(spacing: 10) {
                     Image(systemName: cat.systemImage)
-                        .font(.system(size: Self.helpBodySize, weight: .semibold))
+                        .font(.system(size: Self.helpBodySize, weight: .regular))
                         .foregroundStyle(cat.iconColor)
                         .frame(width: 22)
                     TextField(cat.defaultTitle, text: categoryNames.binding(for: cat))
-                        .font(.system(size: Self.helpBodySize, weight: .bold))
+                        .font(.system(size: Self.helpBodySize, weight: .regular))
                         .textInputAutocapitalization(.words)
                         .padding(10)
                         .appCard(cornerRadius: 10, scheme: colorScheme)
@@ -244,19 +244,19 @@ struct HelpView: View {
     private var homeBaseStep: some View {
         VStack(alignment: .leading, spacing: 12) {
             Text("Set home base (optional). Tap Set home while you are at home so item pages can show the town and how many miles away they are.")
-                .font(.system(size: Self.helpBodySize, weight: .bold))
+                .font(.system(size: Self.helpBodySize, weight: .regular))
             HStack(spacing: 10) {
                 Image(systemName: "location.fill")
-                    .font(.system(size: Self.helpBodySize, weight: .semibold))
+                    .font(.system(size: Self.helpBodySize, weight: .regular))
                     .foregroundStyle(Palette.brandBlue(colorScheme))
                 Text(homeBase.isSet ? "Home: \(homeBase.displayLabel)" : "Home: not set")
-                    .font(.system(size: Self.helpBodySize, weight: .bold))
+                    .font(.system(size: Self.helpBodySize, weight: .regular))
             }
             Button {
                 Task { await homeBase.setFromCurrentLocation() }
             } label: {
                 Text(homeBase.isSetting ? "Setting home…" : "Set home")
-                    .font(.system(size: Self.helpBodySize, weight: .bold))
+                    .font(.system(size: Self.helpBodySize, weight: .regular))
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 12)
                     .appCard(cornerRadius: 12, scheme: colorScheme)
@@ -308,18 +308,18 @@ struct HelpView: View {
 
     private func helpText(_ string: String) -> Text {
         Text(string)
-            .font(.system(size: Self.helpBodySize, weight: .bold))
+            .font(.system(size: Self.helpBodySize, weight: .regular))
     }
 
     private func chrome(_ systemName: String) -> Text {
         Text(Image(systemName: systemName))
-            .font(.system(size: Self.helpBodySize, weight: .semibold))
+            .font(.system(size: Self.helpBodySize, weight: .regular))
             .foregroundColor(Palette.brandBlue(colorScheme))
     }
 
     private func redChrome(_ systemName: String) -> Text {
         Text(Image(systemName: systemName))
-            .font(.system(size: Self.helpBodySize, weight: .semibold))
+            .font(.system(size: Self.helpBodySize, weight: .regular))
             .foregroundColor(.red)
     }
 }
@@ -334,12 +334,12 @@ private struct HelpStep<Content: View>: View {
     var body: some View {
         HStack(alignment: .top, spacing: 10) {
             Text("\(number).")
-                .font(.system(size: 20, weight: .bold).monospacedDigit())
+                .font(.system(size: 18, weight: .regular).monospacedDigit())
                 .foregroundStyle(Palette.brandBlue(colorScheme))
                 .frame(width: 28, alignment: .leading)
                 .accessibilityHidden(true)
             content
-                .font(.system(size: 20, weight: .bold))
+                .font(.system(size: 18, weight: .regular))
                 .foregroundStyle(.primary)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .fixedSize(horizontal: false, vertical: true)
