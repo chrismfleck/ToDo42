@@ -362,16 +362,13 @@ struct CategoryPickerGrid: View {
 
     var body: some View {
         VStack(spacing: 8) {
-            CategoryTabStrip(
-                categories: ItemCategory.primaryPage,
-                isSelected: { selection.contains($0) },
-                onSelect: { toggle($0) }
-            )
-            CategoryTabStrip(
-                categories: ItemCategory.extraPage,
-                isSelected: { selection.contains($0) },
-                onSelect: { toggle($0) }
-            )
+            ForEach(Array(ItemCategory.pages.enumerated()), id: \.offset) { _, page in
+                CategoryTabStrip(
+                    categories: page,
+                    isSelected: { selection.contains($0) },
+                    onSelect: { toggle($0) }
+                )
+            }
         }
     }
 
@@ -392,7 +389,11 @@ struct ContentView: View {
     @Environment(\.scenePhase) private var scenePhase
     @State private var category: ItemCategory = .places
     @State private var categoryPage = 0
-    @State private var pageSelection: [Int: ItemCategory] = [0: .places, 1: .trip]
+    @State private var pageSelection: [Int: ItemCategory] = [
+        0: .places,
+        1: .projects,
+        2: .vegasTrip,
+    ]
     @State private var showAdd = false
     @State private var showPairing = false
     @State private var showHelp = false
@@ -459,16 +460,23 @@ struct ContentView: View {
                 .zIndex(2)
 
             TabView(selection: $categoryPage) {
-                categoryPageView(ItemCategory.primaryPage, page: 0)
-                    .tag(0)
-                categoryPageView(ItemCategory.extraPage, page: 1)
-                    .tag(1)
+                ForEach(Array(ItemCategory.pages.enumerated()), id: \.offset) { index, page in
+                    categoryPageView(page, page: index)
+                        .tag(index)
+                }
             }
             .tabViewStyle(.page(indexDisplayMode: .automatic))
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         .onChange(of: categoryPage) { _, page in
-            category = pageSelection[page] ?? (page == 0 ? .places : .trip)
+            let fallback: ItemCategory = {
+                switch page {
+                case 1: return .projects
+                case 2: return .vegasTrip
+                default: return .places
+                }
+            }()
+            category = pageSelection[page] ?? fallback
             reorderDrag = nil
         }
         .background {

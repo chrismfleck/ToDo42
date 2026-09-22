@@ -3,22 +3,34 @@ import SwiftData
 import SwiftUI
 
 enum ItemCategory: String, CaseIterable, Identifiable {
-    case places, fun, eats, trip, recipe, health
+    case places, fun, eats, projects, recipe, health, vegasTrip, londonTrip, dcTrip
     var id: String { rawValue }
 
     static let primaryPage: [ItemCategory] = [.places, .fun, .eats]
-    static let extraPage: [ItemCategory] = [.trip, .recipe, .health]
+    static let middlePage: [ItemCategory] = [.projects, .recipe, .health]
+    static let tripsPage: [ItemCategory] = [.vegasTrip, .londonTrip, .dcTrip]
+    /// Legacy name — same tabs as `middlePage`.
+    static let extraPage: [ItemCategory] = middlePage
 
-    var pageIndex: Int { Self.extraPage.contains(self) ? 1 : 0 }
+    static let pages: [[ItemCategory]] = [primaryPage, middlePage, tripsPage]
+
+    var pageIndex: Int {
+        if Self.tripsPage.contains(self) { return 2 }
+        if Self.middlePage.contains(self) { return 1 }
+        return 0
+    }
 
     var defaultTitle: String {
         switch self {
         case .places: "Bed 4 Two"
         case .fun: "Fun 4 Two"
         case .eats: "Table 4 Two"
-        case .trip: "Trip 4 Two"
+        case .projects: "Projects 4 Two"
         case .recipe: "Recipe 4 Two"
         case .health: "Health Tips 4 Two"
+        case .vegasTrip: "Vegas Trip 4 Two"
+        case .londonTrip: "London Trip 4 Two"
+        case .dcTrip: "DC Trip 4 Two"
         }
     }
 
@@ -30,9 +42,10 @@ enum ItemCategory: String, CaseIterable, Identifiable {
         case .places: "bed.double.fill"
         case .fun: "sailboat.fill"
         case .eats: "fork.knife"
-        case .trip: "airplane"
+        case .projects: "house.fill"
         case .recipe: "frying.pan.fill"
         case .health: "heart.text.square.fill"
+        case .vegasTrip, .londonTrip, .dcTrip: "airplane"
         }
     }
 
@@ -44,7 +57,9 @@ enum ItemCategory: String, CaseIterable, Identifiable {
             Color(red: 0.95, green: 0.76, blue: 0.08)
         case .eats, .recipe:
             Color(red: 0.16, green: 0.67, blue: 0.30)
-        case .trip:
+        case .projects:
+            Color(red: 0.20, green: 0.55, blue: 0.85)
+        case .vegasTrip, .londonTrip, .dcTrip:
             Color(red: 0.56, green: 0.27, blue: 0.85)
         }
     }
@@ -54,7 +69,14 @@ enum ItemCategory: String, CaseIterable, Identifiable {
         var ordered: [ItemCategory] = []
         for part in raw.split(separator: ",") {
             let token = part.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard let cat = ItemCategory(rawValue: token), seen.insert(cat).inserted else { continue }
+            let cat: ItemCategory?
+            if token == "trip" {
+                // Pre–Projects rename: old Trip 4 Two tab.
+                cat = .projects
+            } else {
+                cat = ItemCategory(rawValue: token)
+            }
+            guard let cat, seen.insert(cat).inserted else { continue }
             ordered.append(cat)
         }
         return ordered.isEmpty ? [.places] : ordered
@@ -92,11 +114,31 @@ enum ItemCategory: String, CaseIterable, Identifiable {
             || haystack.contains("wellness") {
             return .health
         }
+        if haystack.contains("vegas") || haystack.contains("las vegas") {
+            return .vegasTrip
+        }
+        if haystack.contains("london") {
+            return .londonTrip
+        }
+        if haystack.contains("washington")
+            || haystack.contains("washington dc")
+            || haystack.contains("washington, dc")
+            || haystack.contains("/dc/")
+            || haystack.contains(" dc ") {
+            return .dcTrip
+        }
         if haystack.contains("tripadvisor")
             || haystack.contains("expedia")
             || haystack.contains("kayak.com")
             || haystack.contains("google.com/travel") {
-            return .trip
+            return .vegasTrip
+        }
+        if haystack.contains("home depot")
+            || haystack.contains("lowes")
+            || haystack.contains("ikea")
+            || haystack.contains("project")
+            || haystack.contains("renovat") {
+            return .projects
         }
         if haystack.contains("instagram")
             || haystack.contains("youtube")

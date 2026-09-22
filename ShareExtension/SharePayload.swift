@@ -43,17 +43,21 @@ enum ShareInbox {
         ("places", "Bed 4 Two"),
         ("fun", "Fun 4 Two"),
         ("eats", "Table 4 Two"),
-        ("trip", "Trip 4 Two"),
+        ("projects", "Projects 4 Two"),
         ("recipe", "Recipe 4 Two"),
         ("health", "Health Tips 4 Two"),
+        ("vegasTrip", "Vegas Trip 4 Two"),
+        ("londonTrip", "London Trip 4 Two"),
+        ("dcTrip", "DC Trip 4 Two"),
     ]
 
     static func categoryTitle(_ raw: String) -> String {
+        let key = raw == "trip" ? "projects" : raw
         let stored = UserDefaults(suiteName: AppGroup.id)?
             .dictionary(forKey: "todo42.categoryTitles") as? [String: String]
-        let custom = stored?[raw]?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let custom = stored?[key]?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         if !custom.isEmpty { return custom }
-        return categoryDefaults.first { $0.raw == raw }?.title ?? raw
+        return categoryDefaults.first { $0.raw == key }?.title ?? raw
     }
 
     static func categorySymbol(_ raw: String) -> String {
@@ -61,9 +65,10 @@ enum ShareInbox {
         case "places": return "bed.double.fill"
         case "fun": return "sailboat.fill"
         case "eats": return "fork.knife"
-        case "trip": return "airplane"
+        case "projects", "trip": return "house.fill"
         case "recipe": return "frying.pan.fill"
         case "health": return "heart.text.square.fill"
+        case "vegasTrip", "londonTrip", "dcTrip": return "airplane"
         default: return "square.grid.2x2"
         }
     }
@@ -90,11 +95,31 @@ enum ShareInbox {
             || haystack.contains("wellness") {
             return "health"
         }
+        if haystack.contains("vegas") || haystack.contains("las vegas") {
+            return "vegasTrip"
+        }
+        if haystack.contains("london") {
+            return "londonTrip"
+        }
+        if haystack.contains("washington")
+            || haystack.contains("washington dc")
+            || haystack.contains("washington, dc")
+            || haystack.contains("/dc/")
+            || haystack.contains(" dc ") {
+            return "dcTrip"
+        }
         if haystack.contains("tripadvisor")
             || haystack.contains("expedia")
             || haystack.contains("kayak.com")
             || haystack.contains("google.com/travel") {
-            return "trip"
+            return "vegasTrip"
+        }
+        if haystack.contains("home depot")
+            || haystack.contains("lowes")
+            || haystack.contains("ikea")
+            || haystack.contains("project")
+            || haystack.contains("renovat") {
+            return "projects"
         }
         if haystack.contains("instagram")
             || haystack.contains("youtube")

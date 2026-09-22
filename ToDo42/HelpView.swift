@@ -111,13 +111,14 @@ struct HelpView: View {
 
                         HelpStep(
                             number: 9,
-                            spoken: "Enter additional categories. Home tabs are Bed 4 Two, Fun 4 Two, and Table 4 Two. Swipe left for Trip 4 Two, Recipe 4 Two, and Health Tips 4 Two. You can rename all six.",
+                            spoken: "Enter additional categories. Swipe across three home pages: Bed Fun and Table, then Projects Recipe and Health, then Vegas London and DC trips. You can rename all nine.",
                             isolatesAccessibility: false
                         ) {
                             VStack(alignment: .leading, spacing: 12) {
-                                helpText("Enter additional categories. Swipe left on the home list for the extra three. Names below are the tab titles — tap to edit.")
-                                categoryNameFields(ItemCategory.primaryPage)
-                                categoryNameFields(ItemCategory.extraPage)
+                                helpText("Enter additional categories. Swipe left on the home list for more tabs. Names below are the tab titles — tap to edit.")
+                                ForEach(Array(ItemCategory.pages.enumerated()), id: \.offset) { _, page in
+                                    categoryNameFields(page)
+                                }
                             }
                         }
 

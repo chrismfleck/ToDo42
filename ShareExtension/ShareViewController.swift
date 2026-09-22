@@ -356,7 +356,8 @@ struct ShareFormView: View {
         case "places", "health": return Color(red: 0.90, green: 0.20, blue: 0.22)
         case "fun": return Color(red: 0.95, green: 0.76, blue: 0.08)
         case "eats", "recipe": return Color(red: 0.16, green: 0.67, blue: 0.30)
-        case "trip": return Color(red: 0.56, green: 0.27, blue: 0.85)
+        case "projects", "trip": return Color(red: 0.20, green: 0.55, blue: 0.85)
+        case "vegasTrip", "londonTrip", "dcTrip": return Color(red: 0.56, green: 0.27, blue: 0.85)
         default: return .blue
         }
     }

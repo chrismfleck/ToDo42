@@ -29,7 +29,13 @@ final class CategoryNames {
 
     func title(for category: ItemCategory) -> String {
         let custom = titles[category.rawValue]?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        return custom.isEmpty ? category.defaultTitle : custom
+        if !custom.isEmpty { return custom }
+        // Old Trip 4 Two renames lived under the "trip" key.
+        if category == .projects {
+            let legacy = titles["trip"]?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            if !legacy.isEmpty { return legacy }
+        }
+        return category.defaultTitle
     }
 
     func binding(for category: ItemCategory) -> Binding<String> {
