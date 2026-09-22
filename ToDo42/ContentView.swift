@@ -459,16 +459,41 @@ struct ContentView: View {
             homeHeaderBar
                 .zIndex(2)
 
-            TabView(selection: $categoryPage) {
-                ForEach(Array(ItemCategory.pages.enumerated()), id: \.offset) { index, page in
-                    categoryPageView(page, page: index)
-                        .tag(index)
+            // Tabs sit above the pager so horizontal swipes here never fight the item grid.
+            CategoryTabStrip(
+                categories: ItemCategory.pages[categoryPage],
+                isSelected: { $0 == (pageSelection[categoryPage] ?? ItemCategory.pages[categoryPage][0]) },
+                onSelect: { selectCategory($0) }
+            )
+            .padding(.horizontal, 24)
+            .padding(.top, Self.homeChromeGap)
+            .padding(.bottom, Self.homeChromeGap)
+            .contentShape(Rectangle())
+            .gesture(categoryPageSwipeGesture)
+
+            // Orthogonal ScrollView pager (not TabView): horizontal page swipes and
+            // vertical item lists no longer share UIPageViewController gesture wiring,
+            // which made page 3 especially flaky.
+            GeometryReader { geo in
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 0) {
+                        ForEach(Array(ItemCategory.pages.enumerated()), id: \.offset) { index, pageCats in
+                            itemList(for: pageSelection[index] ?? pageCats[0])
+                                .frame(width: geo.size.width, height: geo.size.height)
+                                .id(index)
+                        }
+                    }
+                    .scrollTargetLayout()
                 }
+                .scrollTargetBehavior(.paging)
+                .scrollPosition(id: categoryPageScrollID)
+                .scrollIndicators(.hidden)
+                .background { OrthogonalScrollAxisFix() }
             }
-            .tabViewStyle(.page(indexDisplayMode: .automatic))
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-            // Nested item ScrollViews otherwise steal horizontal swipes (esp. page 3).
-            .background { CategoryPagingScrollFix() }
+
+            pageDots
+                .padding(.bottom, 6)
         }
         .onChange(of: categoryPage) { _, page in
             let fallback: ItemCategory = {
@@ -654,9 +679,51 @@ struct ContentView: View {
         .padding(.bottom, 0)
     }
 
+    private var categoryPageScrollID: Binding<Int?> {
+        Binding(
+            get: { categoryPage },
+            set: { newValue in
+                guard let newValue, newValue != categoryPage else { return }
+                categoryPage = newValue
+            }
+        )
+    }
+
+    private var pageDots: some View {
+        HStack(spacing: 7) {
+            ForEach(0..<ItemCategory.pages.count, id: \.self) { index in
+                Circle()
+                    .fill(index == categoryPage
+                          ? Palette.brandBlue(colorScheme)
+                          : Palette.brandBlue(colorScheme).opacity(0.28))
+                    .frame(width: 7, height: 7)
+                    .accessibilityHidden(true)
+            }
+        }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("Category page \(categoryPage + 1) of \(ItemCategory.pages.count)")
+    }
+
+    private var categoryPageSwipeGesture: some Gesture {
+        DragGesture(minimumDistance: 24, coordinateSpace: .local)
+            .onEnded { value in
+                let dx = value.translation.width
+                let dy = value.translation.height
+                guard abs(dx) > abs(dy), abs(dx) > 40 else { return }
+                let last = ItemCategory.pages.count - 1
+                if dx < 0, categoryPage < last {
+                    withAnimation(.easeInOut(duration: 0.2)) { categoryPage += 1 }
+                } else if dx > 0, categoryPage > 0 {
+                    withAnimation(.easeInOut(duration: 0.2)) { categoryPage -= 1 }
+                }
+            }
+    }
+
     private func selectCategory(_ cat: ItemCategory) {
         category = cat
-        categoryPage = cat.pageIndex
+        withAnimation(.easeInOut(duration: 0.2)) {
+            categoryPage = cat.pageIndex
+        }
         pageSelection[cat.pageIndex] = cat
         reorderDrag = nil
     }
@@ -672,34 +739,13 @@ struct ContentView: View {
             }
     }
 
-    @ViewBuilder
-    private func categoryPageView(_ categories: [ItemCategory], page: Int) -> some View {
-        let selected = Binding(
-            get: { pageSelection[page] ?? categories[0] },
-            set: { selectCategory($0) }
-        )
-        VStack(alignment: .leading, spacing: Self.homeChromeGap) {
-            CategoryTabStrip(
-                categories: categories,
-                isSelected: { $0 == selected.wrappedValue },
-                onSelect: { selected.wrappedValue = $0 }
-            )
-                .padding(.horizontal, 24)
-            itemList(for: selected.wrappedValue)
-        }
-        // TabView pages otherwise vertically center their content, which opened a
-        // huge gap under the heads while categories sat on the item cards.
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-        .padding(.top, Self.homeChromeGap)
-    }
-
     private func itemList(for cat: ItemCategory) -> some View {
         let rows = items(in: cat)
         let columns = [
             GridItem(.flexible(minimum: 120), spacing: 12),
             GridItem(.flexible(minimum: 120), spacing: 12),
         ]
-        return ScrollView {
+        return ScrollView(.vertical, showsIndicators: false) {
             LazyVGrid(columns: columns, spacing: 12) {
                 ForEach(rows, id: \.persistentModelID) { item in
                     Group {
@@ -1314,8 +1360,11 @@ private struct PagingScrollLock: UIViewRepresentable {
     }
 }
 
-/// Prefer category-page TabView swipes over nested item-grid ScrollViews.
-private struct CategoryPagingScrollFix: UIViewRepresentable {
+/// Locks each UIScrollView to one axis so the category pager and item grids do not steal pans.
+/// Horizontal (paging) scrolls only begin on sideways pans; vertical item lists only on up/down.
+private struct OrthogonalScrollAxisFix: UIViewRepresentable {
+    func makeCoordinator() -> Coordinator { Coordinator() }
+
     func makeUIView(context: Context) -> UIView {
         let view = UIView()
         view.isUserInteractionEnabled = false
@@ -1325,16 +1374,28 @@ private struct CategoryPagingScrollFix: UIViewRepresentable {
 
     func updateUIView(_ uiView: UIView, context: Context) {
         DispatchQueue.main.async {
-            guard let root = uiView.superview else { return }
-            let pagers = Self.scrollViews(in: root).filter(\.isPagingEnabled)
-            guard let pager = pagers.first else { return }
-            let pagerPan = pager.panGestureRecognizer
-            for scroll in Self.scrollViews(in: root) where !scroll.isPagingEnabled {
+            // Only the pager subtree (background sibling host) — not the whole window,
+            // so item-detail TabView paging stays untouched.
+            guard let host = uiView.superview else { return }
+            for scroll in Self.scrollViews(in: host) {
                 scroll.isDirectionalLockEnabled = true
-                // Inner vertical scroll waits; horizontal page swipe can win first.
-                scroll.panGestureRecognizer.require(toFail: pagerPan)
+                if scroll.isPagingEnabled || Self.isPrimarilyHorizontal(scroll) {
+                    scroll.alwaysBounceVertical = false
+                    context.coordinator.attach(to: scroll, allowed: .horizontal)
+                } else {
+                    scroll.alwaysBounceHorizontal = false
+                    scroll.showsHorizontalScrollIndicator = false
+                    context.coordinator.attach(to: scroll, allowed: .vertical)
+                }
             }
         }
+    }
+
+    private static func isPrimarilyHorizontal(_ scroll: UIScrollView) -> Bool {
+        let content = scroll.contentSize
+        let bounds = scroll.bounds.size
+        guard bounds.width > 0, bounds.height > 0 else { return false }
+        return content.width > bounds.width * 1.05 && content.height <= bounds.height * 1.05
     }
 
     private static func scrollViews(in view: UIView) -> [UIScrollView] {
@@ -1346,6 +1407,88 @@ private struct CategoryPagingScrollFix: UIViewRepresentable {
             found.append(contentsOf: scrollViews(in: child))
         }
         return found
+    }
+
+    enum Axis {
+        case horizontal
+        case vertical
+    }
+
+    final class Coordinator {
+        private var gates: [ObjectIdentifier: AxisPanGate] = [:]
+
+        func attach(to scroll: UIScrollView, allowed: Axis) {
+            let id = ObjectIdentifier(scroll)
+            if let existing = gates[id] {
+                existing.allowed = allowed
+                return
+            }
+            let gate = AxisPanGate(scroll: scroll, allowed: allowed)
+            gates[id] = gate
+            scroll.addGestureRecognizer(gate)
+        }
+    }
+
+    /// Scroll pan waits for this gate to fail. Gate fails when movement matches `allowed`
+    /// (scroll may begin) and recognizes when movement is the other axis (scroll stays blocked).
+    private final class AxisPanGate: UIGestureRecognizer {
+        weak var scroll: UIScrollView?
+        var allowed: Axis
+        private var start: CGPoint = .zero
+
+        init(scroll: UIScrollView, allowed: Axis) {
+            self.scroll = scroll
+            self.allowed = allowed
+            super.init(target: nil, action: nil)
+            cancelsTouchesInView = false
+            delaysTouchesBegan = false
+            delaysTouchesEnded = false
+            scroll.panGestureRecognizer.require(toFail: self)
+        }
+
+        override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent) {
+            guard let touch = touches.first, let view else {
+                state = .failed
+                return
+            }
+            start = touch.location(in: view)
+            state = .possible
+        }
+
+        override func touchesMoved(_ touches: Set<UITouch>, with event: UIEvent) {
+            guard state == .possible, let touch = touches.first, let view else { return }
+            let loc = touch.location(in: view)
+            let dx = loc.x - start.x
+            let dy = loc.y - start.y
+            let ax = abs(dx)
+            let ay = abs(dy)
+            guard ax > 8 || ay > 8 else { return }
+
+            let isHorizontal = ax > ay
+            let matchesAllowed = (allowed == .horizontal && isHorizontal)
+                || (allowed == .vertical && !isHorizontal)
+            if matchesAllowed {
+                // Fail → nested/pager panGestureRecognizer may begin.
+                state = .failed
+            } else {
+                // Recognize → scroll pan that requires this gate stays blocked; the
+                // orthogonally oriented sibling scroll can take the gesture instead.
+                state = .began
+                state = .ended
+            }
+        }
+
+        override func touchesEnded(_ touches: Set<UITouch>, with event: UIEvent) {
+            if state == .possible { state = .failed }
+        }
+
+        override func touchesCancelled(_ touches: Set<UITouch>, with event: UIEvent) {
+            if state == .possible || state == .began { state = .cancelled }
+        }
+
+        override func reset() {
+            start = .zero
+        }
     }
 }
 
