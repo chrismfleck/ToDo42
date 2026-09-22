@@ -184,23 +184,13 @@ struct HelpView: View {
             )
             .fixedSize(horizontal: false, vertical: true)
 
-            // Icon sits after “Save 4 Two”; text can wrap onto the next line around it.
-            HStack(alignment: .center, spacing: 6) {
-                helpText("Look for Save 4 Two")
-                Image("HelpAppIcon")
-                    .resizable()
-                    .scaledToFit()
-                    .frame(width: Self.helpAppIconSize, height: Self.helpAppIconSize)
-                    .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
-                    .accessibilityHidden(true)
-            }
-            .fixedSize(horizontal: false, vertical: true)
+            helpText("Look for Save 4 Two.")
 
-            HStack(alignment: .center, spacing: 5) {
+            (
                 helpText("You may need to swipe left and/or tap")
-                chrome("ellipsis.circle")
-                helpText(".")
-            }
+                + chrome("ellipsis.circle")
+                + helpText(".")
+            )
             .fixedSize(horizontal: false, vertical: true)
         }
     }
@@ -209,7 +199,7 @@ struct HelpView: View {
     private static let helpBodySize: CGFloat = 18
     private static let helpChromeSize: CGFloat = 22
     private static let helpChromeLine: CGFloat = 22 * 0.054
-    private static let helpAppIconSize: CGFloat = 26
+    private static let helpAppIconSize: CGFloat = 22
 
     private var chromePlus: some View {
         ChromeCircleIcon(
