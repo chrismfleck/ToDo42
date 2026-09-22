@@ -10,8 +10,16 @@ struct HelpView: View {
         NavigationStack {
             ScrollView {
                 VStack(alignment: .leading, spacing: 22) {
-                    Text("How to use Save 4 Two")
-                        .font(.system(size: 18, weight: .regular))
+                    HStack(alignment: .center, spacing: 6) {
+                        Text("How to use Save 4 Two")
+                            .font(.system(size: 18, weight: .regular))
+                        Image("HelpAppIcon")
+                            .resizable()
+                            .scaledToFit()
+                            .frame(width: Self.helpAppIconSize, height: Self.helpAppIconSize)
+                            .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
+                            .accessibilityHidden(true)
+                    }
 
                     openingScreenshot
 
