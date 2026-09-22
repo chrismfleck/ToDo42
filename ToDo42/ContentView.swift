@@ -92,6 +92,7 @@ struct ReliableIconButton: UIViewRepresentable {
     var tint: Color
     var side: CGFloat = 48
     var pointSize: CGFloat = 22
+    var weight: UIImage.SymbolWeight = .semibold
     var accessibilityLabel: String
     var action: () -> Void
 
@@ -116,7 +117,7 @@ struct ReliableIconButton: UIViewRepresentable {
     }
 
     private func apply(to button: UIButton, context: Context) {
-        let config = UIImage.SymbolConfiguration(pointSize: pointSize, weight: .semibold)
+        let config = UIImage.SymbolConfiguration(pointSize: pointSize, weight: weight)
         button.setImage(UIImage(systemName: systemName, withConfiguration: config), for: .normal)
         button.tintColor = UIColor(tint)
         button.accessibilityLabel = accessibilityLabel
@@ -1261,9 +1262,9 @@ struct ItemDetailView: View {
                     }
                 } label: {
                     Image(systemName: isEditing ? "checkmark.circle" : "pencil.circle")
-                        .font(.system(size: 37, weight: .semibold))
+                        .font(.system(size: 28, weight: .semibold))
                         .foregroundStyle(Palette.brandBlue(colorScheme))
-                        .frame(width: 48, height: 48)
+                        .frame(width: 44, height: 44)
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
@@ -1407,7 +1408,7 @@ struct ItemDetailView: View {
                     PairHeadButton(
                         label: pairSession.myHeartLabel,
                         tint: Color(red: 0.20, green: 0.48, blue: 0.98),
-                        size: 37,
+                        size: 44,
                         imageData: pairSession.headImageData(slot: .me)
                     ) {
                         if pairSession.hasMultiplePairs {
@@ -1432,7 +1433,7 @@ struct ItemDetailView: View {
                     PairHeadButton(
                         label: pairSession.partnerHeartLabel,
                         tint: Color(red: 0.22, green: 0.78, blue: 0.55),
-                        size: 37,
+                        size: 44,
                         imageData: pairSession.headImageData(slot: .partner)
                     ) {
                         if pairSession.hasMultiplePairs {
