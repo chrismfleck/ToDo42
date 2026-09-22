@@ -118,6 +118,9 @@ struct ReliableIconButton: UIViewRepresentable {
     var side: CGFloat = 48
     var pointSize: CGFloat = 22
     var weight: UIImage.SymbolWeight = .semibold
+    /// When set, draws `systemName` inside a custom thin circle (not SF `.circle`).
+    var chromeDiameter: CGFloat? = nil
+    var chromeLineWidth: CGFloat? = nil
     var accessibilityLabel: String
     var action: () -> Void
 
@@ -130,8 +133,7 @@ struct ReliableIconButton: UIViewRepresentable {
         button.addTarget(context.coordinator, action: #selector(Coordinator.tapped), for: .touchUpInside)
         button.contentHorizontalAlignment = .center
         button.contentVerticalAlignment = .center
-        // Light inset — glyphs are sized to match headshots and need the full hit box.
-        button.contentEdgeInsets = UIEdgeInsets(top: 4, left: 4, bottom: 4, right: 4)
+        button.contentEdgeInsets = .zero
         apply(to: button, context: context)
         return button
     }
@@ -142,10 +144,55 @@ struct ReliableIconButton: UIViewRepresentable {
     }
 
     private func apply(to button: UIButton, context: Context) {
-        let config = UIImage.SymbolConfiguration(pointSize: pointSize, weight: weight)
-        button.setImage(UIImage(systemName: systemName, withConfiguration: config), for: .normal)
-        button.tintColor = UIColor(tint)
+        let color = UIColor(tint)
+        if let diameter = chromeDiameter {
+            let line = chromeLineWidth ?? max(1, diameter * 0.054)
+            let image = Self.chromeImage(
+                systemName: systemName,
+                diameter: diameter,
+                lineWidth: line,
+                tint: color
+            )
+            button.setImage(image.withRenderingMode(.alwaysOriginal), for: .normal)
+            button.tintColor = color
+        } else {
+            let config = UIImage.SymbolConfiguration(pointSize: pointSize, weight: weight)
+            button.setImage(UIImage(systemName: systemName, withConfiguration: config), for: .normal)
+            button.tintColor = color
+        }
         button.accessibilityLabel = accessibilityLabel
+    }
+
+    private static func chromeImage(
+        systemName: String,
+        diameter: CGFloat,
+        lineWidth: CGFloat,
+        tint: UIColor
+    ) -> UIImage {
+        let size = CGSize(width: diameter, height: diameter)
+        let renderer = UIGraphicsImageRenderer(size: size)
+        return renderer.image { _ in
+            let inset = lineWidth / 2
+            let ring = UIBezierPath(ovalIn: CGRect(
+                x: inset,
+                y: inset,
+                width: diameter - lineWidth,
+                height: diameter - lineWidth
+            ))
+            tint.setStroke()
+            ring.lineWidth = lineWidth
+            ring.stroke()
+
+            let config = UIImage.SymbolConfiguration(pointSize: diameter * 0.42, weight: .semibold)
+            guard let glyph = UIImage(systemName: systemName, withConfiguration: config)?
+                .withTintColor(tint, renderingMode: .alwaysOriginal) else { return }
+            let glyphSize = glyph.size
+            let origin = CGPoint(
+                x: (diameter - glyphSize.width) / 2,
+                y: (diameter - glyphSize.height) / 2
+            )
+            glyph.draw(in: CGRect(origin: origin, size: glyphSize))
+        }
     }
 
     final class Coordinator: NSObject {
