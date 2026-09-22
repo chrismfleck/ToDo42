@@ -389,8 +389,6 @@ struct ContentView: View {
     @Environment(\.scenePhase) private var scenePhase
     @State private var category: ItemCategory = .places
     @State private var categoryPage = 0
-    /// Interactive rubber-band while a horizontal page pan is in progress.
-    @State private var categoryPageDrag: CGFloat = 0
     @State private var pageSelection: [Int: ItemCategory] = [
         0: .places,
         1: .projects,
@@ -399,6 +397,7 @@ struct ContentView: View {
     @State private var showAdd = false
     @State private var showPairing = false
     @State private var showHelp = false
+    @State private var didOfferPairRestore = false
     @Environment(PairSession.self) private var pairSession
     @State private var swipingItemID: UUID?
     @State private var selectedItem: TodoItem?
@@ -473,39 +472,28 @@ struct ContentView: View {
             .contentShape(Rectangle())
             .gesture(categoryPageSwipeGesture)
 
-            // Non-scroll pager: pages are offset by hand. A horizontal-only UIKit pan
-            // changes `categoryPage`; vertical item ScrollViews keep scrolling freely.
-            // (TabView / nested ScrollView paging kept eating swipes on page 3.)
-            GeometryReader { geo in
-                let pageWidth = geo.size.width
-                let pageHeight = geo.size.height
-                ZStack(alignment: .topLeading) {
-                    HStack(spacing: 0) {
-                        ForEach(Array(ItemCategory.pages.enumerated()), id: \.offset) { index, pageCats in
-                            itemList(for: pageSelection[index] ?? pageCats[0])
-                                .frame(width: pageWidth, height: pageHeight)
-                        }
-                    }
-                    .offset(x: -CGFloat(categoryPage) * pageWidth + categoryPageDrag)
-
-                    // Behind the lists — installs a horizontal pan on the visible page host.
-                    CategoryPageSwipeBridge(
+            // One page at a time. UISwipeGestureRecognizers (not a competing pan/scroll
+            // pager) flip pages — they coexist with vertical item scrolling.
+            itemList(for: pageSelection[categoryPage] ?? ItemCategory.pages[categoryPage][0])
+                .id("cat-page-\(categoryPage)-\(pageSelection[categoryPage]?.rawValue ?? "x")")
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .background {
+                    CategoryPageSwipeInstaller(
                         page: $categoryPage,
-                        drag: $categoryPageDrag,
                         pageCount: ItemCategory.pages.count,
-                        pageWidth: pageWidth,
                         isEnabled: reorderDrag == nil
                     )
-                    .frame(width: pageWidth, height: pageHeight)
-                    .allowsHitTesting(false)
                 }
-            }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .clipped()
-            .contentShape(Rectangle())
 
-            pageDots
-                .padding(.bottom, 6)
+            pageControls
+                .padding(.bottom, 4)
+
+            // Always-visible stamp so a stale phone install cannot hide as “Help only”.
+            Text(AppBuild.label)
+                .font(.caption2.weight(.bold))
+                .foregroundStyle(Palette.brandBlue(colorScheme))
+                .padding(.bottom, 8)
+                .accessibilityLabel(AppBuild.versionLine)
         }
         .onChange(of: categoryPage) { _, page in
             let fallback: ItemCategory = {
@@ -558,11 +546,13 @@ struct ContentView: View {
             seedIfNeeded()
             repairSampleLinks()
             normalizeStoredText()
+            offerPairRestoreIfNeeded()
             Task { await refreshFromCloud() }
         }
         .onChange(of: scenePhase) { _, phase in
             if phase == .active {
                 importSharedDrafts()
+                offerPairRestoreIfNeeded()
                 Task { await refreshFromCloud() }
             }
         }
@@ -691,19 +681,52 @@ struct ContentView: View {
         .padding(.bottom, 0)
     }
 
-    private var pageDots: some View {
-        HStack(spacing: 7) {
-            ForEach(0..<ItemCategory.pages.count, id: \.self) { index in
-                Circle()
-                    .fill(index == categoryPage
-                          ? Palette.brandBlue(colorScheme)
-                          : Palette.brandBlue(colorScheme).opacity(0.28))
-                    .frame(width: 7, height: 7)
-                    .accessibilityHidden(true)
+    private var pageControls: some View {
+        HStack(spacing: 16) {
+            Button {
+                guard categoryPage > 0 else { return }
+                withAnimation(.easeInOut(duration: 0.2)) { categoryPage -= 1 }
+            } label: {
+                Image(systemName: "chevron.left.circle.fill")
+                    .font(.title3)
+                    .foregroundStyle(
+                        categoryPage > 0
+                            ? Palette.brandBlue(colorScheme)
+                            : Palette.brandBlue(colorScheme).opacity(0.25)
+                    )
             }
+            .disabled(categoryPage <= 0)
+            .accessibilityLabel("Previous category page")
+
+            HStack(spacing: 7) {
+                ForEach(0..<ItemCategory.pages.count, id: \.self) { index in
+                    Circle()
+                        .fill(index == categoryPage
+                              ? Palette.brandBlue(colorScheme)
+                              : Palette.brandBlue(colorScheme).opacity(0.28))
+                        .frame(width: 7, height: 7)
+                        .accessibilityHidden(true)
+                }
+            }
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel("Category page \(categoryPage + 1) of \(ItemCategory.pages.count)")
+
+            Button {
+                let last = ItemCategory.pages.count - 1
+                guard categoryPage < last else { return }
+                withAnimation(.easeInOut(duration: 0.2)) { categoryPage += 1 }
+            } label: {
+                Image(systemName: "chevron.right.circle.fill")
+                    .font(.title3)
+                    .foregroundStyle(
+                        categoryPage < ItemCategory.pages.count - 1
+                            ? Palette.brandBlue(colorScheme)
+                            : Palette.brandBlue(colorScheme).opacity(0.25)
+                    )
+            }
+            .disabled(categoryPage >= ItemCategory.pages.count - 1)
+            .accessibilityLabel("Next category page")
         }
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel("Category page \(categoryPage + 1) of \(ItemCategory.pages.count)")
     }
 
     private var categoryPageSwipeGesture: some Gesture {
@@ -714,10 +737,8 @@ struct ContentView: View {
                 guard abs(dx) > abs(dy), abs(dx) > 40 else { return }
                 let last = ItemCategory.pages.count - 1
                 if dx < 0, categoryPage < last {
-                    categoryPageDrag = 0
                     withAnimation(.easeInOut(duration: 0.2)) { categoryPage += 1 }
                 } else if dx > 0, categoryPage > 0 {
-                    categoryPageDrag = 0
                     withAnimation(.easeInOut(duration: 0.2)) { categoryPage -= 1 }
                 }
             }
@@ -725,12 +746,20 @@ struct ContentView: View {
 
     private func selectCategory(_ cat: ItemCategory) {
         category = cat
-        categoryPageDrag = 0
         withAnimation(.easeInOut(duration: 0.2)) {
             categoryPage = cat.pageIndex
         }
         pageSelection[cat.pageIndex] = cat
         reorderDrag = nil
+    }
+
+    /// Deleting the app clears pairing. Prompt Restore / re-join so iCloud items come back.
+    private func offerPairRestoreIfNeeded() {
+        guard !pairSession.isPaired, !didOfferPairRestore else { return }
+        didOfferPairRestore = true
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) {
+            showPairing = true
+        }
     }
 
     private func items(in cat: ItemCategory) -> [TodoItem] {
@@ -1365,101 +1394,85 @@ private struct PagingScrollLock: UIViewRepresentable {
     }
 }
 
-/// Drives category page changes with a horizontal-only pan. Nested vertical item
-/// ScrollViews `require(toFail:)` this recognizer, so sideways swipes change pages
-/// (including off page 3) while up/down still scrolls the grid.
-private struct CategoryPageSwipeBridge: UIViewRepresentable {
+/// Left/right `UISwipeGestureRecognizer`s on the item list — coexist with vertical scrolling
+/// (unlike a second pan/scroll pager, which ate page-3 swipes).
+private struct CategoryPageSwipeInstaller: UIViewRepresentable {
     @Binding var page: Int
-    @Binding var drag: CGFloat
     var pageCount: Int
-    var pageWidth: CGFloat
     var isEnabled: Bool
 
     func makeCoordinator() -> Coordinator {
-        Coordinator(page: $page, drag: $drag)
+        Coordinator(page: $page, pageCount: pageCount)
     }
 
     func makeUIView(context: Context) -> UIView {
-        let view = ProbeView()
-        view.coordinator = context.coordinator
+        let view = UIView()
         view.isUserInteractionEnabled = false
         view.backgroundColor = .clear
         return view
     }
 
     func updateUIView(_ uiView: UIView, context: Context) {
-        let coordinator = context.coordinator
-        coordinator.page = $page
-        coordinator.drag = $drag
-        coordinator.pageCount = pageCount
-        coordinator.pageWidth = pageWidth
-        coordinator.isEnabled = isEnabled
+        context.coordinator.page = $page
+        context.coordinator.pageCount = pageCount
+        context.coordinator.isEnabled = isEnabled
         DispatchQueue.main.async {
-            coordinator.install(from: uiView)
-        }
-    }
-
-    private final class ProbeView: UIView {
-        weak var coordinator: Coordinator?
-        override func didMoveToWindow() {
-            super.didMoveToWindow()
-            guard let coordinator else { return }
-            DispatchQueue.main.async {
-                coordinator.install(from: self)
-            }
+            context.coordinator.install(from: uiView)
         }
     }
 
     final class Coordinator: NSObject {
         var page: Binding<Int>
-        var drag: Binding<CGFloat>
-        var pageCount = 3
-        var pageWidth: CGFloat = 320
+        var pageCount: Int
         var isEnabled = true
-        private weak var host: UIView?
-        private var pan: HorizontalPagePanRecognizer?
-        private var wiredScrolls = Set<ObjectIdentifier>()
+        private var wired = Set<ObjectIdentifier>()
 
-        init(page: Binding<Int>, drag: Binding<CGFloat>) {
+        init(page: Binding<Int>, pageCount: Int) {
             self.page = page
-            self.drag = drag
+            self.pageCount = pageCount
         }
 
         func install(from probe: UIView) {
-            guard let ancestor = Self.ancestorHostingItemScrolls(from: probe) else { return }
-            if let existing = pan, existing.view !== ancestor {
-                existing.view?.removeGestureRecognizer(existing)
-                ancestor.addGestureRecognizer(existing)
-            } else if pan == nil {
-                let recognizer = HorizontalPagePanRecognizer(target: self, action: #selector(handlePan(_:)))
-                recognizer.cancelsTouchesInView = false
-                recognizer.delegate = self
-                ancestor.addGestureRecognizer(recognizer)
-                pan = recognizer
-            }
-            host = ancestor
-            pan?.isEnabled = isEnabled
-
-            for scroll in Self.scrollViews(in: ancestor) {
-                // Ignore any leftover paging scroll views from other chrome.
-                if scroll.isPagingEnabled { continue }
-                scroll.alwaysBounceHorizontal = false
-                scroll.isDirectionalLockEnabled = true
-                scroll.showsHorizontalScrollIndicator = false
-                let id = ObjectIdentifier(scroll)
-                guard wiredScrolls.insert(id).inserted, let pan else { continue }
-                scroll.panGestureRecognizer.require(toFail: pan)
+            guard let host = Self.nearestHost(from: probe) else { return }
+            wire(host)
+            for scroll in Self.scrollViews(in: host) where !scroll.isPagingEnabled {
+                wire(scroll)
             }
         }
 
-        /// Walk up until we find a container that owns the vertical item-grid scroll view(s).
-        private static func ancestorHostingItemScrolls(from probe: UIView) -> UIView? {
+        private func wire(_ view: UIView) {
+            let id = ObjectIdentifier(view)
+            guard wired.insert(id).inserted else { return }
+            let left = UISwipeGestureRecognizer(target: self, action: #selector(goNext))
+            left.direction = .left
+            left.name = "todo42.categoryPage.left"
+            let right = UISwipeGestureRecognizer(target: self, action: #selector(goPrev))
+            right.direction = .right
+            right.name = "todo42.categoryPage.right"
+            view.addGestureRecognizer(left)
+            view.addGestureRecognizer(right)
+        }
+
+        @objc private func goNext() {
+            guard isEnabled, page.wrappedValue < pageCount - 1 else { return }
+            withAnimation(.easeInOut(duration: 0.2)) {
+                page.wrappedValue += 1
+            }
+        }
+
+        @objc private func goPrev() {
+            guard isEnabled, page.wrappedValue > 0 else { return }
+            withAnimation(.easeInOut(duration: 0.2)) {
+                page.wrappedValue -= 1
+            }
+        }
+
+        private static func nearestHost(from probe: UIView) -> UIView? {
             var node: UIView? = probe.superview
             var fallback = probe.superview
             while let view = node {
                 fallback = view
-                let verticalScrolls = scrollViews(in: view).filter { !$0.isPagingEnabled }
-                if !verticalScrolls.isEmpty {
+                if !scrollViews(in: view).filter({ !$0.isPagingEnabled }).isEmpty {
                     return view
                 }
                 if view is UIWindow { break }
@@ -1468,90 +1481,14 @@ private struct CategoryPageSwipeBridge: UIViewRepresentable {
             return fallback
         }
 
-        @objc private func handlePan(_ recognizer: HorizontalPagePanRecognizer) {
-            guard isEnabled, pageWidth > 1 else { return }
-            switch recognizer.state {
-            case .began, .changed:
-                var dx = recognizer.translation(in: recognizer.view).x
-                let atFirst = page.wrappedValue <= 0
-                let atLast = page.wrappedValue >= pageCount - 1
-                if atFirst && dx > 0 { dx *= 0.28 }
-                if atLast && dx < 0 { dx *= 0.28 }
-                drag.wrappedValue = dx
-            case .ended, .cancelled:
-                let translation = recognizer.translation(in: recognizer.view).x
-                let velocity = recognizer.velocity(in: recognizer.view).x
-                var next = page.wrappedValue
-                let distanceThreshold = max(56, pageWidth * 0.18)
-                let velocityThreshold: CGFloat = 420
-                if (translation < -distanceThreshold || velocity < -velocityThreshold), next < pageCount - 1 {
-                    next += 1
-                } else if (translation > distanceThreshold || velocity > velocityThreshold), next > 0 {
-                    next -= 1
-                }
-                let newPage = next
-                withAnimation(.easeOut(duration: 0.22)) {
-                    self.page.wrappedValue = newPage
-                    self.drag.wrappedValue = 0
-                }
-            default:
-                break
-            }
-        }
-
         private static func scrollViews(in view: UIView) -> [UIScrollView] {
             var found: [UIScrollView] = []
-            if let scroll = view as? UIScrollView {
-                found.append(scroll)
-            }
+            if let scroll = view as? UIScrollView { found.append(scroll) }
             for child in view.subviews {
                 found.append(contentsOf: scrollViews(in: child))
             }
             return found
         }
-    }
-}
-
-extension CategoryPageSwipeBridge.Coordinator: UIGestureRecognizerDelegate {
-    func gestureRecognizer(
-        _ gestureRecognizer: UIGestureRecognizer,
-        shouldRecognizeSimultaneouslyWith otherGestureRecognizer: UIGestureRecognizer
-    ) -> Bool {
-        // Never simultaneous with a scroll pan — those wait via require(toFail:).
-        if otherGestureRecognizer.view is UIScrollView { return false }
-        return false
-    }
-
-    func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
-        isEnabled
-    }
-}
-
-/// UIPan that fails as soon as the movement is mostly vertical.
-private final class HorizontalPagePanRecognizer: UIPanGestureRecognizer {
-    private var lockedHorizontal = false
-
-    override func touchesMoved(_ touches: Set<UITouch>, with event: UIEvent) {
-        super.touchesMoved(touches, with: event)
-        guard !lockedHorizontal else { return }
-        let t = translation(in: view)
-        let ax = abs(t.x)
-        let ay = abs(t.y)
-        guard ax > 8 || ay > 8 else { return }
-        if ay > ax {
-            if state == .possible {
-                state = .failed
-            } else if state == .began || state == .changed {
-                state = .cancelled
-            }
-        } else {
-            lockedHorizontal = true
-        }
-    }
-
-    override func reset() {
-        super.reset()
-        lockedHorizontal = false
     }
 }
 
