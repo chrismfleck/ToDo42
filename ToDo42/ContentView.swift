@@ -472,13 +472,11 @@ struct ContentView: View {
             .contentShape(Rectangle())
             .gesture(categoryPageSwipeGesture)
 
-            // Same horizontal page DragGesture as the category strip — works on empty
-            // space too (UISwipe on the scroll view did not).
+            // List area: empty pages use a full-screen hit pad (same DragGesture as
+            // the category strip). ScrollView alone does not receive blank-area swipes.
             itemList(for: pageSelection[categoryPage] ?? ItemCategory.pages[categoryPage][0])
                 .id("cat-page-\(categoryPage)-\(pageSelection[categoryPage]?.rawValue ?? "x")")
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .contentShape(Rectangle())
-                .simultaneousGesture(categoryPageSwipeGesture)
 
             pageControls
                 .padding(.bottom, 4)
