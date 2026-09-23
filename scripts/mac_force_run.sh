@@ -1,5 +1,5 @@
 #!/bin/bash
-# Find every ToDo42 checkout, sync THIS one to Build 149, close Xcode, open the right project.
+# Find every ToDo42 checkout, sync THIS one to Build 150, close Xcode, open the right project.
 set -euo pipefail
 
 echo "=============================================="
@@ -66,9 +66,9 @@ echo "  • Destination = your physical iPhone"
 echo "  • Product → Clean Build Folder"
 echo "  • Product → Run"
 echo
-echo "PROOF YOU GOT 149:"
-echo "  1. In-app bottom label:   Build 149"
-echo "  2. Xcode console:         >>> Save4Two AppBuild 149 SRC <<<"
+echo "PROOF YOU GOT 150:"
+echo "  1. In-app bottom label:   Build 150"
+echo "  2. Xcode console:         >>> Save4Two AppBuild 150 SRC <<<"
 echo
 echo "If Help/bottom still says Build 130/135, Xcode opened a different folder."
 echo "Do NOT delete the app (that wipes items). Restore via Pair → iCloud."

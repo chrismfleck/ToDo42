@@ -113,6 +113,10 @@ private enum SharedContent {
             let split = FacebookShareText.refine(title: result.title, notes: result.notes)
             if !split.title.isEmpty { result.title = split.title }
             result.notes = split.notes
+        } else if XShareText.isXURL(result.urlString) || XShareText.needsCleanup(title: result.title) {
+            let split = XShareText.refine(title: result.title, notes: result.notes)
+            if !split.title.isEmpty { result.title = split.title }
+            result.notes = split.notes
         }
         let cut = SharedText.cutTitle(result.title, notes: result.notes)
         result.title = cut.title
@@ -392,6 +396,18 @@ struct ShareFormView: View {
                 title = pageTitle
             }
             let split = FacebookShareText.split(from: [
+                title,
+                notes,
+                meta.title ?? "",
+                meta.description ?? "",
+            ])
+            if !split.title.isEmpty {
+                title = split.title
+                selectedCategories.insert(ShareInbox.guessedCategory(urlString: link, title: split.title + " " + split.notes))
+            }
+            notes = split.notes
+        } else if XShareText.isXURL(link) || XShareText.needsCleanup(title: title) {
+            let split = XShareText.split(from: [
                 title,
                 notes,
                 meta.title ?? "",

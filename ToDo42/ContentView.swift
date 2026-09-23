@@ -889,6 +889,12 @@ struct ContentView: View {
                     title = split.title
                     notes = split.notes.isEmpty ? notes : split.notes
                 }
+            } else if XShareText.isXURL(link) || XShareText.needsCleanup(title: title) {
+                let split = XShareText.refine(title: title, notes: notes)
+                if !split.title.isEmpty {
+                    title = split.title
+                    notes = split.notes.isEmpty ? notes : split.notes
+                }
             }
             let cut = SharedText.cutTitle(title, notes: notes)
             let nextTitle = SharedText.normalized(cut.title)
@@ -1028,6 +1034,11 @@ struct ContentView: View {
             }
             if FacebookShareText.isFacebookURL(link) || rawTitle.lowercased().contains("on facebook") {
                 let split = FacebookShareText.refine(title: rawTitle, notes: rawNotes)
+                if !split.title.isEmpty { rawTitle = split.title }
+                rawNotes = split.notes
+            }
+            if XShareText.isXURL(link) || XShareText.needsCleanup(title: rawTitle) {
+                let split = XShareText.refine(title: rawTitle, notes: rawNotes)
                 if !split.title.isEmpty { rawTitle = split.title }
                 rawNotes = split.notes
             }
@@ -2178,6 +2189,11 @@ struct AddItemView: View {
         if let jpeg = preview.imageJPEG {
             photoData = jpeg
         }
+        if XShareText.isXURL(link) || XShareText.needsCleanup(title: title) {
+            let split = XShareText.refine(title: title, notes: notes)
+            if !split.title.isEmpty { title = split.title }
+            notes = split.notes
+        }
         let cut = SharedText.cutTitle(title, notes: notes)
         title = cut.title
         notes = cut.notes
@@ -2246,6 +2262,18 @@ struct AddItemView: View {
                 title = pageTitle
             }
             let split = FacebookShareText.split(from: [
+                title,
+                notes,
+                meta.title ?? "",
+                meta.description ?? "",
+            ])
+            if !split.title.isEmpty {
+                title = split.title
+                selectedCategories.insert(ItemCategory.guessed(urlString: link, title: split.title + " " + split.notes))
+            }
+            notes = split.notes
+        } else if XShareText.isXURL(link) || XShareText.needsCleanup(title: title) {
+            let split = XShareText.split(from: [
                 title,
                 notes,
                 meta.title ?? "",
