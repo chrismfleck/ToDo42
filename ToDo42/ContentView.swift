@@ -1899,7 +1899,7 @@ struct ItemDetailView: View {
     }
 }
 
-private enum PhotoJPEG {
+enum PhotoJPEG {
     static func compressed(_ image: UIImage, maxSide: CGFloat = 1600, quality: CGFloat = 0.82) -> Data? {
         let longest = max(image.size.width, image.size.height)
         let scaled: UIImage
@@ -2047,8 +2047,8 @@ struct AddItemView: View {
 
                 Section {
                     NavigationLink {
-                        FindIdeasView { pageURL in
-                            urlString = OpenableURL.from(pageURL)?.absoluteString ?? pageURL
+                        FindIdeasView { preview in
+                            applyFindIdeasPreview(preview)
                         }
                     } label: {
                         Label("Find Ideas", systemImage: "magnifyingglass")
@@ -2151,6 +2151,30 @@ struct AddItemView: View {
             }
         }
         .tint(Palette.brandBlue(colorScheme))
+    }
+
+    @MainActor
+    private func applyFindIdeasPreview(_ preview: FindIdeasPagePreview) {
+        let link = OpenableURL.from(preview.urlString)?.absoluteString ?? preview.urlString
+        urlString = link
+        lastFetchedLink = link
+        if let pageTitle = preview.title?.trimmingCharacters(in: .whitespacesAndNewlines), !pageTitle.isEmpty {
+            title = pageTitle
+            selectedCategories.insert(ItemCategory.guessed(urlString: link, title: pageTitle))
+        }
+        if let pageNotes = preview.notes?.trimmingCharacters(in: .whitespacesAndNewlines), !pageNotes.isEmpty {
+            notes = pageNotes
+        }
+        if let jpeg = preview.imageJPEG {
+            photoData = jpeg
+        }
+        let cut = SharedText.cutTitle(title, notes: notes)
+        title = cut.title
+        notes = cut.notes
+        // If the browser capture missed the photo, fall back to a normal fetch.
+        if photoData == nil {
+            Task { await enrichFromPage(saveIfReady: false) }
+        }
     }
 
     private func loadPickedPhoto(_ picked: PhotosPickerItem?) async {

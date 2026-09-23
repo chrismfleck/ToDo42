@@ -235,7 +235,7 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/bash;
-			shellScript = "set -euo pipefail\necho \"SRCROOT=$SRCROOT\"\nSTAMP=$(sed -n 's/.*static let number = \"\\([0-9]*\\)\".*/\\1/p' \"$SRCROOT/ToDo42/AppBuild.swift\" | head -1)\necho \"AppBuild stamp=$STAMP\"\nif [[ \"$STAMP\" != \"146\" ]]; then\n  echo \"error: AppBuild.swift stamp is $STAMP (expected 146). Xcode opened the wrong folder.\"\n  exit 1\nfi\n";
+			shellScript = "set -euo pipefail\necho \"SRCROOT=$SRCROOT\"\nSTAMP=$(sed -n 's/.*static let number = \"\\([0-9]*\\)\".*/\\1/p' \"$SRCROOT/ToDo42/AppBuild.swift\" | head -1)\necho \"AppBuild stamp=$STAMP\"\nif [[ \"$STAMP\" != \"147\" ]]; then\n  echo \"error: AppBuild.swift stamp is $STAMP (expected 147). Xcode opened the wrong folder.\"\n  exit 1\nfi\n";
 		};
 /* End PBXShellScriptBuildPhase section */
 
@@ -393,7 +393,7 @@
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_ENTITLEMENTS = ToDo42/ToDo42.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 146;
+				CURRENT_PROJECT_VERSION = 147;
 				DEVELOPMENT_TEAM = Q392X463G9;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
@@ -402,7 +402,8 @@
 				INFOPLIST_KEY_CFBundleVersion = "$(CURRENT_PROJECT_VERSION)";
 				INFOPLIST_KEY_ITSAppUsesNonExemptEncryption = NO;
 				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = "Save4Two uses your location to set an optional home base so item pages can show how many miles away they are.";
-				INFOPLIST_KEY_NSPhotoLibraryUsageDescription = "Save4Two uses your photo library to add a picture to an item.";
+				INFOPLIST_KEY_NSPhotoLibraryUsageDescription = "Save4Two needs full photo access so you can attach pictures to items.";
+				INFOPLIST_KEY_NSPhotoLibraryAddUsageDescription = "Save4Two can save item photos you choose.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UIBackgroundModes = "remote-notification";
@@ -434,7 +435,7 @@
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_ENTITLEMENTS = "ToDo42/ToDo42-Release.entitlements";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 146;
+				CURRENT_PROJECT_VERSION = 147;
 				DEVELOPMENT_TEAM = Q392X463G9;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
@@ -443,7 +444,8 @@
 				INFOPLIST_KEY_CFBundleVersion = "$(CURRENT_PROJECT_VERSION)";
 				INFOPLIST_KEY_ITSAppUsesNonExemptEncryption = NO;
 				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = "Save4Two uses your location to set an optional home base so item pages can show how many miles away they are.";
-				INFOPLIST_KEY_NSPhotoLibraryUsageDescription = "Save4Two uses your photo library to add a picture to an item.";
+				INFOPLIST_KEY_NSPhotoLibraryUsageDescription = "Save4Two needs full photo access so you can attach pictures to items.";
+				INFOPLIST_KEY_NSPhotoLibraryAddUsageDescription = "Save4Two can save item photos you choose.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UIBackgroundModes = "remote-notification";
@@ -473,7 +475,7 @@
 			buildSettings = {
 				CODE_SIGN_ENTITLEMENTS = ShareExtension/ShareExtension.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 146;
+				CURRENT_PROJECT_VERSION = 147;
 				DEVELOPMENT_TEAM = Q392X463G9;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = ShareExtension/Info.plist;
@@ -502,7 +504,7 @@
 			buildSettings = {
 				CODE_SIGN_ENTITLEMENTS = ShareExtension/ShareExtension.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 146;
+				CURRENT_PROJECT_VERSION = 147;
 				DEVELOPMENT_TEAM = Q392X463G9;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = ShareExtension/Info.plist;

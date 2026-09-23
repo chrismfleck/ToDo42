@@ -139,8 +139,17 @@ private struct BrowserPage: Identifiable {
     let url: URL
 }
 
+/// Page fields captured from the in-app Find Ideas browser (with site cookies),
+/// so Airbnb/Instagram photos are not fetched cookieless after Save.
+struct FindIdeasPagePreview {
+    var urlString: String
+    var title: String?
+    var notes: String?
+    var imageJPEG: Data?
+}
+
 struct FindIdeasView: View {
-    var onSavePage: (String) -> Void
+    var onSavePage: (FindIdeasPagePreview) -> Void
 
     @Environment(\.dismiss) private var dismiss
     @State private var keywords = ""
@@ -177,8 +186,8 @@ struct FindIdeasView: View {
         .fullScreenCover(item: $browser) { page in
             FindIdeasBrowserSheet(
                 startURL: page.url,
-                onSave: { pageURL in
-                    onSavePage(pageURL)
+                onSave: { preview in
+                    onSavePage(preview)
                     browser = nil
                     Task { @MainActor in
                         dismiss()
@@ -219,15 +228,17 @@ struct FindIdeasView: View {
 
 private struct FindIdeasBrowserSheet: View {
     let startURL: URL
-    var onSave: (String) -> Void
+    var onSave: (FindIdeasPagePreview) -> Void
     var onDone: () -> Void
 
     @State private var currentURL: URL?
     @State private var isLoading = true
+    @State private var isCapturing = false
     @State private var canGoBack = false
     @State private var canGoForward = false
     @State private var goBackToken = 0
     @State private var goForwardToken = 0
+    @State private var webView: WKWebView?
 
     var body: some View {
         NavigationStack {
@@ -238,7 +249,8 @@ private struct FindIdeasBrowserSheet: View {
                 canGoBack: $canGoBack,
                 canGoForward: $canGoForward,
                 goBackToken: goBackToken,
-                goForwardToken: goForwardToken
+                goForwardToken: goForwardToken,
+                webView: $webView
             )
             .ignoresSafeArea(edges: .bottom)
             .navigationTitle(currentURL?.host ?? "Search")
@@ -261,19 +273,130 @@ private struct FindIdeasBrowserSheet: View {
                     }
                     .disabled(!canGoForward)
                     Spacer()
-                    if isLoading {
+                    if isLoading || isCapturing {
                         ProgressView()
                     }
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Save 4 Two") {
-                        if let page = currentURL?.absoluteString {
-                            onSave(OpenableURL.from(page)?.absoluteString ?? page)
-                        }
+                        Task { await captureAndSave() }
                     }
-                    .disabled(currentURL == nil)
+                    .disabled(currentURL == nil || isCapturing)
                 }
             }
+        }
+    }
+
+    @MainActor
+    private func captureAndSave() async {
+        guard let page = currentURL else { return }
+        isCapturing = true
+        defer { isCapturing = false }
+        let absolute = OpenableURL.from(page.absoluteString)?.absoluteString ?? page.absoluteString
+        var preview = FindIdeasPagePreview(urlString: absolute)
+        if let webView {
+            let captured = await FindIdeasPageCapture.capture(from: webView)
+            preview.title = captured.title
+            preview.notes = captured.notes
+            preview.imageJPEG = captured.imageJPEG
+        }
+        onSave(preview)
+    }
+}
+
+private enum FindIdeasPageCapture {
+    struct Captured {
+        var title: String?
+        var notes: String?
+        var imageJPEG: Data?
+    }
+
+    @MainActor
+    static func capture(from webView: WKWebView) async -> Captured {
+        let js = """
+        (function() {
+          function meta(sel, attr) {
+            var el = document.querySelector(sel);
+            return el ? (el.getAttribute(attr) || '') : '';
+          }
+          function first() {
+            for (var i = 0; i < arguments.length; i++) {
+              var v = (arguments[i] || '').trim();
+              if (v) return v;
+            }
+            return '';
+          }
+          var title = first(
+            meta('meta[property="og:title"]', 'content'),
+            meta('meta[name="twitter:title"]', 'content'),
+            document.title
+          );
+          var notes = first(
+            meta('meta[property="og:description"]', 'content'),
+            meta('meta[name="twitter:description"]', 'content'),
+            meta('meta[name="description"]', 'content')
+          );
+          var image = first(
+            meta('meta[property="og:image"]', 'content'),
+            meta('meta[property="og:image:url"]', 'content'),
+            meta('meta[name="twitter:image"]', 'content'),
+            meta('meta[name="twitter:image:src"]', 'content')
+          );
+          return JSON.stringify({ title: title, notes: notes, image: image });
+        })();
+        """
+        var captured = Captured()
+        guard let raw = try? await webView.evaluateJavaScript(js) as? String,
+              let data = raw.data(using: .utf8),
+              let json = try? JSONSerialization.jsonObject(with: data) as? [String: String]
+        else {
+            return captured
+        }
+        let title = json["title"]?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let notes = json["notes"]?.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let title, !title.isEmpty { captured.title = title }
+        if let notes, !notes.isEmpty { captured.notes = notes }
+
+        let imageRaw = json["image"]?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        if !imageRaw.isEmpty,
+           let imageURL = URL(string: imageRaw)
+            ?? (webView.url.flatMap { URL(string: imageRaw, relativeTo: $0)?.absoluteURL }) {
+            if let jpeg = await downloadJPEG(imageURL, webView: webView) {
+                captured.imageJPEG = jpeg
+            }
+        }
+        return captured
+    }
+
+    /// Download with the browser’s cookies so private / login-gated CDNs still return the photo.
+    private static func downloadJPEG(_ url: URL, webView: WKWebView) async -> Data? {
+        let cookies = await withCheckedContinuation { (cont: CheckedContinuation<[HTTPCookie], Never>) in
+            webView.configuration.websiteDataStore.httpCookieStore.getAllCookies { cont.resume(returning: $0) }
+        }
+        var request = URLRequest(url: url, timeoutInterval: 15)
+        request.setValue(
+            "Mozilla/5.0 (iPhone; CPU iPhone OS 18_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.5 Mobile/15E148 Safari/604.1",
+            forHTTPHeaderField: "User-Agent"
+        )
+        request.setValue("image/jpeg,image/png,image/webp,image/apng,*/*;q=0.8", forHTTPHeaderField: "Accept")
+        if let referer = webView.url?.absoluteString {
+            request.setValue(referer, forHTTPHeaderField: "Referer")
+        }
+        if !cookies.isEmpty {
+            let header = HTTPCookie.requestHeaderFields(with: cookies)
+            if let cookieHeader = header["Cookie"] {
+                request.setValue(cookieHeader, forHTTPHeaderField: "Cookie")
+            }
+        }
+        do {
+            let (data, response) = try await URLSession.shared.data(for: request)
+            if let http = response as? HTTPURLResponse, !(200...299).contains(http.statusCode) {
+                return nil
+            }
+            guard let image = UIImage(data: data) else { return nil }
+            return PhotoJPEG.compressed(image)
+        } catch {
+            return nil
         }
     }
 }
@@ -286,13 +409,18 @@ private struct FindIdeasWebView: UIViewRepresentable {
     @Binding var canGoForward: Bool
     var goBackToken: Int
     var goForwardToken: Int
+    @Binding var webView: WKWebView?
 
     func makeCoordinator() -> Coordinator {
         Coordinator(self)
     }
 
     func makeUIView(context: Context) -> WKWebView {
-        let web = WKWebView(frame: .zero, configuration: WKWebViewConfiguration())
+        let config = WKWebViewConfiguration()
+        // Persist cookies/session so Save can download og:image with the same access
+        // the listing page already has (private / logged-in photos).
+        config.websiteDataStore = .default()
+        let web = WKWebView(frame: .zero, configuration: config)
         web.navigationDelegate = context.coordinator
         web.uiDelegate = context.coordinator
         web.allowsBackForwardNavigationGestures = true
@@ -301,12 +429,18 @@ private struct FindIdeasWebView: UIViewRepresentable {
         web.addObserver(context.coordinator, forKeyPath: "loading", options: .new, context: nil)
         web.addObserver(context.coordinator, forKeyPath: "canGoBack", options: .new, context: nil)
         web.addObserver(context.coordinator, forKeyPath: "canGoForward", options: .new, context: nil)
+        DispatchQueue.main.async {
+            self.webView = web
+        }
         web.load(URLRequest(url: startURL))
         return web
     }
 
     func updateUIView(_ web: WKWebView, context: Context) {
         context.coordinator.parent = self
+        if webView !== web {
+            DispatchQueue.main.async { self.webView = web }
+        }
         if goBackToken != context.coordinator.lastGoBackToken {
             context.coordinator.lastGoBackToken = goBackToken
             if web.canGoBack { web.goBack() }
