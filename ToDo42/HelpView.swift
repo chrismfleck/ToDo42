@@ -167,7 +167,11 @@ struct HelpView: View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(alignment: .center, spacing: 5) {
                 helpText("To add a partner tap")
-                PairHeartPlusIcon(size: Self.helpChromeSize, tint: Palette.brandBlue(colorScheme))
+                PairHeartPlusIcon(
+                    size: Self.helpChromeSize,
+                    tint: Palette.brandBlue(colorScheme),
+                    lineWidth: Self.helpChromeLine
+                )
             }
             helpText("Enter names and headshots, send invite to partner. Or enter a code if you are sent one.")
             helpText("To add second partner tap Add a pair.")

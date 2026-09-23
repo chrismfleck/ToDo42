@@ -72,17 +72,27 @@ struct PairHeartPlusIcon: View {
     /// Match other header chrome circles (`headerGlyphPoint` = 28).
     var size: CGFloat = 28
     var tint: Color
-    /// Kept for call-site compatibility; the asset already includes the ring.
+    /// Same ring math as `ChromeCircleIcon` / header chrome (`diameter * 0.054`).
     var lineWidth: CGFloat? = nil
 
+    private var ringWidth: CGFloat {
+        lineWidth ?? max(1.0, size * 0.054)
+    }
+
     var body: some View {
-        Image("PairHeartsChrome")
-            .renderingMode(.template)
-            .resizable()
-            .scaledToFit()
-            .foregroundStyle(tint)
-            .frame(width: size, height: size)
-            .accessibilityHidden(true)
+        ZStack {
+            Circle()
+                .strokeBorder(tint, lineWidth: ringWidth)
+            Image("PairHeartsChrome")
+                .renderingMode(.template)
+                .resizable()
+                .scaledToFit()
+                .foregroundStyle(tint)
+                // Inset so hearts sit inside the stroke like SF glyphs in ChromeCircleIcon.
+                .padding(size * 0.14)
+        }
+        .frame(width: size, height: size)
+        .accessibilityHidden(true)
     }
 }
 

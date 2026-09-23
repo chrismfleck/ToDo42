@@ -3,7 +3,7 @@ import Foundation
 enum AppBuild {
     /// Bump together with CURRENT_PROJECT_VERSION in the Xcode project.
     /// UI reads this stamp (not Info.plist) so a stale install cannot hide the real code.
-    static let number = "148"
+    static let number = "149"
 
     static var marketing: String {
         Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "1.0"
