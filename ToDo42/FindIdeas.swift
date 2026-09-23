@@ -313,6 +313,50 @@ private enum FindIdeasPageCapture {
 
     @MainActor
     static func capture(from webView: WKWebView) async -> Captured {
+        var captured = Captured()
+
+        // Prefer an in-page capture that uses the browser’s full cookie/session
+        // access (not a cookieless URLSession refetch of a private CDN URL).
+        if let payload = await captureInBrowser(webView) {
+            if let title = payload.title, !title.isEmpty { captured.title = title }
+            if let notes = payload.notes, !notes.isEmpty { captured.notes = notes }
+            if let jpeg = payload.imageJPEG {
+                captured.imageJPEG = jpeg
+                return captured
+            }
+            for candidate in payload.imageURLs {
+                if let jpeg = await downloadJPEG(candidate, webView: webView) {
+                    captured.imageJPEG = jpeg
+                    return captured
+                }
+            }
+            return captured
+        }
+
+        // Last-resort meta scrape if async browser capture is unavailable.
+        if let meta = await captureMetaOnly(webView) {
+            captured.title = meta.title
+            captured.notes = meta.notes
+            for candidate in meta.imageURLs {
+                if let jpeg = await downloadJPEG(candidate, webView: webView) {
+                    captured.imageJPEG = jpeg
+                    break
+                }
+            }
+        }
+
+        return captured
+    }
+
+    private struct BrowserPayload {
+        var title: String?
+        var notes: String?
+        var imageJPEG: Data?
+        var imageURLs: [URL]
+    }
+
+    @MainActor
+    private static func captureMetaOnly(_ webView: WKWebView) async -> BrowserPayload? {
         let js = """
         (function() {
           function meta(sel, attr) {
@@ -326,6 +370,92 @@ private enum FindIdeasPageCapture {
             }
             return '';
           }
+          return JSON.stringify({
+            title: first(
+              meta('meta[property="og:title"]', 'content'),
+              meta('meta[name="twitter:title"]', 'content'),
+              document.title
+            ),
+            notes: first(
+              meta('meta[property="og:description"]', 'content'),
+              meta('meta[name="twitter:description"]', 'content'),
+              meta('meta[name="description"]', 'content')
+            ),
+            image: first(
+              meta('meta[property="og:image"]', 'content'),
+              meta('meta[property="og:image:url"]', 'content'),
+              meta('meta[property="og:image:secure_url"]', 'content'),
+              meta('meta[name="twitter:image"]', 'content'),
+              meta('meta[name="twitter:image:src"]', 'content')
+            )
+          });
+        })();
+        """
+        guard let raw = try? await webView.evaluateJavaScript(js) as? String,
+              let data = raw.data(using: .utf8),
+              let json = try? JSONSerialization.jsonObject(with: data) as? [String: String]
+        else {
+            return nil
+        }
+        var payload = BrowserPayload(title: nil, notes: nil, imageJPEG: nil, imageURLs: [])
+        let title = json["title"]?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let notes = json["notes"]?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        if !title.isEmpty { payload.title = title }
+        if !notes.isEmpty { payload.notes = notes }
+        let imageRaw = json["image"]?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        if !imageRaw.isEmpty,
+           let imageURL = URL(string: imageRaw)
+            ?? webView.url.flatMap({ URL(string: imageRaw, relativeTo: $0)?.absoluteURL }) {
+            payload.imageURLs = [imageURL]
+        }
+        return payload
+    }
+
+    /// Pull title/notes/photo from the live page using the same session the user
+    /// already has (logged-in / private listing photos).
+    @MainActor
+    private static func captureInBrowser(_ webView: WKWebView) async -> BrowserPayload? {
+        let js = """
+          function meta(sel, attr) {
+            var el = document.querySelector(sel);
+            return el ? (el.getAttribute(attr) || '') : '';
+          }
+          function first() {
+            for (var i = 0; i < arguments.length; i++) {
+              var v = (arguments[i] || '').trim();
+              if (v) return v;
+            }
+            return '';
+          }
+          function bad(url) {
+            var u = (url || '').toLowerCase();
+            if (!u || u.indexOf('data:') === 0 || u.indexOf('blob:') === 0) return true;
+            if (u.indexOf('logo') !== -1 || u.indexOf('favicon') !== -1) return true;
+            if (u.indexOf('sprite') !== -1 || u.indexOf('/icon') !== -1) return true;
+            if (u.indexOf('avatar') !== -1) return true;
+            return false;
+          }
+          function abs(url) {
+            try { return new URL(url, document.baseURI).href; } catch (e) { return ''; }
+          }
+          function push(list, url) {
+            var a = abs(url);
+            if (!a || bad(a) || list.indexOf(a) !== -1) return;
+            list.push(a);
+          }
+          function srcsetBest(srcset) {
+            if (!srcset) return '';
+            var best = '', bestW = -1;
+            srcset.split(',').forEach(function(part) {
+              var bits = part.trim().split(/\\s+/);
+              if (!bits[0]) return;
+              var w = 0;
+              if (bits[1] && bits[1].slice(-1) === 'w') w = parseInt(bits[1], 10) || 0;
+              if (w >= bestW) { bestW = w; best = bits[0]; }
+            });
+            return best || srcset.split(',')[0].trim().split(/\\s+/)[0] || '';
+          }
+
           var title = first(
             meta('meta[property="og:title"]', 'content'),
             meta('meta[name="twitter:title"]', 'content'),
@@ -336,39 +466,124 @@ private enum FindIdeasPageCapture {
             meta('meta[name="twitter:description"]', 'content'),
             meta('meta[name="description"]', 'content')
           );
-          var image = first(
-            meta('meta[property="og:image"]', 'content'),
-            meta('meta[property="og:image:url"]', 'content'),
-            meta('meta[name="twitter:image"]', 'content'),
-            meta('meta[name="twitter:image:src"]', 'content')
-          );
-          return JSON.stringify({ title: title, notes: notes, image: image });
-        })();
-        """
-        var captured = Captured()
-        guard let raw = try? await webView.evaluateJavaScript(js) as? String,
-              let data = raw.data(using: .utf8),
-              let json = try? JSONSerialization.jsonObject(with: data) as? [String: String]
-        else {
-            return captured
-        }
-        let title = json["title"]?.trimmingCharacters(in: .whitespacesAndNewlines)
-        let notes = json["notes"]?.trimmingCharacters(in: .whitespacesAndNewlines)
-        if let title, !title.isEmpty { captured.title = title }
-        if let notes, !notes.isEmpty { captured.notes = notes }
 
-        let imageRaw = json["image"]?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        if !imageRaw.isEmpty,
-           let imageURL = URL(string: imageRaw)
-            ?? (webView.url.flatMap { URL(string: imageRaw, relativeTo: $0)?.absoluteURL }) {
-            if let jpeg = await downloadJPEG(imageURL, webView: webView) {
-                captured.imageJPEG = jpeg
+          var urls = [];
+          push(urls, meta('meta[property="og:image"]', 'content'));
+          push(urls, meta('meta[property="og:image:url"]', 'content'));
+          push(urls, meta('meta[property="og:image:secure_url"]', 'content'));
+          push(urls, meta('meta[name="twitter:image"]', 'content'));
+          push(urls, meta('meta[name="twitter:image:src"]', 'content'));
+
+          var scored = [];
+          Array.prototype.forEach.call(document.images || [], function(img) {
+            var w = Math.max(img.naturalWidth || 0, img.width || 0, img.clientWidth || 0);
+            var h = Math.max(img.naturalHeight || 0, img.height || 0, img.clientHeight || 0);
+            if (w < 120 || h < 120) return;
+            var src = srcsetBest(img.currentSrc || img.getAttribute('srcset') || '') || img.src || '';
+            if (bad(src)) return;
+            scored.push({ url: abs(src), area: w * h, el: img });
+          });
+          scored.sort(function(a, b) { return b.area - a.area; });
+          scored.forEach(function(s) { push(urls, s.url); });
+
+          async function blobToDataURL(blob) {
+            return await new Promise(function(resolve, reject) {
+              var reader = new FileReader();
+              reader.onload = function() { resolve(reader.result); };
+              reader.onerror = reject;
+              reader.readAsDataURL(blob);
+            });
+          }
+
+          async function fetchDataURL(url) {
+            try {
+              var res = await fetch(url, { credentials: 'include', mode: 'cors', cache: 'force-cache' });
+              if (!res.ok) return '';
+              var blob = await res.blob();
+              if (!blob || blob.size < 800) return '';
+              return await blobToDataURL(blob);
+            } catch (e) {
+              return '';
+            }
+          }
+
+          function canvasFromImg(img) {
+            try {
+              var w = img.naturalWidth || img.width || 0;
+              var h = img.naturalHeight || img.height || 0;
+              if (w < 120 || h < 120) return '';
+              var canvas = document.createElement('canvas');
+              var max = 1600;
+              var scale = Math.min(1, max / Math.max(w, h));
+              canvas.width = Math.max(1, Math.round(w * scale));
+              canvas.height = Math.max(1, Math.round(h * scale));
+              var ctx = canvas.getContext('2d');
+              ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+              return canvas.toDataURL('image/jpeg', 0.82);
+            } catch (e) {
+              return '';
+            }
+          }
+
+          var dataURL = '';
+          for (var i = 0; i < urls.length && !dataURL; i++) {
+            dataURL = await fetchDataURL(urls[i]);
+          }
+          if (!dataURL) {
+            for (var j = 0; j < scored.length && !dataURL; j++) {
+              dataURL = canvasFromImg(scored[j].el);
+            }
+          }
+
+          return {
+            title: title,
+            notes: notes,
+            dataURL: dataURL || '',
+            images: urls.slice(0, 8)
+          };
+        """
+
+        guard let result = try? await webView.callAsyncJavaScript(
+            js,
+            arguments: [:],
+            in: nil,
+            in: .page
+        ) as? [String: Any] else {
+            return nil
+        }
+
+        var payload = BrowserPayload(title: nil, notes: nil, imageJPEG: nil, imageURLs: [])
+        if let title = result["title"] as? String {
+            let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !trimmed.isEmpty { payload.title = trimmed }
+        }
+        if let notes = result["notes"] as? String {
+            let trimmed = notes.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !trimmed.isEmpty { payload.notes = trimmed }
+        }
+        if let dataURL = result["dataURL"] as? String, let jpeg = jpegFromDataURL(dataURL) {
+            payload.imageJPEG = jpeg
+        }
+        if let images = result["images"] as? [String] {
+            payload.imageURLs = images.compactMap { raw in
+                URL(string: raw)
+                    ?? webView.url.flatMap { URL(string: raw, relativeTo: $0)?.absoluteURL }
             }
         }
-        return captured
+        return payload
     }
 
-    /// Download with the browser’s cookies so private / login-gated CDNs still return the photo.
+    private static func jpegFromDataURL(_ dataURL: String) -> Data? {
+        guard let comma = dataURL.firstIndex(of: ",") else { return nil }
+        let encoded = String(dataURL[dataURL.index(after: comma)...])
+        guard let data = Data(base64Encoded: encoded, options: .ignoreUnknownCharacters),
+              let image = UIImage(data: data) else {
+            return nil
+        }
+        return PhotoJPEG.compressed(image)
+    }
+
+    /// Fallback: download with the browser’s cookies so private / login-gated CDNs still return the photo.
     private static func downloadJPEG(_ url: URL, webView: WKWebView) async -> Data? {
         let cookies = await withCheckedContinuation { (cont: CheckedContinuation<[HTTPCookie], Never>) in
             webView.configuration.websiteDataStore.httpCookieStore.getAllCookies { cont.resume(returning: $0) }
