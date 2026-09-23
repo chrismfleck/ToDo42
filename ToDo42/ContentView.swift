@@ -895,6 +895,12 @@ struct ContentView: View {
                     title = split.title
                     notes = split.notes.isEmpty ? notes : split.notes
                 }
+            } else if TikTokShareText.isTikTokURL(link) || TikTokShareText.needsCleanup(title: title) {
+                let split = TikTokShareText.refine(title: title, notes: notes)
+                if !split.title.isEmpty {
+                    title = split.title
+                    notes = split.notes.isEmpty ? notes : split.notes
+                }
             }
             let cut = SharedText.cutTitle(title, notes: notes)
             let nextTitle = SharedText.normalized(cut.title)
@@ -1039,6 +1045,11 @@ struct ContentView: View {
             }
             if XShareText.isXURL(link) || XShareText.needsCleanup(title: rawTitle) {
                 let split = XShareText.refine(title: rawTitle, notes: rawNotes)
+                if !split.title.isEmpty { rawTitle = split.title }
+                rawNotes = split.notes
+            }
+            if TikTokShareText.isTikTokURL(link) || TikTokShareText.needsCleanup(title: rawTitle) {
+                let split = TikTokShareText.refine(title: rawTitle, notes: rawNotes)
                 if !split.title.isEmpty { rawTitle = split.title }
                 rawNotes = split.notes
             }
@@ -2194,6 +2205,11 @@ struct AddItemView: View {
             if !split.title.isEmpty { title = split.title }
             notes = split.notes
         }
+        if TikTokShareText.isTikTokURL(link) || TikTokShareText.needsCleanup(title: title) {
+            let split = TikTokShareText.refine(title: title, notes: notes)
+            if !split.title.isEmpty { title = split.title }
+            notes = split.notes
+        }
         let cut = SharedText.cutTitle(title, notes: notes)
         title = cut.title
         notes = cut.notes
@@ -2274,6 +2290,18 @@ struct AddItemView: View {
             notes = split.notes
         } else if XShareText.isXURL(link) || XShareText.needsCleanup(title: title) {
             let split = XShareText.split(from: [
+                title,
+                notes,
+                meta.title ?? "",
+                meta.description ?? "",
+            ])
+            if !split.title.isEmpty {
+                title = split.title
+                selectedCategories.insert(ItemCategory.guessed(urlString: link, title: split.title + " " + split.notes))
+            }
+            notes = split.notes
+        } else if TikTokShareText.isTikTokURL(link) || TikTokShareText.needsCleanup(title: title) {
+            let split = TikTokShareText.split(from: [
                 title,
                 notes,
                 meta.title ?? "",

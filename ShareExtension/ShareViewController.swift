@@ -117,6 +117,10 @@ private enum SharedContent {
             let split = XShareText.refine(title: result.title, notes: result.notes)
             if !split.title.isEmpty { result.title = split.title }
             result.notes = split.notes
+        } else if TikTokShareText.isTikTokURL(result.urlString) || TikTokShareText.needsCleanup(title: result.title) {
+            let split = TikTokShareText.refine(title: result.title, notes: result.notes)
+            if !split.title.isEmpty { result.title = split.title }
+            result.notes = split.notes
         }
         let cut = SharedText.cutTitle(result.title, notes: result.notes)
         result.title = cut.title
@@ -408,6 +412,18 @@ struct ShareFormView: View {
             notes = split.notes
         } else if XShareText.isXURL(link) || XShareText.needsCleanup(title: title) {
             let split = XShareText.split(from: [
+                title,
+                notes,
+                meta.title ?? "",
+                meta.description ?? "",
+            ])
+            if !split.title.isEmpty {
+                title = split.title
+                selectedCategories.insert(ShareInbox.guessedCategory(urlString: link, title: split.title + " " + split.notes))
+            }
+            notes = split.notes
+        } else if TikTokShareText.isTikTokURL(link) || TikTokShareText.needsCleanup(title: title) {
+            let split = TikTokShareText.split(from: [
                 title,
                 notes,
                 meta.title ?? "",
