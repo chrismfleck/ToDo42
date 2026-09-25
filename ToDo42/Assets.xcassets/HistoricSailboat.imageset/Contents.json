@@ -1,0 +1,12 @@
+{
+  "images" : [
+    {
+      "filename" : "historic-sailboat.jpg",
+      "idiom" : "universal"
+    }
+  ],
+  "info" : {
+    "author" : "xcode",
+    "version" : 1
+  }
+}

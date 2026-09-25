@@ -19,7 +19,7 @@ enum Palette {
     }
 
     static func card(_ scheme: ColorScheme) -> Color {
-        isDark(scheme) ? .black : .white
+        isDark(scheme) ? Color.black.opacity(0.72) : Color.white.opacity(0.92)
     }
 
     static func uiCanvas(_ scheme: ColorScheme) -> UIColor {
@@ -27,7 +27,32 @@ enum Palette {
     }
 }
 
-private extension View {
+/// Full-bleed balcony photo in dark mode; solid canvas in light mode.
+struct AppCanvasBackground: View {
+    @Environment(\.colorScheme) private var colorScheme
+
+    var body: some View {
+        Group {
+            if Palette.isDark(colorScheme) {
+                GeometryReader { geo in
+                    ZStack {
+                        Image("AppBackground")
+                            .resizable()
+                            .scaledToFill()
+                            .frame(width: geo.size.width, height: geo.size.height)
+                            .clipped()
+                        Color.black.opacity(0.35)
+                    }
+                }
+            } else {
+                Palette.canvas(colorScheme)
+            }
+        }
+        .allowsHitTesting(false)
+    }
+}
+
+extension View {
     func appCard(cornerRadius: CGFloat, scheme: ColorScheme) -> some View {
         background(Palette.card(scheme), in: RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
             .overlay {
@@ -35,149 +60,1045 @@ private extension View {
                     .strokeBorder(Palette.isDark(scheme) ? Color.white.opacity(0.16) : Color.clear, lineWidth: 1)
             }
     }
+
+    func appCanvasBackground() -> some View {
+        background { AppCanvasBackground() }
+    }
+}
+
+private let heartPink = Color(red: 0.92, green: 0.28, blue: 0.45)
+
+struct PairHeartPlusIcon: View {
+    /// Match other header chrome circles (`headerGlyphPoint` = 28).
+    var size: CGFloat = 28
+    var tint: Color
+    /// Same ring math as `ChromeCircleIcon` / header chrome (`diameter * 0.054`).
+    var lineWidth: CGFloat? = nil
+
+    private var ringWidth: CGFloat {
+        lineWidth ?? max(1.0, size * 0.054)
+    }
+
+    var body: some View {
+        ZStack {
+            Circle()
+                .strokeBorder(tint, lineWidth: ringWidth)
+            Image("PairHeartsChrome")
+                .renderingMode(.template)
+                .resizable()
+                .scaledToFit()
+                .foregroundStyle(tint)
+                // Inset so hearts sit inside the stroke like SF glyphs in ChromeCircleIcon.
+                .padding(size * 0.14)
+        }
+        .frame(width: size, height: size)
+        .accessibilityHidden(true)
+    }
+}
+
+/// Toolbar circle icons with an explicit ring width (SF Symbol `.circle` weight was not thin enough).
+struct ChromeCircleIcon: View {
+    var systemName: String
+    var diameter: CGFloat = 28
+    var tint: Color
+    /// Baseline SF ring ≈ 7.2% of diameter; 25% thinner → 5.4%.
+    var lineWidth: CGFloat? = nil
+
+    private var ringWidth: CGFloat {
+        lineWidth ?? max(1.0, diameter * 0.054)
+    }
+
+    var body: some View {
+        ZStack {
+            Circle()
+                .strokeBorder(tint, lineWidth: ringWidth)
+            Image(systemName: systemName)
+                .font(.system(size: diameter * 0.42, weight: .semibold))
+                .foregroundStyle(tint)
+        }
+        .frame(width: diameter, height: diameter)
+        .accessibilityHidden(true)
+    }
+}
+
+/// UIKit-backed icon button so TabView page gestures cannot swallow the tap.
+struct ReliableIconButton: UIViewRepresentable {
+    var systemName: String
+    var tint: Color
+    var side: CGFloat = 48
+    var pointSize: CGFloat = 22
+    var weight: UIImage.SymbolWeight = .semibold
+    /// When set, draws `systemName` inside a custom thin circle (not SF `.circle`).
+    var chromeDiameter: CGFloat? = nil
+    var chromeLineWidth: CGFloat? = nil
+    var accessibilityLabel: String
+    var action: () -> Void
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(action: action)
+    }
+
+    func makeUIView(context: Context) -> UIView {
+        let container = HitContainerView()
+        container.backgroundColor = .clear
+        container.isUserInteractionEnabled = true
+        container.isAccessibilityElement = true
+        container.accessibilityTraits = .button
+
+        let imageView = UIImageView()
+        imageView.translatesAutoresizingMaskIntoConstraints = false
+        imageView.contentMode = .center
+        imageView.isUserInteractionEnabled = false
+        container.addSubview(imageView)
+
+        NSLayoutConstraint.activate([
+            imageView.centerXAnchor.constraint(equalTo: container.centerXAnchor),
+            imageView.centerYAnchor.constraint(equalTo: container.centerYAnchor),
+            container.widthAnchor.constraint(equalToConstant: side),
+            container.heightAnchor.constraint(equalToConstant: side),
+        ])
+
+        let tap = UITapGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.tapped))
+        tap.cancelsTouchesInView = true
+        tap.delaysTouchesBegan = false
+        tap.delaysTouchesEnded = false
+        container.addGestureRecognizer(tap)
+
+        context.coordinator.imageView = imageView
+        context.coordinator.container = container
+        apply(context: context)
+        return container
+    }
+
+    func updateUIView(_ container: UIView, context: Context) {
+        context.coordinator.action = action
+        apply(context: context)
+    }
+
+    private func apply(context: Context) {
+        guard let imageView = context.coordinator.imageView else { return }
+        let color = UIColor(tint)
+        if let diameter = chromeDiameter {
+            let line = chromeLineWidth ?? max(1, diameter * 0.054)
+            imageView.image = Self.chromeImage(
+                systemName: systemName,
+                diameter: diameter,
+                lineWidth: line,
+                tint: color
+            )
+            imageView.tintColor = nil
+        } else {
+            let config = UIImage.SymbolConfiguration(pointSize: pointSize, weight: weight)
+            imageView.image = UIImage(systemName: systemName, withConfiguration: config)
+            imageView.tintColor = color
+        }
+        context.coordinator.container?.accessibilityLabel = accessibilityLabel
+    }
+
+    private static func chromeImage(
+        systemName: String,
+        diameter: CGFloat,
+        lineWidth: CGFloat,
+        tint: UIColor
+    ) -> UIImage {
+        let size = CGSize(width: diameter, height: diameter)
+        let renderer = UIGraphicsImageRenderer(size: size)
+        return renderer.image { _ in
+            let inset = lineWidth / 2
+            let ring = UIBezierPath(ovalIn: CGRect(
+                x: inset,
+                y: inset,
+                width: diameter - lineWidth,
+                height: diameter - lineWidth
+            ))
+            tint.setStroke()
+            ring.lineWidth = lineWidth
+            ring.stroke()
+
+            let config = UIImage.SymbolConfiguration(pointSize: diameter * 0.42, weight: .semibold)
+            guard let glyph = UIImage(systemName: systemName, withConfiguration: config)?
+                .withTintColor(tint, renderingMode: .alwaysOriginal) else { return }
+            let glyphSize = glyph.size
+            let origin = CGPoint(
+                x: (diameter - glyphSize.width) / 2,
+                y: (diameter - glyphSize.height) / 2
+            )
+            glyph.draw(in: CGRect(origin: origin, size: glyphSize))
+        }
+    }
+
+    final class Coordinator: NSObject {
+        var action: () -> Void
+        weak var imageView: UIImageView?
+        weak var container: UIView?
+        private var lastTap = Date.distantPast
+
+        init(action: @escaping () -> Void) {
+            self.action = action
+        }
+
+        @objc func tapped() {
+            let now = Date()
+            guard now.timeIntervalSince(lastTap) > 0.28 else { return }
+            lastTap = now
+            UIImpactFeedbackGenerator(style: .light).impactOccurred()
+            action()
+        }
+    }
+
+    /// Claims the full layout box for hit-testing even when the image is smaller.
+    private final class HitContainerView: UIView {
+        override func point(inside point: CGPoint, with event: UIEvent?) -> Bool {
+            bounds.insetBy(dx: -4, dy: -4).contains(point)
+        }
+    }
+}
+
+struct PairHeadButton: View {
+    let label: String
+    var tint: Color
+    var isActive: Bool = true
+    var size: CGFloat = 30
+    var imageData: Data? = nil
+    var action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            PairHeadAvatar(label: label, tint: tint, isActive: isActive, size: size, imageData: imageData)
+                // Keep the hit box to the avatar so it cannot steal taps from
+                // adjacent hearts / Done on the item page.
+                .contentShape(Circle())
+        }
+        .buttonStyle(.borderless)
+    }
+}
+
+struct PairHeadAvatar: View {
+    let label: String
+    var tint: Color
+    var isActive: Bool = true
+    var size: CGFloat = 30
+    var imageData: Data? = nil
+
+    private var initials: String {
+        let parts = label
+            .split(whereSeparator: { $0.isWhitespace })
+            .prefix(2)
+        let letters = parts.compactMap { $0.first.map(String.init) }
+        let joined = letters.joined().uppercased()
+        return joined.isEmpty ? "?" : joined
+    }
+
+    private var fontSize: CGFloat {
+        max(9, size * 0.36)
+    }
+
+    var body: some View {
+        Group {
+            if let imageData, let uiImage = UIImage(data: imageData) {
+                Image(uiImage: uiImage)
+                    .resizable()
+                    .scaledToFill()
+            } else {
+                Text(initials)
+                    .font(.system(size: fontSize, weight: .bold, design: .rounded))
+                    .foregroundStyle(.white)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .background(tint.opacity(isActive ? 1 : 0.45))
+            }
+        }
+        .frame(width: size, height: size)
+        .clipShape(Circle())
+        .overlay {
+            Circle()
+                .strokeBorder(Color.white.opacity(0.85), lineWidth: isActive && size >= 28 ? 2 : 1)
+        }
+        .opacity(isActive ? 1 : 0.55)
+    }
+}
+
+private struct CategoryTabStrip: View {
+    var categories: [ItemCategory]
+    var isSelected: (ItemCategory) -> Bool
+    var onSelect: (ItemCategory) -> Void
+    @Environment(CategoryNames.self) private var categoryNames
+    @Environment(\.colorScheme) private var colorScheme
+
+    var body: some View {
+        HStack(spacing: 6) {
+            ForEach(categories) { cat in
+                let selected = isSelected(cat)
+                Button {
+                    onSelect(cat)
+                } label: {
+                    VStack(spacing: 4) {
+                        Image(systemName: cat.systemImage)
+                            .font(.system(size: 16, weight: .semibold))
+                            .foregroundStyle(cat.iconColor)
+                        Text(categoryNames.title(for: cat))
+                            .font(.caption2.weight(.semibold))
+                            .multilineTextAlignment(.center)
+                            .lineLimit(2)
+                            .minimumScaleFactor(0.7)
+                            .foregroundStyle(Palette.brandBlue(colorScheme))
+                    }
+                    .frame(maxWidth: .infinity, minHeight: 52)
+                    .padding(.vertical, 6)
+                    .padding(.horizontal, 2)
+                    .background(
+                        RoundedRectangle(cornerRadius: 10, style: .continuous)
+                            .fill(Palette.card(colorScheme))
+                    )
+                    .overlay {
+                        RoundedRectangle(cornerRadius: 10, style: .continuous)
+                            .strokeBorder(
+                                selected
+                                    ? Palette.brandBlue(colorScheme)
+                                    : (Palette.isDark(colorScheme) ? Color.white.opacity(0.16) : Color.black.opacity(0.06)),
+                                lineWidth: selected ? 3 : 1
+                            )
+                    }
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(categoryNames.title(for: cat))
+                .accessibilityAddTraits(selected ? .isSelected : [])
+            }
+        }
+    }
+}
+
+struct CategoryPickerGrid: View {
+    @Binding var selection: Set<ItemCategory>
+
+    var body: some View {
+        VStack(spacing: 8) {
+            ForEach(Array(ItemCategory.pages.enumerated()), id: \.offset) { _, page in
+                CategoryTabStrip(
+                    categories: page,
+                    isSelected: { selection.contains($0) },
+                    onSelect: { toggle($0) }
+                )
+            }
+        }
+    }
+
+    private func toggle(_ cat: ItemCategory) {
+        if selection.contains(cat) {
+            guard selection.count > 1 else { return }
+            selection.remove(cat)
+        } else {
+            selection.insert(cat)
+        }
+    }
 }
 
 struct ContentView: View {
     @Environment(\.modelContext) private var modelContext
     @Environment(\.colorScheme) private var colorScheme
-    @Query(sort: \TodoItem.createdAt, order: .reverse) private var items: [TodoItem]
+    @Query private var items: [TodoItem]
     @Environment(\.scenePhase) private var scenePhase
     @State private var category: ItemCategory = .places
+    @State private var categoryPage = 0
+    @State private var pageSelection: [Int: ItemCategory] = [
+        0: .places,
+        1: .projects,
+        2: .vegasTrip,
+    ]
     @State private var showAdd = false
+    @State private var showPairing = false
+    @State private var showHelp = false
+    @State private var didOfferPairRestore = false
+    @Environment(PairSession.self) private var pairSession
     @State private var swipingItemID: UUID?
     @State private var selectedItem: TodoItem?
+    @State private var isListEditing = !UserDefaults.standard.bool(forKey: Self.hasLeftListEditKey)
+    @State private var reorderDrag: ReorderDrag?
+    @State private var rowHeights: [UUID: CGFloat] = [:]
+
+    private static let hasLeftListEditKey = "todo42.hasLeftListEditMode"
+    private static let headerIconHit: CGFloat = 44
+    /// Home headshots — larger than the toolbar circle glyphs.
+    private static let headerHeadSize: CGFloat = 52
+    /// pencil / ? / + circles — same diameter for all.
+    private static let headerGlyphPoint: CGFloat = 28
+    /// Explicit ring: ~25% thinner than a typical SF Symbol circle stroke.
+    private static let headerCircleLineWidth: CGFloat = 28 * 0.054
+    /// Equal vertical gap: heads → categories, and categories → item cards.
+    private static let homeChromeGap: CGFloat = 12
+
+    private var pairScopedItems: [TodoItem] {
+        let active = pairSession.pairID
+        let scoped: [TodoItem]
+        if let active, !active.isEmpty {
+            scoped = items.filter { $0.pairID == active || $0.pairID.isEmpty }
+        } else {
+            scoped = Array(items)
+        }
+        // Hide blank-title companion ghosts that used to land on the list.
+        return scoped.filter {
+            !$0.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        }
+    }
 
     private var filtered: [TodoItem] {
-        items.filter { $0.category == category }
+        pairScopedItems
+            .filter { $0.belongs(to: category) }
+            .sorted { lhs, rhs in
+                if lhs.sortOrder == rhs.sortOrder {
+                    return lhs.createdAt > rhs.createdAt
+                }
+                return lhs.sortOrder < rhs.sortOrder
+            }
+    }
+
+    private var pagerItems: [TodoItem] {
+        var list = filtered
+        if let selected = selectedItem, !list.contains(where: { $0.id == selected.id }) {
+            list.insert(selected, at: 0)
+        }
+        return list
+    }
+
+    private var reorderRowStride: CGFloat {
+        let heights = filtered.compactMap { rowHeights[$0.id] }
+        let averageHeight = heights.isEmpty ? 104 : heights.reduce(0, +) / CGFloat(heights.count)
+        return averageHeight + 14
     }
 
     var body: some View {
-        ZStack {
-            Palette.canvas(colorScheme)
-                .ignoresSafeArea()
+        VStack(spacing: 0) {
+            homeHeaderBar
+                .zIndex(2)
 
-            VStack(alignment: .leading, spacing: 22) {
-                ZStack(alignment: .topTrailing) {
-                    VStack(spacing: 8) {
-                        Text("ToDo 4 2")
-                            .font(.system(size: 34, weight: .bold, design: .rounded))
-                            .italic()
-                            .foregroundStyle(Palette.brandBlue(colorScheme))
-                        Text("ToDo's for Two")
-                            .font(.subheadline.weight(.medium))
-                            .foregroundStyle(.secondary)
-                    }
-                    .frame(maxWidth: .infinity)
-                    .padding(.top, 12)
+            // Tabs sit above the pager so horizontal swipes here never fight the item grid.
+            CategoryTabStrip(
+                categories: ItemCategory.pages[categoryPage],
+                isSelected: { $0 == (pageSelection[categoryPage] ?? ItemCategory.pages[categoryPage][0]) },
+                onSelect: { selectCategory($0) }
+            )
+            .padding(.horizontal, 24)
+            .padding(.top, Self.homeChromeGap)
+            .padding(.bottom, Self.homeChromeGap)
+            .contentShape(Rectangle())
+            .gesture(categoryPageSwipeGesture)
 
-                    Button { showAdd = true } label: {
-                        Image(systemName: "plus.circle.fill")
-                            .font(.system(size: 32))
-                            .foregroundStyle(Palette.brandBlue(colorScheme))
-                    }
-                    .accessibilityLabel("Add item")
-                    .padding(.top, 8)
-                }
-                .padding(.horizontal, 24)
+            // List area: empty pages use a full-screen hit pad (same DragGesture as
+            // the category strip). ScrollView alone does not receive blank-area swipes.
+            itemList(for: pageSelection[categoryPage] ?? ItemCategory.pages[categoryPage][0])
+                .id("cat-page-\(categoryPage)-\(pageSelection[categoryPage]?.rawValue ?? "x")")
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
 
-                Picker("Category", selection: $category) {
-                    ForEach(ItemCategory.allCases) { cat in
-                        Text(cat.title).tag(cat)
-                    }
-                }
-                .pickerStyle(.segmented)
-                .padding(.horizontal, 24)
-
-                ScrollView {
-                    LazyVStack(spacing: 14) {
-                        ForEach(filtered, id: \.id) { item in
-                            SwipeToDeleteRow(
-                                itemID: item.id,
-                                swipingItemID: $swipingItemID
-                            ) {
-                                withAnimation(.easeIn(duration: 0.2)) {
-                                    if selectedItem?.id == item.id { selectedItem = nil }
-                                    modelContext.delete(item)
-                                }
-                            } content: {
-                                Button {
-                                    selectedItem = item
-                                } label: {
-                                    ItemRowView(item: item)
-                                }
-                                .buttonStyle(.plain)
-                            }
-                        }
-                    }
-                    .padding(.horizontal, 24)
-                    .padding(.top, 8)
-                    .padding(.bottom, 24)
-                }
-                .scrollContentBackground(.hidden)
-                .background(Palette.canvas(colorScheme))
-            }
+            pageDots
+                .padding(.bottom, 10)
         }
-        .background(WindowCanvas(color: Palette.uiCanvas(colorScheme)))
+        .onChange(of: categoryPage) { _, page in
+            let fallback: ItemCategory = {
+                switch page {
+                case 1: return .projects
+                case 2: return .vegasTrip
+                default: return .places
+                }
+            }()
+            category = pageSelection[page] ?? fallback
+            reorderDrag = nil
+        }
+        .background {
+            AppCanvasBackground()
+                .ignoresSafeArea()
+        }
+        .background(WindowCanvas(color: .clear))
         .tint(Palette.brandBlue(colorScheme))
         .fullScreenCover(isPresented: Binding(
             get: { selectedItem != nil },
             set: { if !$0 { selectedItem = nil } }
         )) {
-            if let selectedItem {
-                ItemDetailView(item: selectedItem)
-                    .presentationBackground(Palette.canvas(colorScheme))
-            }
+            ItemPagerView(items: pagerItems, selectedItem: $selectedItem)
+                .presentationBackground(.clear)
+                .environment(CategoryNames.shared)
+                .environment(HomeBase.shared)
         }
         .sheet(isPresented: $showAdd) {
             AddItemView(category: category)
+                .environment(CategoryNames.shared)
+        }
+        .sheet(isPresented: $showPairing) {
+            PairingView()
+                .environment(PairSession.shared)
+                .environment(CategoryNames.shared)
+                .environment(HomeBase.shared)
+        }
+        .sheet(isPresented: $showHelp) {
+            HelpView()
+                .environment(CategoryNames.shared)
+                .environment(HomeBase.shared)
         }
         .onAppear {
+            ItemStore.migrateUnscopedItems(in: modelContext, to: pairSession.pairID)
+            ItemStore.purgeBlankTitleGhosts(in: modelContext)
+            ItemStore.deduplicate(in: modelContext)
+            ItemStore.deduplicateContentTwins(in: modelContext)
+            pairSession.persistLocal()
             importSharedDrafts()
             seedIfNeeded()
+            repairSampleLinks()
+            normalizeStoredText()
+            offerPairRestoreIfNeeded()
+            Task { await refreshFromCloud() }
         }
         .onChange(of: scenePhase) { _, phase in
-            if phase == .active { importSharedDrafts() }
+            if phase == .active {
+                importSharedDrafts()
+                offerPairRestoreIfNeeded()
+                Task { await refreshFromCloud() }
+            }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .todo42CloudPush)) { _ in
+            Task { await refreshFromCloud() }
+        }
+        .onChange(of: category) { _, _ in
+            reorderDrag = nil
+        }
+    }
+
+    private var homeHeaderBar: some View {
+        let showPairChrome = isListEditing || !pairSession.isPaired
+        return HStack(alignment: .center, spacing: 0) {
+            HStack(spacing: 8) {
+                ReliableIconButton(
+                    systemName: isListEditing ? "checkmark" : "pencil",
+                    tint: Palette.brandBlue(colorScheme),
+                    side: Self.headerIconHit,
+                    chromeDiameter: Self.headerGlyphPoint,
+                    chromeLineWidth: Self.headerCircleLineWidth,
+                    accessibilityLabel: isListEditing ? "Done editing" : "Edit list",
+                    action: toggleListEditing
+                )
+                .frame(width: Self.headerIconHit, height: Self.headerIconHit)
+
+                if showPairChrome {
+                    ReliableIconButton(
+                        systemName: "questionmark",
+                        tint: Palette.brandBlue(colorScheme),
+                        side: Self.headerIconHit,
+                        chromeDiameter: Self.headerGlyphPoint,
+                        chromeLineWidth: Self.headerCircleLineWidth,
+                        accessibilityLabel: "Help",
+                        action: { showHelp = true }
+                    )
+                    .frame(width: Self.headerIconHit, height: Self.headerIconHit)
+                }
+            }
+            .frame(minWidth: Self.headerIconHit, alignment: .leading)
+
+            Spacer(minLength: 20)
+
+            HStack(spacing: 14) {
+                if pairSession.isPaired, !isListEditing {
+                    PairHeadButton(
+                        label: pairSession.myHeartLabel,
+                        tint: Color(red: 0.20, green: 0.48, blue: 0.98),
+                        isActive: true,
+                        size: Self.headerHeadSize,
+                        imageData: pairSession.headImageData(slot: .me)
+                    ) {
+                        if pairSession.hasMultiplePairs {
+                            pairSession.switchToNextPair()
+                            Task { await refreshFromCloud() }
+                        } else {
+                            showPairing = true
+                        }
+                    }
+                    .accessibilityLabel(
+                        pairSession.hasMultiplePairs
+                            ? "Switch list. You are \(pairSession.myHeartLabel)"
+                            : "You, \(pairSession.myHeartLabel)"
+                    )
+                }
+
+                Image("TitleWordmark")
+                    .renderingMode(.template)
+                    .resizable()
+                    .scaledToFit()
+                    .frame(height: 26)
+                    .foregroundStyle(Palette.brandBlue(colorScheme))
+                    .accessibilityLabel("Save 4 Two")
+                    .allowsHitTesting(false)
+
+                if pairSession.isPaired, !isListEditing {
+                    PairHeadButton(
+                        label: pairSession.partnerHeartLabel,
+                        tint: Color(red: 0.22, green: 0.78, blue: 0.55),
+                        isActive: true,
+                        size: Self.headerHeadSize,
+                        imageData: pairSession.headImageData(slot: .partner)
+                    ) {
+                        if pairSession.hasMultiplePairs {
+                            pairSession.switchToNextPair()
+                            Task { await refreshFromCloud() }
+                        } else {
+                            showPairing = true
+                        }
+                    }
+                    .accessibilityLabel(
+                        pairSession.hasMultiplePairs
+                            ? "Switch list. Current partner \(pairSession.partnerHeartLabel)"
+                            : "Partner \(pairSession.partnerHeartLabel)"
+                    )
+                }
+            }
+
+            Spacer(minLength: 20)
+
+            HStack(spacing: 8) {
+                if showPairChrome {
+                    Button { showPairing = true } label: {
+                        PairHeartPlusIcon(
+                            size: Self.headerGlyphPoint,
+                            tint: Palette.brandBlue(colorScheme),
+                            lineWidth: Self.headerCircleLineWidth
+                        )
+                        .frame(width: Self.headerIconHit, height: Self.headerIconHit)
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.borderless)
+                    .accessibilityLabel("Pair phones")
+                }
+
+                ReliableIconButton(
+                    systemName: "plus",
+                    tint: Palette.brandBlue(colorScheme),
+                    side: Self.headerIconHit,
+                    chromeDiameter: Self.headerGlyphPoint,
+                    chromeLineWidth: Self.headerCircleLineWidth,
+                    accessibilityLabel: "Add item",
+                    action: { showAdd = true }
+                )
+                .frame(width: Self.headerIconHit, height: Self.headerIconHit)
+            }
+            .frame(minWidth: Self.headerIconHit, alignment: .trailing)
+        }
+        .padding(.horizontal, 16)
+        .padding(.bottom, 0)
+    }
+
+    private var pageDots: some View {
+        HStack(spacing: 7) {
+            ForEach(0..<ItemCategory.pages.count, id: \.self) { index in
+                Circle()
+                    .fill(index == categoryPage
+                          ? Palette.brandBlue(colorScheme)
+                          : Palette.brandBlue(colorScheme).opacity(0.28))
+                    .frame(width: 7, height: 7)
+                    .accessibilityHidden(true)
+            }
+        }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("Category page \(categoryPage + 1) of \(ItemCategory.pages.count)")
+    }
+
+    private var categoryPageSwipeGesture: some Gesture {
+        DragGesture(minimumDistance: 24, coordinateSpace: .local)
+            .onEnded { value in
+                let dx = value.translation.width
+                let dy = value.translation.height
+                guard abs(dx) > abs(dy), abs(dx) > 40 else { return }
+                let last = ItemCategory.pages.count - 1
+                if dx < 0, categoryPage < last {
+                    withAnimation(.easeInOut(duration: 0.2)) { categoryPage += 1 }
+                } else if dx > 0, categoryPage > 0 {
+                    withAnimation(.easeInOut(duration: 0.2)) { categoryPage -= 1 }
+                }
+            }
+    }
+
+    private func selectCategory(_ cat: ItemCategory) {
+        category = cat
+        withAnimation(.easeInOut(duration: 0.2)) {
+            categoryPage = cat.pageIndex
+        }
+        pageSelection[cat.pageIndex] = cat
+        reorderDrag = nil
+    }
+
+    /// Deleting the app clears pairing. Prompt Restore / re-join so iCloud items come back.
+    private func offerPairRestoreIfNeeded() {
+        guard !pairSession.isPaired, !didOfferPairRestore else { return }
+        didOfferPairRestore = true
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) {
+            showPairing = true
+        }
+    }
+
+    private func items(in cat: ItemCategory) -> [TodoItem] {
+        pairScopedItems
+            .filter { $0.belongs(to: cat) }
+            .sorted { lhs, rhs in
+                if lhs.sortOrder == rhs.sortOrder {
+                    return lhs.createdAt > rhs.createdAt
+                }
+                return lhs.sortOrder < rhs.sortOrder
+            }
+    }
+
+    @ViewBuilder
+    private func itemList(for cat: ItemCategory) -> some View {
+        let rows = items(in: cat)
+        let columns = [
+            GridItem(.flexible(minimum: 120), spacing: 12),
+            GridItem(.flexible(minimum: 120), spacing: 12),
+        ]
+
+        if rows.isEmpty {
+            // No ScrollView: Color.clear often ignores hits. Near-invisible fill +
+            // the same .gesture as the category row makes blank-page swipes work.
+            Rectangle()
+                .fill(Color.primary.opacity(0.001))
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .contentShape(Rectangle())
+                .gesture(categoryPageSwipeGesture)
+                .accessibilityLabel("No items. Swipe sideways for the next category page.")
+        } else {
+            GeometryReader { geo in
+                ScrollView(.vertical, showsIndicators: false) {
+                    LazyVGrid(columns: columns, spacing: 12) {
+                        ForEach(rows, id: \.persistentModelID) { item in
+                            Group {
+                                if isListEditing {
+                                    ItemRowView(
+                                        item: item,
+                                        showsDragHandle: true,
+                                        onDelete: { deleteItem(item) },
+                                        onHandleDragChanged: { translation in
+                                            handleReorderChanged(item: item, translation: translation)
+                                        },
+                                        onHandleDragEnded: {
+                                            handleReorderEnded(item: item)
+                                        }
+                                    )
+                                } else {
+                                    Button {
+                                        selectedItem = item
+                                    } label: {
+                                        ItemRowView(item: item)
+                                    }
+                                    .buttonStyle(.plain)
+                                }
+                            }
+                            .offset(y: reorderOffset(for: item))
+                            .zIndex(reorderDrag?.id == item.id ? 1 : 0)
+                            .scaleEffect(reorderDrag?.id == item.id ? 1.02 : 1)
+                            .shadow(
+                                color: reorderDrag?.id == item.id ? Color.black.opacity(0.18) : .clear,
+                                radius: 12,
+                                y: 6
+                            )
+                            .animation(
+                                reorderDrag?.id == item.id
+                                    ? nil
+                                    : .interactiveSpring(response: 0.25, dampingFraction: 0.86),
+                                value: reorderOffset(for: item)
+                            )
+                            .background {
+                                GeometryReader { rowGeo in
+                                    Color.clear.preference(
+                                        key: RowHeightPreferenceKey.self,
+                                        value: [item.id: rowGeo.size.height]
+                                    )
+                                }
+                            }
+                        }
+                    }
+                    .padding(.horizontal, 20)
+                    .padding(.bottom, 24)
+                    .frame(maxWidth: .infinity, minHeight: geo.size.height, alignment: .top)
+                    .contentShape(Rectangle())
+                    .onPreferenceChange(RowHeightPreferenceKey.self) { rowHeights = $0 }
+                }
+                .scrollDisabled(reorderDrag != nil)
+            }
+            .simultaneousGesture(categoryPageSwipeGesture)
+        }
+    }
+
+    private func toggleListEditing() {
+        if isListEditing {
+            reorderDrag = nil
+            isListEditing = false
+            UserDefaults.standard.set(true, forKey: Self.hasLeftListEditKey)
+        } else {
+            normalizeSortOrders()
+            isListEditing = true
+        }
+    }
+
+    private func deleteItem(_ item: TodoItem) {
+        withAnimation(.easeIn(duration: 0.2)) {
+            if selectedItem?.id == item.id { selectedItem = nil }
+            let id = item.id
+            modelContext.delete(item)
+            Task { await CloudSync.shared.deleteRemote(id) }
+        }
+    }
+
+    private func refreshFromCloud() async {
+        await CloudSync.shared.sync(modelContext: modelContext)
+        seedIfNeeded()
+        repairSampleLinks()
+        if let cat = PairSession.shared.takeRevealCategory() {
+            selectCategory(cat)
+        }
+    }
+
+    private func normalizeSortOrders() {
+        for cat in ItemCategory.allCases {
+            let ordered = items
+                .filter { $0.belongs(to: cat) }
+                .sorted { lhs, rhs in
+                    if lhs.sortOrder == rhs.sortOrder {
+                        return lhs.createdAt > rhs.createdAt
+                    }
+                    return lhs.sortOrder < rhs.sortOrder
+                }
+            var seen = Set<Int>()
+            let hasClash = ordered.contains { !seen.insert($0.sortOrder).inserted }
+            guard hasClash else { continue }
+            for (index, item) in ordered.enumerated() {
+                item.sortOrder = ListReorder.rebalanced(ordered.count)[index]
+            }
+        }
+    }
+
+    private func nextSortOrder(for category: ItemCategory) -> Int {
+        (pairScopedItems.filter { $0.belongs(to: category) }.map(\.sortOrder).min() ?? 0) - 1
+    }
+
+    private func normalizeStoredText() {
+        for item in items {
+            var title = item.title
+            var notes = item.notes
+            let link = item.urlString ?? ""
+            if InstagramShareText.isInstagramURL(link) || InstagramShareText.needsCleanup(title: title, notes: notes) {
+                let split = InstagramShareText.refine(title: title, notes: notes)
+                if !split.title.isEmpty {
+                    title = split.title
+                    notes = split.notes.isEmpty ? notes : split.notes
+                }
+            } else if FacebookShareText.isFacebookURL(link) || title.lowercased().contains("on facebook") {
+                let split = FacebookShareText.refine(title: title, notes: notes)
+                if !split.title.isEmpty {
+                    title = split.title
+                    notes = split.notes.isEmpty ? notes : split.notes
+                }
+            } else if XShareText.isXURL(link) || XShareText.needsCleanup(title: title) {
+                let split = XShareText.refine(title: title, notes: notes)
+                if !split.title.isEmpty {
+                    title = split.title
+                    notes = split.notes.isEmpty ? notes : split.notes
+                }
+            } else if TikTokShareText.isTikTokURL(link) || TikTokShareText.needsCleanup(title: title) {
+                let split = TikTokShareText.refine(title: title, notes: notes)
+                if !split.title.isEmpty {
+                    title = split.title
+                    notes = split.notes.isEmpty ? notes : split.notes
+                }
+            }
+            let cut = SharedText.cutTitle(title, notes: notes)
+            let nextTitle = SharedText.normalized(cut.title)
+            let nextNotes = SharedText.reflowNotes(cut.notes)
+            let nextLink = OpenableURL.from(item.urlString)?.absoluteString ?? item.urlString
+            guard item.title != nextTitle || item.notes != nextNotes || item.urlString != nextLink else { continue }
+            item.title = nextTitle
+            item.notes = nextNotes
+            item.urlString = nextLink
+            PairSession.shared.noteLocalEdit(item, kind: "edit")
+        }
+    }
+
+    /// Older installs may have sample rows with a missing or share-tracking Airbnb URL.
+    private func repairSampleLinks() {
+        guard !pairSession.isPaired else { return }
+        for item in items {
+            guard let seed = SampleData.matching(title: item.title) else { continue }
+            let current = OpenableURL.from(item.urlString)?.absoluteString
+            let expected = OpenableURL.from(seed.urlString)?.absoluteString ?? seed.urlString
+            if current == expected { continue }
+            item.urlString = expected
+            PairSession.shared.noteLocalEdit(item, kind: "edit")
+        }
+    }
+
+    private func reorderOffset(for item: TodoItem) -> CGFloat {
+        guard let drag = reorderDrag,
+              let from = filtered.firstIndex(where: { $0.id == drag.id }),
+              let index = filtered.firstIndex(where: { $0.id == item.id })
+        else { return 0 }
+
+        if item.id == drag.id { return drag.translation }
+
+        let to = targetIndex(from: from, translation: drag.translation)
+        if from < to, index > from, index <= to { return -reorderRowStride }
+        if from > to, index < from, index >= to { return reorderRowStride }
+        return 0
+    }
+
+    private func targetIndex(from: Int, translation: CGFloat) -> Int {
+        let last = max(filtered.count - 1, 0)
+        return min(max(from + Int((translation / reorderRowStride).rounded()), 0), last)
+    }
+
+    private func handleReorderChanged(item: TodoItem, translation: CGFloat) {
+        if reorderDrag == nil {
+            UIImpactFeedbackGenerator(style: .light).impactOccurred()
+        }
+        reorderDrag = ReorderDrag(id: item.id, translation: translation)
+    }
+
+    private func handleReorderEnded(item: TodoItem) {
+        guard let drag = reorderDrag, drag.id == item.id,
+              let from = filtered.firstIndex(where: { $0.id == item.id })
+        else {
+            reorderDrag = nil
+            return
+        }
+
+        let to = targetIndex(from: from, translation: drag.translation)
+        var ordered = filtered
+        if from != to {
+            ordered.move(fromOffsets: IndexSet(integer: from), toOffset: to > from ? to + 1 : to)
+            UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+        }
+        withAnimation(.spring(response: 0.32, dampingFraction: 0.86)) {
+            if from != to {
+                let prev = to > 0 ? ordered[to - 1].sortOrder : nil
+                let next = to < ordered.count - 1 ? ordered[to + 1].sortOrder : nil
+                if let slot = ListReorder.slot(prev: prev, next: next) {
+                    ordered[to].sortOrder = slot
+                    PairSession.shared.noteLocalReorder(moved: ordered[to], others: [])
+                } else {
+                    let orders = ListReorder.rebalanced(ordered.count)
+                    for (index, row) in ordered.enumerated() {
+                        row.sortOrder = orders[index]
+                    }
+                    let moved = ordered[to]
+                    PairSession.shared.noteLocalReorder(
+                        moved: moved,
+                        others: ordered.filter { $0.id != moved.id }
+                    )
+                }
+            }
+            reorderDrag = nil
         }
     }
 
     private func seedIfNeeded() {
-        let key = "todo42.seeded.v2"
-        guard !UserDefaults.standard.bool(forKey: key) else { return }
+        ItemStore.deduplicateSampleCopies(in: modelContext)
 
-        if items.isEmpty {
-            SampleData.seeds.forEach { modelContext.insert(SampleData.makeItem($0)) }
-        } else {
-            for item in items {
-                guard let sample = SampleData.matching(title: item.title) else { continue }
-                if item.imageAssetName == nil {
-                    item.imageAssetName = sample.imageAssetName
-                }
-                if item.urlString == nil {
-                    item.urlString = sample.urlString
-                }
-                if item.notes.isEmpty {
-                    item.notes = sample.notes
-                }
+        // Paired phones use the shared iCloud list. Samples are only for a
+        // fresh local install so they can be shown in Simulator / App Store.
+        if pairSession.isPaired { return }
+
+        let stored = ItemStore.allItems(in: modelContext)
+        let oldThree = Set([
+            "Lake Escape 2",
+            "Greek Seas Charter Sailing",
+            "Keto recipe",
+        ])
+        let titles = Set(stored.map(\.title))
+
+        if stored.isEmpty {
+            for (index, seed) in SampleData.seeds.enumerated() {
+                modelContext.insert(SampleData.makeItem(seed, sortOrder: index))
             }
+            return
         }
 
-        UserDefaults.standard.set(true, forKey: key)
+        if titles.isSubset(of: oldThree) {
+            for item in stored {
+                modelContext.delete(item)
+            }
+            for (index, seed) in SampleData.seeds.enumerated() {
+                modelContext.insert(SampleData.makeItem(seed, sortOrder: index))
+            }
+            return
+        }
+
+        // Do not top up deleted samples. That recreated the trawler after the
+        // user removed it and made "add" look like it duplicated the item.
     }
 
     private func importSharedDrafts() {
+        var nextOrders: [ItemCategory: Int] = [:]
         for (payload, imageData) in ShareInbox.consumeDrafts() {
-            let title = payload.title.trimmingCharacters(in: .whitespacesAndNewlines)
+            let rawLink = payload.urlString.trimmingCharacters(in: .whitespacesAndNewlines)
+            let link = OpenableURL.from(rawLink)?.absoluteString ?? rawLink
+            var rawTitle = payload.title
+            var rawNotes = payload.notes
+            if InstagramShareText.isInstagramURL(link) || InstagramShareText.needsCleanup(title: rawTitle, notes: rawNotes) {
+                let split = InstagramShareText.refine(title: rawTitle, notes: rawNotes)
+                if !split.title.isEmpty { rawTitle = split.title }
+                rawNotes = split.notes
+            }
+            if FacebookShareText.isFacebookURL(link) || rawTitle.lowercased().contains("on facebook") {
+                let split = FacebookShareText.refine(title: rawTitle, notes: rawNotes)
+                if !split.title.isEmpty { rawTitle = split.title }
+                rawNotes = split.notes
+            }
+            if XShareText.isXURL(link) || XShareText.needsCleanup(title: rawTitle) {
+                let split = XShareText.refine(title: rawTitle, notes: rawNotes)
+                if !split.title.isEmpty { rawTitle = split.title }
+                rawNotes = split.notes
+            }
+            if TikTokShareText.isTikTokURL(link) || TikTokShareText.needsCleanup(title: rawTitle) {
+                let split = TikTokShareText.refine(title: rawTitle, notes: rawNotes)
+                if !split.title.isEmpty { rawTitle = split.title }
+                rawNotes = split.notes
+            }
+            let cut = SharedText.cutTitle(rawTitle, notes: rawNotes)
+            let title = SharedText.normalized(cut.title)
             guard !title.isEmpty else { continue }
-            let link = payload.urlString.trimmingCharacters(in: .whitespacesAndNewlines)
-            modelContext.insert(
-                TodoItem(
-                    title: title,
-                    category: ItemCategory(rawValue: payload.category) ?? .places,
-                    urlString: link.isEmpty ? nil : link,
-                    imageData: imageData,
-                    notes: payload.notes
-                )
+            let chosen = ItemCategory.parse(payload.category)
+            let category = chosen.first ?? .places
+            let sortOrder = nextOrders[category] ?? nextSortOrder(for: category)
+            nextOrders[category] = sortOrder - 1
+            let item = TodoItem(
+                title: title,
+                category: category,
+                categories: chosen,
+                urlString: link.isEmpty ? nil : link,
+                imageData: imageData,
+                notes: SharedText.reflowNotes(cut.notes),
+                sortOrder: sortOrder,
+                pairID: PairSession.shared.pairID
             )
+            modelContext.insert(item)
+            PairSession.shared.noteLocalEdit(item, kind: "add")
+        }
+    }
+}
+
+private struct ReorderDrag {
+    var id: UUID
+    var translation: CGFloat
+}
+
+private struct RowHeightPreferenceKey: PreferenceKey {
+    static var defaultValue: [UUID: CGFloat] = [:]
+
+    static func reduce(value: inout [UUID: CGFloat], nextValue: () -> [UUID: CGFloat]) {
+        value.merge(nextValue(), uniquingKeysWith: { $1 })
+    }
+}
+
+private struct OptionalSwipeGesture<G: Gesture>: ViewModifier {
+    var isEnabled: Bool
+    var gesture: G
+
+    @ViewBuilder
+    func body(content: Content) -> some View {
+        if isEnabled {
+            content.simultaneousGesture(gesture)
+        } else {
+            content
         }
     }
 }
@@ -187,43 +1108,31 @@ private let deleteRevealWidth: CGFloat = 88
 struct SwipeToDeleteRow<Content: View>: View {
     let itemID: UUID
     @Binding var swipingItemID: UUID?
+    var isEnabled: Bool = true
     var onDelete: () -> Void
     @ViewBuilder var content: Content
     @State private var offset: CGFloat = 0
+    @State private var rowWidth: CGFloat = 0
 
     var body: some View {
         content
-            .offset(x: offset)
-            .simultaneousGesture(
-                DragGesture(minimumDistance: 24)
-                    .onChanged { value in
-                        let horizontal = value.translation.width
-                        let vertical = value.translation.height
-                        guard abs(horizontal) > abs(vertical) else { return }
-                        if swipingItemID != itemID {
-                            swipingItemID = itemID
+            .offset(x: isEnabled ? offset : 0)
+            .background {
+                GeometryReader { geo in
+                    Color.clear
+                        .onAppear { rowWidth = geo.size.width }
+                        .onChange(of: geo.size.width) { _, width in
+                            rowWidth = width
                         }
-                        offset = min(0, horizontal)
-                    }
-                    .onEnded { value in
-                        let shouldDelete = value.translation.width < -120
-                            || value.predictedEndTranslation.width < -200
-                        if shouldDelete {
-                            withAnimation(.easeIn(duration: 0.18)) {
-                                offset = -UIScreen.main.bounds.width
-                            }
-                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.18) {
-                                onDelete()
-                                if swipingItemID == itemID { swipingItemID = nil }
-                            }
-                        } else {
-                            withAnimation(.spring(response: 0.32, dampingFraction: 0.86)) {
-                                offset = 0
-                            }
-                            if swipingItemID == itemID { swipingItemID = nil }
-                        }
-                    }
-            )
+                }
+            }
+            .modifier(OptionalSwipeGesture(isEnabled: isEnabled, gesture: swipeGesture))
+            .onChange(of: isEnabled) { _, enabled in
+                guard !enabled, offset != 0 else { return }
+                withAnimation(.spring(response: 0.32, dampingFraction: 0.86)) {
+                    offset = 0
+                }
+            }
             .onChange(of: swipingItemID) { _, newValue in
                 if newValue != itemID, offset != 0 {
                     withAnimation(.spring(response: 0.32, dampingFraction: 0.86)) {
@@ -232,48 +1141,302 @@ struct SwipeToDeleteRow<Content: View>: View {
                 }
             }
     }
+
+    private var swipeGesture: some Gesture {
+        DragGesture(minimumDistance: 24)
+            .onChanged { value in
+                guard isEnabled else { return }
+                let horizontal = value.translation.width
+                let vertical = value.translation.height
+                guard abs(horizontal) > abs(vertical) else { return }
+                if swipingItemID != itemID {
+                    swipingItemID = itemID
+                }
+                offset = min(0, horizontal)
+            }
+            .onEnded { value in
+                guard isEnabled else {
+                    offset = 0
+                    return
+                }
+                let shouldDelete = value.translation.width < -120
+                    || value.predictedEndTranslation.width < -200
+                if shouldDelete {
+                    withAnimation(.easeIn(duration: 0.18)) {
+                        offset = -(rowWidth > 0 ? rowWidth : 400)
+                    }
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.18) {
+                        onDelete()
+                        if swipingItemID == itemID { swipingItemID = nil }
+                    }
+                } else {
+                    withAnimation(.spring(response: 0.32, dampingFraction: 0.86)) {
+                        offset = 0
+                    }
+                    if swipingItemID == itemID { swipingItemID = nil }
+                }
+            }
+    }
 }
 
 struct ItemRowView: View {
     @Environment(\.colorScheme) private var colorScheme
     let item: TodoItem
+    var showsDragHandle: Bool = false
+    var onDelete: (() -> Void)? = nil
+    var onHandleDragChanged: ((CGFloat) -> Void)?
+    var onHandleDragEnded: (() -> Void)?
 
     var body: some View {
-        HStack(alignment: .center, spacing: 16) {
-            ItemPhotoView(item: item, cornerRadius: 14)
-                .frame(width: 76, height: 76)
+        VStack(alignment: .leading, spacing: 8) {
+            ZStack(alignment: .topLeading) {
+                ItemPhotoView(item: item, cornerRadius: 14, placeholderIconSize: 28)
+                    .frame(maxWidth: .infinity)
+                    .aspectRatio(1, contentMode: .fit)
+                    .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
 
-            VStack(alignment: .leading, spacing: 6) {
-                Text(item.title)
-                    .font(.headline)
-                    .lineLimit(2)
-                    .foregroundStyle(.primary)
-                if !item.notes.isEmpty {
-                    Text(item.notes)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                        .truncationMode(.tail)
+                if let onDelete {
+                    Button(action: onDelete) {
+                        Image(systemName: "minus.circle.fill")
+                            .font(.system(size: 22, weight: .semibold))
+                            .foregroundStyle(.red)
+                            .shadow(color: .black.opacity(0.25), radius: 2, y: 1)
+                    }
+                    .buttonStyle(.plain)
+                    .padding(8)
+                    .accessibilityLabel("Delete \(item.title)")
+                }
+
+                if item.chrisHearted || item.deenaHearted {
+                    HStack(spacing: 3) {
+                        if item.chrisHearted {
+                            Image(systemName: "heart.fill")
+                        }
+                        if item.deenaHearted {
+                            Image(systemName: "heart.fill")
+                        }
+                    }
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(heartPink)
+                    .padding(6)
+                    .background(.ultraThinMaterial, in: Capsule())
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
+                    .padding(8)
+                    .accessibilityLabel("Hearted")
+                    .allowsHitTesting(false)
                 }
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
+
+            HStack(alignment: .top, spacing: 6) {
+                LockedText(
+                    text: item.title,
+                    font: UIFont.systemFont(ofSize: 12, weight: .bold),
+                    color: .label,
+                    lines: 2
+                )
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .dynamicTypeSize(.large)
+
+                if showsDragHandle {
+                    Image(systemName: "line.3.horizontal")
+                        .font(.body.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                        .frame(width: 24, height: 28)
+                        .contentShape(Rectangle())
+                        .highPriorityGesture(
+                            DragGesture(minimumDistance: 4)
+                                .onChanged { value in
+                                    onHandleDragChanged?(value.translation.height)
+                                }
+                                .onEnded { _ in
+                                    onHandleDragEnded?()
+                                }
+                        )
+                        .accessibilityLabel("Reorder")
+                }
+            }
         }
-        .padding(14)
+        .padding(10)
         .appCard(cornerRadius: 18, scheme: colorScheme)
         .opacity(item.isDone ? 0.7 : 1)
+    }
+}
+
+private struct LockedText: UIViewRepresentable {
+    var text: String
+    var font: UIFont
+    var color: UIColor
+    var lines: Int
+    var preserveNewlines: Bool = false
+
+    func makeUIView(context: Context) -> UILabel {
+        let label = UILabel()
+        label.numberOfLines = lines
+        label.lineBreakMode = .byTruncatingTail
+        label.adjustsFontForContentSizeCategory = false
+        label.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        label.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        return label
+    }
+
+    func updateUIView(_ label: UILabel, context: Context) {
+        label.text = preserveNewlines ? SharedText.normalizedMultiline(text) : SharedText.normalized(text)
+        label.font = font
+        label.textColor = color
+        label.numberOfLines = lines
+    }
+
+    func sizeThatFits(_ proposal: ProposedViewSize, uiView: UILabel, context: Context) -> CGSize? {
+        let width = proposal.width ?? uiView.preferredMaxLayoutWidth
+        guard width.isFinite, width > 0 else {
+            return uiView.intrinsicContentSize
+        }
+        uiView.preferredMaxLayoutWidth = width
+        let fitted = uiView.sizeThatFits(CGSize(width: width, height: .greatestFiniteMagnitude))
+        return CGSize(width: width, height: ceil(fitted.height))
+    }
+}
+
+struct ItemPagerView: View {
+    let items: [TodoItem]
+    @Binding var selectedItem: TodoItem?
+    @Environment(\.colorScheme) private var colorScheme
+    @State private var selectedID: UUID
+    @State private var isEditing = false
+    @State private var browserPage: LinkBrowserPage?
+
+    init(items: [TodoItem], selectedItem: Binding<TodoItem?>) {
+        self.items = items
+        self._selectedItem = selectedItem
+        _selectedID = State(initialValue: selectedItem.wrappedValue?.id ?? items.first?.id ?? UUID())
+    }
+
+    var body: some View {
+        TabView(selection: $selectedID) {
+            ForEach(items, id: \.persistentModelID) { item in
+                ItemDetailView(
+                    item: item,
+                    onEditingChange: { editing in
+                        if item.id == selectedID {
+                            isEditing = editing
+                        }
+                    },
+                    onOpenLink: { url in
+                        openLink(url)
+                    }
+                )
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .tag(item.id)
+            }
+        }
+        .tabViewStyle(.page(indexDisplayMode: .never))
+        // Lock only the pager swipe. `.scrollDisabled` also freezes the item page itself.
+        .background { PagingScrollLock(locked: isEditing) }
+        .background {
+            AppCanvasBackground()
+                .ignoresSafeArea()
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .onChange(of: selectedID) { _, newID in
+            if let match = items.first(where: { $0.id == newID }) {
+                selectedItem = match
+            }
+            isEditing = false
+            UIImpactFeedbackGenerator(style: .light).impactOccurred()
+        }
+        .accessibilityHint(items.count > 1 ? "Swipe left or right to see other items" : "")
+        .fullScreenCover(item: $browserPage) { page in
+            LinkBrowserSheet(page: page) {
+                browserPage = nil
+            }
+        }
+    }
+
+    private func openLink(_ url: URL) {
+        if OpenableURL.isAirbnb(url) {
+            OpenableURL.presentInSafari(url)
+        } else {
+            OpenableURL.openExternally(url)
+        }
+    }
+}
+
+/// Disables a `TabView` page swipe without turning off nested `ScrollView`s.
+private struct PagingScrollLock: UIViewRepresentable {
+    var locked: Bool
+
+    func makeUIView(context: Context) -> UIView {
+        let view = UIView()
+        view.isUserInteractionEnabled = false
+        view.backgroundColor = .clear
+        return view
+    }
+
+    func updateUIView(_ uiView: UIView, context: Context) {
+        let locked = locked
+        DispatchQueue.main.async {
+            var node: UIView? = uiView.superview
+            while let view = node {
+                let pagers = Self.pagingScrollViews(in: view)
+                if !pagers.isEmpty {
+                    for pager in pagers {
+                        pager.isScrollEnabled = !locked
+                    }
+                    return
+                }
+                node = view.superview
+            }
+        }
+    }
+
+    private static func pagingScrollViews(in view: UIView) -> [UIScrollView] {
+        var found: [UIScrollView] = []
+        if let scroll = view as? UIScrollView, scroll.isPagingEnabled {
+            found.append(scroll)
+        }
+        for child in view.subviews {
+            found.append(contentsOf: pagingScrollViews(in: child))
+        }
+        return found
     }
 }
 
 struct ItemDetailView: View {
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.scenePhase) private var scenePhase
+    @Environment(PairSession.self) private var pairSession
+    @Environment(HomeBase.self) private var homeBase
     @Bindable var item: TodoItem
+    var onEditingChange: ((Bool) -> Void)? = nil
+    var onOpenLink: ((URL) -> Void)? = nil
     @State private var isEditing = false
     @State private var draftTitle = ""
     @State private var draftLink = ""
     @State private var draftNotes = ""
-    @State private var draftCategory: ItemCategory = .places
     @State private var photoItem: PhotosPickerItem?
+    @State private var placeCaption: String?
+    @State private var isApplyingPhoto = false
+    /// Set before opening Maps/Safari; cleared when we become active again.
+    @State private var awaitingReturnFromLink = false
+    /// Remounts the page once after an external link so TabView height restores.
+    @State private var layoutRefresh = 0
+
+    private var isGuest: Bool { pairSession.role == .deena }
+
+    private var myHeart: Binding<Bool> {
+        Binding(
+            get: { isGuest ? item.deenaHearted : item.chrisHearted },
+            set: { if isGuest { item.deenaHearted = $0 } else { item.chrisHearted = $0 } }
+        )
+    }
+
+    private var partnerHeart: Binding<Bool> {
+        Binding(
+            get: { isGuest ? item.chrisHearted : item.deenaHearted },
+            set: { if isGuest { item.chrisHearted = $0 } else { item.deenaHearted = $0 } }
+        )
+    }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -291,155 +1454,438 @@ struct ItemDetailView: View {
 
                 Spacer()
 
-                Button(isEditing ? "Done" : "Edit") {
-                    if isEditing {
-                        commitEdits()
-                    } else {
-                        beginEditing()
+                if !isEditing, savedURL != nil {
+                    Button {
+                        openSavedLink()
+                    } label: {
+                        Image(systemName: "link")
+                            .font(.system(size: 20, weight: .semibold))
+                            .foregroundStyle(Palette.brandBlue(colorScheme))
+                            .frame(width: 32, height: 32)
                     }
+                    .accessibilityLabel("Open link")
                 }
-                .font(.subheadline.weight(.semibold))
-                .foregroundStyle(Palette.brandBlue(colorScheme))
+
+                ReliableIconButton(
+                    systemName: isEditing ? "checkmark" : "pencil",
+                    tint: Palette.brandBlue(colorScheme),
+                    side: 44,
+                    chromeDiameter: 28,
+                    chromeLineWidth: 28 * 0.054,
+                    accessibilityLabel: isEditing ? "Done editing" : "Edit item",
+                    action: {
+                        if isEditing {
+                            commitEdits()
+                        } else {
+                            beginEditing()
+                        }
+                    }
+                )
+                .frame(width: 44, height: 44)
                 .disabled(isEditing && draftTitle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                .accessibilityLabel(isEditing ? "Done editing" : "Edit item")
             }
             .padding(.horizontal, 20)
             .padding(.vertical, 8)
-            .background(Palette.canvas(colorScheme))
+            .background(.ultraThinMaterial)
+
+            // Title sits above the ScrollView so link taps aren't eaten by
+            // pager/scroll gestures. Keep the edit field in the same place.
+            if isEditing {
+                labeledField("Title") {
+                    TextField("Title", text: $draftTitle, axis: .vertical)
+                        .font(.body)
+                        .lineLimit(1...6)
+                        .multilineTextAlignment(.leading)
+                        .padding(12)
+                        .appCard(cornerRadius: 12, scheme: colorScheme)
+                }
+                .padding(.horizontal, 20)
+                .padding(.bottom, 8)
+            } else {
+                titleView
+                    .padding(.horizontal, 20)
+                    .padding(.bottom, 8)
+            }
+
+            // Hearts/Done (and location) sit above the ScrollView so the item
+            // TabView pager cannot delay/swallow those taps the way it did for title/link.
+            VStack(alignment: .leading, spacing: 12) {
+                locationLine
+                itemActionRow
+            }
+            .padding(.horizontal, 20)
+            .padding(.bottom, 8)
+            .onChange(of: item.chrisHearted) { _, _ in
+                PairSession.shared.noteLocalEdit(item, kind: "heart")
+            }
+            .onChange(of: item.deenaHearted) { _, _ in
+                PairSession.shared.noteLocalEdit(item, kind: "heart")
+            }
+            .onChange(of: item.isDone) { _, _ in
+                PairSession.shared.noteLocalEdit(item, kind: "edit")
+            }
 
             ScrollView {
-                VStack(alignment: .leading, spacing: 0) {
-                    photoSection
+                VStack(alignment: .leading, spacing: 16) {
+                    photosBlock
 
-                    VStack(alignment: .leading, spacing: 16) {
-                        if isEditing {
-                            labeledField("Title") {
-                                TextField("Title", text: $draftTitle)
-                                    .font(.title.bold())
-                                    .padding(12)
-                                    .appCard(cornerRadius: 12, scheme: colorScheme)
-                            }
-                        } else {
-                            Text(item.title)
-                                .font(.title.bold())
-                                .padding(.top, 4)
+                    if isEditing {
+                        CategoryPickerGrid(selection: categoriesBinding)
+                            .accessibilityLabel("Category")
+
+                        labeledField("Link") {
+                            TextField("https://", text: $draftLink)
+                                .textInputAutocapitalization(.never)
+                                .keyboardType(.URL)
+                                .autocorrectionDisabled()
+                                .padding(12)
+                                .appCard(cornerRadius: 12, scheme: colorScheme)
                         }
 
-                        HStack(spacing: 28) {
-                            PartnerHeartButton(name: "Chris", isOn: $item.chrisHearted)
-                            PartnerHeartButton(name: "Deena", isOn: $item.deenaHearted)
-                            DoneCheckButton(isDone: $item.isDone, size: 34, name: "Done")
-                        }
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 4)
-
-                        if isEditing {
-                            labeledField("Link") {
-                                TextField("https://", text: $draftLink)
-                                    .textInputAutocapitalization(.never)
-                                    .keyboardType(.URL)
-                                    .autocorrectionDisabled()
-                                    .padding(12)
-                                    .appCard(cornerRadius: 12, scheme: colorScheme)
-                            }
-
-                            labeledField("Notes") {
-                                TextField("Add a note", text: $draftNotes, axis: .vertical)
-                                    .lineLimit(3...8)
-                                    .padding(12)
-                                    .appCard(cornerRadius: 12, scheme: colorScheme)
-                            }
-
-                            labeledField("Category") {
-                                Picker("Category", selection: $draftCategory) {
-                                    ForEach(ItemCategory.allCases) { cat in
-                                        Text(cat.title).tag(cat)
-                                    }
-                                }
-                                .pickerStyle(.segmented)
-                            }
-                        } else {
-                            if let s = item.urlString?.trimmingCharacters(in: .whitespacesAndNewlines),
-                               let url = URL(string: s), !s.isEmpty {
-                                Link(destination: url) {
-                                    Label("Open link", systemImage: "link")
-                                        .font(.headline)
-                                }
-                            }
-
-                            if !item.notes.isEmpty {
-                                VStack(alignment: .leading, spacing: 6) {
-                                    Text("Notes")
-                                        .font(.caption.weight(.semibold))
-                                        .foregroundStyle(.secondary)
-                                    Text(item.notes)
-                                }
-                            }
-                        }
+                        TextField("Add a note", text: $draftNotes, axis: .vertical)
+                            .font(.system(size: 16, weight: .semibold))
+                            .lineLimit(3...20)
+                            .padding(12)
+                            .appCard(cornerRadius: 12, scheme: colorScheme)
+                    } else if !item.notes.isEmpty {
+                        LockedText(
+                            text: item.notes,
+                            font: UIFont.systemFont(ofSize: 16, weight: .semibold),
+                            color: .label,
+                            lines: 0,
+                            preserveNewlines: true
+                        )
                     }
-                    .padding(20)
                 }
+                .padding(20)
+                .padding(.bottom, isEditing ? 180 : 0)
             }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
             .scrollContentBackground(.hidden)
             .scrollDismissesKeyboard(.interactively)
         }
-        .background(Palette.canvas(colorScheme).ignoresSafeArea())
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background {
+            AppCanvasBackground()
+                .ignoresSafeArea()
+        }
+        .id(layoutRefresh)
+        .onChange(of: scenePhase) { _, phase in
+            guard phase == .active, awaitingReturnFromLink else { return }
+            awaitingReturnFromLink = false
+            // Returning from Maps/Safari can leave the page TabView half-height.
+            layoutRefresh += 1
+        }
         .onChange(of: photoItem) { _, newItem in
             Task { await applyPickedPhoto(newItem) }
+        }
+        .task(id: "\(item.id.uuidString)|\(item.urlString ?? "")|\(homeBase.latitude ?? 0)|\(homeBase.longitude ?? 0)") {
+            await refreshPlaceLine()
         }
         .onDisappear {
             if isEditing { commitEdits() }
         }
+        .onChange(of: isEditing) { _, editing in
+            onEditingChange?(editing)
+        }
+    }
+
+    private var savedURL: URL? {
+        OpenableURL.from(item.urlString)
+            ?? OpenableURL.from(item.notes)
+            ?? OpenableURL.from(item.title)
+            ?? OpenableURL.from(SampleData.matching(title: item.title)?.urlString)
+    }
+
+    private func openSavedLink() {
+        guard let url = savedURL else { return }
+        UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+        if item.urlString == nil || OpenableURL.from(item.urlString)?.absoluteString != url.absoluteString {
+            item.urlString = url.absoluteString
+            PairSession.shared.noteLocalEdit(item, kind: "edit")
+        }
+        awaitingReturnFromLink = true
+        if let onOpenLink {
+            onOpenLink(url)
+        } else {
+            OpenableURL.presentInSafari(url)
+        }
     }
 
     @ViewBuilder
-    private var photoSection: some View {
-        if item.hasPhoto {
-            ItemPhotoView(item: item, cornerRadius: 0, placeholderIconSize: 48)
-                .frame(maxWidth: .infinity)
-                .frame(height: 280)
-                .clipped()
-        } else {
-            PhotosPicker(selection: $photoItem, matching: .images) {
-                VStack(spacing: 10) {
-                    Image(systemName: "photo.badge.plus")
-                        .font(.system(size: 36, weight: .medium))
-                    Text("Upload photo")
-                        .font(.subheadline.weight(.semibold))
+    private var itemActionRow: some View {
+        HStack(spacing: 16) {
+            HStack(spacing: 6) {
+                PartnerHeartButton(name: pairSession.myHeartLabel, isOn: myHeart, size: 18)
+                if pairSession.isPaired {
+                    PairHeadButton(
+                        label: pairSession.myHeartLabel,
+                        tint: Color(red: 0.20, green: 0.48, blue: 0.98),
+                        size: 52,
+                        imageData: pairSession.headImageData(slot: .me)
+                    ) {
+                        if pairSession.hasMultiplePairs {
+                            pairSession.switchToNextPair()
+                        }
+                    }
+                    .accessibilityLabel(
+                        pairSession.hasMultiplePairs
+                            ? "Switch list. You are \(pairSession.myHeartLabel)"
+                            : "You, \(pairSession.myHeartLabel)"
+                    )
                 }
-                .foregroundStyle(Palette.brandBlue(colorScheme))
-                .frame(maxWidth: .infinity)
-                .frame(height: 280)
-                .background(Palette.canvas(colorScheme))
             }
-            .buttonStyle(.plain)
-            .accessibilityLabel("Upload photo")
+            HStack(spacing: 6) {
+                PartnerHeartButton(
+                    name: pairSession.partnerHeartLabel,
+                    isOn: partnerHeart,
+                    interactive: false,
+                    size: 18
+                )
+                if pairSession.isPaired {
+                    PairHeadButton(
+                        label: pairSession.partnerHeartLabel,
+                        tint: Color(red: 0.22, green: 0.78, blue: 0.55),
+                        size: 52,
+                        imageData: pairSession.headImageData(slot: .partner)
+                    ) {
+                        if pairSession.hasMultiplePairs {
+                            pairSession.switchToNextPair()
+                        }
+                    }
+                    .accessibilityLabel(
+                        pairSession.hasMultiplePairs
+                            ? "Switch list. Current partner \(pairSession.partnerHeartLabel)"
+                            : "Partner \(pairSession.partnerHeartLabel)"
+                    )
+                }
+            }
+            DoneCheckButton(isDone: $item.isDone, size: 18, name: "Done")
         }
+        .frame(maxWidth: .infinity)
+    }
+
+    @ViewBuilder
+    private var titleView: some View {
+        let titleText = Text(verbatim: SharedText.normalized(item.title))
+            .font(.body)
+            .underline(savedURL != nil)
+            .multilineTextAlignment(.leading)
+
+        if savedURL != nil {
+            Button(action: openSavedLink) {
+                VStack(alignment: .leading, spacing: 4) {
+                    titleText
+                        .foregroundStyle(Palette.brandBlue(colorScheme))
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                    Text(savedURL?.host?.replacingOccurrences(of: "www.", with: "") ?? "Open link")
+                        .font(.caption)
+                        .foregroundStyle(Palette.brandBlue(colorScheme).opacity(0.8))
+                }
+                .padding(.top, 4)
+                .padding(.vertical, 6)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.borderless)
+            .accessibilityLabel("Open \(SharedText.normalized(item.title))")
+            .accessibilityHint(savedURL?.absoluteString ?? "")
+        } else {
+            titleText
+                .padding(.top, 4)
+        }
+    }
+
+    @ViewBuilder
+    private var locationLine: some View {
+        if let text = placeCaption {
+            HStack(spacing: 6) {
+                Image(systemName: "location.fill")
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(Palette.brandBlue(colorScheme))
+                Text(text)
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(2)
+            }
+            .accessibilityLabel(text)
+        }
+    }
+
+    private func refreshPlaceLine() async {
+        let source = "\(item.urlString ?? "")|\(item.title)"
+        let cached: ItemPlace.Fix?
+        if item.placeSource == source, let lat = item.placeLatitude, let lon = item.placeLongitude {
+            cached = ItemPlace.Fix(latitude: lat, longitude: lon, locality: item.placeLocality)
+        } else {
+            cached = nil
+        }
+        let fix = await ItemPlace.resolve(
+            urlString: item.urlString,
+            title: item.title,
+            cached: cached,
+            cacheKey: cached == nil ? nil : source
+        )
+        guard let fix else {
+            placeCaption = nil
+            return
+        }
+        if item.placeSource != source
+            || item.placeLatitude != fix.latitude
+            || item.placeLongitude != fix.longitude
+            || item.placeLocality != fix.locality {
+            item.placeLatitude = fix.latitude
+            item.placeLongitude = fix.longitude
+            item.placeLocality = fix.locality
+            item.placeSource = source
+        }
+        let miles = homeBase.miles(to: fix.latitude, longitude: fix.longitude)
+        placeCaption = ItemPlace.line(locality: fix.locality, miles: miles)
+    }
+
+    private var categoriesBinding: Binding<Set<ItemCategory>> {
+        Binding(
+            get: { Set(item.categories) },
+            set: { newValue in
+                var next = item.categories.filter { newValue.contains($0) }
+                for cat in ItemCategory.allCases where newValue.contains(cat) && !next.contains(cat) {
+                    next.append(cat)
+                }
+                item.categories = next
+                PairSession.shared.noteLocalEdit(item, kind: "edit")
+            }
+        )
+    }
+
+    @ViewBuilder
+    private var photosBlock: some View {
+        VStack(spacing: 14) {
+            if item.hasPhoto {
+                stackedPhotoCard(deleteLabel: "Delete photo", onDelete: clearPhoto) {
+                    Group {
+                        if !isEditing, savedURL != nil {
+                            Button(action: openSavedLink) {
+                                ItemPhotoView(item: item, cornerRadius: 18, placeholderIconSize: 48)
+                                    .frame(maxWidth: .infinity)
+                                    .frame(height: 280)
+                                    .clipped()
+                                    .contentShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+                            }
+                            .buttonStyle(.plain)
+                            .accessibilityLabel("Open link")
+                            .accessibilityHint(savedURL?.absoluteString ?? "")
+                        } else {
+                            ItemPhotoView(item: item, cornerRadius: 18, placeholderIconSize: 48)
+                                .frame(maxWidth: .infinity)
+                                .frame(height: 280)
+                                .clipped()
+                        }
+                    }
+                }
+            }
+            if item.hasExtraPhoto, let data = item.extraImageData, let image = UIImage(data: data) {
+                stackedBitmap(image, deleteLabel: "Delete photo 2", onDelete: clearExtraPhoto)
+            }
+            if item.hasExtraPhoto2, let data = item.extraImageData2, let image = UIImage(data: data) {
+                stackedBitmap(image, deleteLabel: "Delete photo 3", onDelete: clearExtraPhoto2)
+            }
+            if item.hasExtraPhoto3, let data = item.extraImageData3, let image = UIImage(data: data) {
+                stackedBitmap(image, deleteLabel: "Delete photo 4", onDelete: clearExtraPhoto3)
+            }
+            if isEditing, item.photoCount < 4 {
+                PhotosPicker(selection: $photoItem, matching: .images) {
+                    HStack(spacing: 10) {
+                        Image(systemName: "photo.badge.plus")
+                            .font(.system(size: 22, weight: .semibold))
+                        Text(item.photoCount == 0 ? "Add photo" : "Add another photo")
+                            .font(.headline)
+                    }
+                    .foregroundStyle(Palette.brandBlue(colorScheme))
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 18)
+                    .appCard(cornerRadius: 12, scheme: colorScheme)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(item.photoCount == 0 ? "Add photo" : "Add another photo")
+            }
+        }
+    }
+
+    private func stackedBitmap(_ image: UIImage, deleteLabel: String, onDelete: @escaping () -> Void) -> some View {
+        stackedPhotoCard(deleteLabel: deleteLabel, onDelete: onDelete) {
+            Image(uiImage: image)
+                .resizable()
+                .aspectRatio(image.size, contentMode: .fit)
+                .frame(maxWidth: .infinity)
+        }
+    }
+
+    private func stackedPhotoCard<Content: View>(
+        deleteLabel: String,
+        onDelete: @escaping () -> Void,
+        @ViewBuilder content: () -> Content
+    ) -> some View {
+        ZStack(alignment: .topTrailing) {
+            content()
+                .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+            if isEditing {
+                Button(action: onDelete) {
+                    Image(systemName: "xmark.circle.fill")
+                        .symbolRenderingMode(.palette)
+                        .foregroundStyle(.white, Color.black.opacity(0.55))
+                        .font(.system(size: 28, weight: .semibold))
+                }
+                .buttonStyle(.plain)
+                .padding(14)
+                .accessibilityLabel(deleteLabel)
+            }
+        }
+    }
+
+    private func clearPhoto() {
+        item.imageData = nil
+        item.imageAssetName = nil
+        item.imageURLString = nil
+        photoItem = nil
+        PairSession.shared.noteLocalEdit(item, kind: "edit")
     }
 
     private func applyPickedPhoto(_ picked: PhotosPickerItem?) async {
         guard let picked else { return }
+        guard !isApplyingPhoto else { return }
+        isApplyingPhoto = true
+        defer { isApplyingPhoto = false }
         guard let data = try? await picked.loadTransferable(type: Data.self),
               let image = UIImage(data: data),
-              let jpeg = compressedJPEG(image) else { return }
-        item.imageData = jpeg
-        item.imageAssetName = nil
-        item.imageURLString = nil
+              let jpeg = PhotoJPEG.compressed(image) else { return }
+        if !item.hasPhoto {
+            item.imageData = jpeg
+            item.imageAssetName = nil
+            item.imageURLString = nil
+        } else if !item.hasExtraPhoto {
+            item.extraImageData = jpeg
+        } else if !item.hasExtraPhoto2 {
+            item.extraImageData2 = jpeg
+        } else if !item.hasExtraPhoto3 {
+            item.extraImageData3 = jpeg
+        }
+        photoItem = nil
+        PairSession.shared.noteLocalEdit(item, kind: "edit")
     }
 
-    private func compressedJPEG(_ image: UIImage) -> Data? {
-        let maxSide: CGFloat = 1600
-        let longest = max(image.size.width, image.size.height)
-        let scaled: UIImage
-        if longest > maxSide {
-            let scale = maxSide / longest
-            let size = CGSize(width: image.size.width * scale, height: image.size.height * scale)
-            let renderer = UIGraphicsImageRenderer(size: size)
-            scaled = renderer.image { _ in image.draw(in: CGRect(origin: .zero, size: size)) }
-        } else {
-            scaled = image
-        }
-        return scaled.jpegData(compressionQuality: 0.82)
+    private func clearExtraPhoto() {
+        item.extraImageData = nil
+        PairSession.shared.noteLocalEdit(item, kind: "edit")
+    }
+
+    private func clearExtraPhoto2() {
+        item.extraImageData2 = nil
+        PairSession.shared.noteLocalEdit(item, kind: "edit")
+    }
+
+    private func clearExtraPhoto3() {
+        item.extraImageData3 = nil
+        PairSession.shared.noteLocalEdit(item, kind: "edit")
     }
 
     @ViewBuilder
@@ -456,28 +1902,50 @@ struct ItemDetailView: View {
         draftTitle = item.title
         draftLink = item.urlString ?? ""
         draftNotes = item.notes
-        draftCategory = item.category
         withAnimation(.easeInOut(duration: 0.2)) {
             isEditing = true
         }
+        onEditingChange?(true)
     }
 
     private func commitEdits() {
         let trimmedTitle = draftTitle.trimmingCharacters(in: .whitespacesAndNewlines)
         if !trimmedTitle.isEmpty {
-            item.title = trimmedTitle
+            let cut = SharedText.cutTitle(SharedText.normalized(trimmedTitle), notes: SharedText.normalizedMultiline(draftNotes))
+            item.title = cut.title
+            item.notes = cut.notes
+        } else {
+            item.notes = SharedText.normalizedMultiline(draftNotes)
         }
         let trimmedLink = draftLink.trimmingCharacters(in: .whitespacesAndNewlines)
-        item.urlString = trimmedLink.isEmpty ? nil : trimmedLink
-        item.notes = draftNotes.trimmingCharacters(in: .whitespacesAndNewlines)
-        item.category = draftCategory
+        if trimmedLink.isEmpty {
+            item.urlString = nil
+        } else {
+            item.urlString = OpenableURL.from(trimmedLink)?.absoluteString ?? trimmedLink
+        }
+        PairSession.shared.noteLocalEdit(item, kind: "edit")
         withAnimation(.easeInOut(duration: 0.2)) {
             isEditing = false
         }
+        onEditingChange?(false)
     }
 }
 
-private let heartPink = Color(red: 0.92, green: 0.28, blue: 0.45)
+enum PhotoJPEG {
+    static func compressed(_ image: UIImage, maxSide: CGFloat = 1600, quality: CGFloat = 0.82) -> Data? {
+        let longest = max(image.size.width, image.size.height)
+        let scaled: UIImage
+        if longest > maxSide {
+            let scale = maxSide / longest
+            let size = CGSize(width: image.size.width * scale, height: image.size.height * scale)
+            let renderer = UIGraphicsImageRenderer(size: size)
+            scaled = renderer.image { _ in image.draw(in: CGRect(origin: .zero, size: size)) }
+        } else {
+            scaled = image
+        }
+        return scaled.jpegData(compressionQuality: quality)
+    }
+}
 
 struct DoneCheckButton: View {
     @Environment(\.colorScheme) private var colorScheme
@@ -491,22 +1959,21 @@ struct DoneCheckButton: View {
                 isDone.toggle()
             }
         } label: {
-            VStack(spacing: 6) {
+            VStack(spacing: 1) {
                 Image(systemName: isDone ? "checkmark.circle.fill" : "circle")
                     .font(.system(size: size, weight: .semibold))
                     .foregroundStyle(isDone ? Palette.brandBlue(colorScheme) : Color.secondary.opacity(0.55))
-                    .scaleEffect(isDone ? 1.08 : 1)
+                    .scaleEffect(isDone ? 1.06 : 1)
                 if let name {
                     Text(name)
-                        .font(.caption.weight(.semibold))
+                        .font(.system(size: 10, weight: .semibold))
                         .foregroundStyle(.secondary)
                 }
             }
-            .frame(minWidth: name == nil ? size + 8 : 72)
-            .padding(.vertical, name == nil ? 4 : 8)
+            .frame(minWidth: name == nil ? size + 8 : 48, minHeight: 44)
             .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.borderless)
         .accessibilityLabel("Done")
         .accessibilityAddTraits(isDone ? .isSelected : [])
     }
@@ -515,28 +1982,41 @@ struct DoneCheckButton: View {
 struct PartnerHeartButton: View {
     let name: String
     @Binding var isOn: Bool
+    var interactive: Bool = true
+    var size: CGFloat = 34
 
     var body: some View {
-        Button {
-            withAnimation(.spring(duration: 0.28)) {
-                isOn.toggle()
+        Group {
+            if interactive {
+                Button {
+                    withAnimation(.spring(duration: 0.28)) {
+                        isOn.toggle()
+                    }
+                } label: {
+                    heartMark
+                }
+                .buttonStyle(.borderless)
+            } else {
+                heartMark
+                    .allowsHitTesting(false)
             }
-        } label: {
-            VStack(spacing: 6) {
-                Image(systemName: isOn ? "heart.fill" : "heart")
-                    .font(.system(size: 34, weight: .semibold))
-                    .foregroundStyle(isOn ? heartPink : Color.secondary.opacity(0.55))
-                    .scaleEffect(isOn ? 1.08 : 1)
-                Text(name)
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(.secondary)
-            }
-            .frame(minWidth: 72)
-            .padding(.vertical, 8)
         }
-        .buttonStyle(.plain)
         .accessibilityLabel("\(name) heart")
         .accessibilityAddTraits(isOn ? .isSelected : [])
+    }
+
+    private var heartMark: some View {
+        VStack(spacing: 1) {
+            Image(systemName: isOn ? "heart.fill" : "heart")
+                .font(.system(size: size, weight: .semibold))
+                .foregroundStyle(isOn ? heartPink : Color.secondary.opacity(0.55))
+                .scaleEffect(isOn ? 1.06 : 1)
+            Text(name)
+                .font(.system(size: 10, weight: .semibold))
+                .foregroundStyle(.secondary)
+        }
+        .frame(minWidth: 48, minHeight: 44)
+        .contentShape(Rectangle())
     }
 }
 
@@ -544,29 +2024,123 @@ struct AddItemView: View {
     @Environment(\.modelContext) private var modelContext
     @Environment(\.dismiss) private var dismiss
     @Environment(\.colorScheme) private var colorScheme
+    @Environment(PairSession.self) private var pairSession
+    @Query private var items: [TodoItem]
     var category: ItemCategory
 
     @State private var title = ""
     @State private var urlString = ""
     @State private var notes = ""
-    @State private var selectedCategory: ItemCategory = .places
+    @State private var selectedCategories: Set<ItemCategory> = [.places]
+    @State private var photoItem: PhotosPickerItem?
+    @State private var photoData: Data?
+    @State private var isLoadingMeta = false
+    @State private var isSaving = false
+    @State private var lastFetchedLink = ""
+    @State private var showDesktopInbox = false
+    @State private var pendingDesktopItem: DesktopInboxItem?
+    @Bindable private var desktopInbox = DesktopInboxStore.shared
+
+    private var resolvedLink: String? {
+        OpenableURL.from(urlString)?.absoluteString
+            ?? OpenableURL.from(title)?.absoluteString
+            ?? OpenableURL.from(notes)?.absoluteString
+    }
+
+    private var canSave: Bool {
+        !isLoadingMeta && !isSaving && (
+            !title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            || resolvedLink != nil
+        )
+    }
 
     var body: some View {
         NavigationStack {
             Form {
-                Section("Details") {
-                    TextField("Title", text: $title)
-                    TextField("Link", text: $urlString)
+                if desktopInbox.pendingCount > 0 {
+                    Section {
+                        Button {
+                            showDesktopInbox = true
+                        } label: {
+                            HStack {
+                                Label(
+                                    "From desktop (\(desktopInbox.pendingCount))",
+                                    systemImage: "desktopcomputer"
+                                )
+                                Spacer()
+                                Image(systemName: "chevron.right")
+                                    .font(.caption.weight(.semibold))
+                                    .foregroundStyle(.tertiary)
+                            }
+                        }
+                        .accessibilityLabel("From desktop, \(desktopInbox.pendingCount) pending")
+                    }
+                }
+
+                Section {
+                    NavigationLink {
+                        FindIdeasView { preview in
+                            applyFindIdeasPreview(preview)
+                        }
+                    } label: {
+                        Label("Find Ideas", systemImage: "magnifyingglass")
+                    }
+                }
+
+                Section("Or Paste a link") {
+                    TextField("https://", text: $urlString)
                         .textInputAutocapitalization(.never)
                         .keyboardType(.URL)
                         .autocorrectionDisabled()
-                    TextField("Notes", text: $notes, axis: .vertical)
-                        .lineLimit(3...6)
-                    Picker("Category", selection: $selectedCategory) {
-                        ForEach(ItemCategory.allCases) { cat in
-                            Text(cat.title).tag(cat)
+                        .submitLabel(.go)
+                        .onSubmit {
+                            Task { await prepareAndSave() }
+                        }
+                    if isLoadingMeta {
+                        HStack(spacing: 10) {
+                            ProgressView()
+                            Text("Getting title, photo, and notes…")
+                                .foregroundStyle(.secondary)
                         }
                     }
+                }
+
+                Section("Details") {
+                    PhotosPicker(selection: $photoItem, matching: .images) {
+                        if let photoData, let uiImage = UIImage(data: photoData) {
+                            HStack(spacing: 12) {
+                                Image(uiImage: uiImage)
+                                    .resizable()
+                                    .scaledToFill()
+                                    .frame(width: 64, height: 64)
+                                    .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                                VStack(alignment: .leading, spacing: 4) {
+                                    Text("Photo added")
+                                        .foregroundStyle(.primary)
+                                    Text("Tap to change")
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                }
+                                Spacer()
+                            }
+                        } else {
+                            Label("Add photo", systemImage: "photo.badge.plus")
+                        }
+                    }
+                    .accessibilityLabel(photoData == nil ? "Add photo" : "Change photo")
+
+                    if photoData != nil {
+                        Button("Remove photo", role: .destructive) {
+                            photoItem = nil
+                            photoData = nil
+                        }
+                    }
+
+                    TextField("Title", text: $title, axis: .vertical)
+                        .lineLimit(1...4)
+                    TextField("Notes", text: $notes, axis: .vertical)
+                        .lineLimit(3...6)
+                    CategoryPickerGrid(selection: $selectedCategories)
                 }
             }
             .navigationTitle("Add item")
@@ -575,27 +2149,236 @@ struct AddItemView: View {
                     Button("Cancel") { dismiss() }
                 }
                 ToolbarItem(placement: .confirmationAction) {
-                    Button("Save") { save() }
-                        .disabled(title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                    Button("Save") {
+                        Task { await prepareAndSave() }
+                    }
+                    .disabled(!canSave)
                 }
             }
-            .onAppear { selectedCategory = category }
+            .sheet(isPresented: $showDesktopInbox) {
+                DesktopInboxView { item in
+                    showDesktopInbox = false
+                    pendingDesktopItem = item
+                    urlString = item.url
+                    if title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+                       !item.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                        title = item.title
+                    }
+                }
+            }
+            .task {
+                await desktopInbox.refresh(pairID: pairSession.pairID)
+            }
+            .onAppear { selectedCategories = [category] }
+            .onChange(of: photoItem) { _, newItem in
+                Task { await loadPickedPhoto(newItem) }
+            }
+            .onChange(of: urlString) { _, _ in
+                guard let link = resolvedLink, link != lastFetchedLink else { return }
+                Task {
+                    try? await Task.sleep(for: .milliseconds(700))
+                    guard resolvedLink == link else { return }
+                    await enrichFromPage(saveIfReady: false)
+                }
+            }
         }
         .tint(Palette.brandBlue(colorScheme))
     }
 
-    private func save() {
-        let trimmedTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
-        let trimmedLink = urlString.trimmingCharacters(in: .whitespacesAndNewlines)
-        let trimmedNotes = notes.trimmingCharacters(in: .whitespacesAndNewlines)
-        modelContext.insert(
-            TodoItem(
-                title: trimmedTitle,
-                category: selectedCategory,
-                urlString: trimmedLink.isEmpty ? nil : trimmedLink,
-                notes: trimmedNotes
-            )
+    @MainActor
+    private func applyFindIdeasPreview(_ preview: FindIdeasPagePreview) {
+        let link = OpenableURL.from(preview.urlString)?.absoluteString ?? preview.urlString
+        urlString = link
+        lastFetchedLink = link
+        if let pageTitle = preview.title?.trimmingCharacters(in: .whitespacesAndNewlines), !pageTitle.isEmpty {
+            title = pageTitle
+            selectedCategories.insert(ItemCategory.guessed(urlString: link, title: pageTitle))
+        }
+        if let pageNotes = preview.notes?.trimmingCharacters(in: .whitespacesAndNewlines), !pageNotes.isEmpty {
+            notes = pageNotes
+        }
+        if let jpeg = preview.imageJPEG {
+            photoData = jpeg
+        }
+        if XShareText.isXURL(link) || XShareText.needsCleanup(title: title) {
+            let split = XShareText.refine(title: title, notes: notes)
+            if !split.title.isEmpty { title = split.title }
+            notes = split.notes
+        }
+        if TikTokShareText.isTikTokURL(link) || TikTokShareText.needsCleanup(title: title) {
+            let split = TikTokShareText.refine(title: title, notes: notes)
+            if !split.title.isEmpty { title = split.title }
+            notes = split.notes
+        }
+        let cut = SharedText.cutTitle(title, notes: notes)
+        title = cut.title
+        notes = cut.notes
+        // If the browser capture missed the photo, fall back to a normal fetch.
+        if photoData == nil {
+            Task { await enrichFromPage(saveIfReady: false) }
+        }
+    }
+
+    private func loadPickedPhoto(_ picked: PhotosPickerItem?) async {
+        guard let picked else { return }
+        guard let data = try? await picked.loadTransferable(type: Data.self),
+              let image = UIImage(data: data),
+              let jpeg = PhotoJPEG.compressed(image) else { return }
+        photoData = jpeg
+    }
+
+    @MainActor
+    private func prepareAndSave() async {
+        guard !isSaving else { return }
+        isSaving = true
+        defer { isSaving = false }
+
+        if let link = resolvedLink {
+            urlString = link
+        }
+
+        if resolvedLink != nil {
+            await enrichFromPage(saveIfReady: false)
+        }
+        saveOnce()
+    }
+
+    @MainActor
+    private func enrichFromPage(saveIfReady: Bool) async {
+        guard let link = resolvedLink else {
+            if saveIfReady { saveOnce() }
+            return
+        }
+        urlString = link
+        // Always re-fetch when photo is still missing — title-only success used to
+        // short-circuit and leave X/link previews without an image.
+        if lastFetchedLink == link,
+           !title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+           photoData != nil {
+            if saveIfReady { saveOnce() }
+            return
+        }
+        isLoadingMeta = true
+        lastFetchedLink = link
+        let meta = await PageMetadata.fetch(from: link)
+        if InstagramShareText.isInstagramURL(link) {
+            let split = InstagramShareText.split(from: [
+                title,
+                notes,
+                meta.title ?? "",
+                meta.description ?? "",
+            ])
+            if !split.title.isEmpty {
+                title = split.title
+                selectedCategories.insert(ItemCategory.guessed(urlString: link, title: split.title + " " + split.notes))
+            }
+            notes = split.notes
+        } else if FacebookShareText.isFacebookURL(link) {
+            if PageMetadata.isPlaceholderTitle(title), let pageTitle = meta.title, !pageTitle.isEmpty {
+                title = pageTitle
+            }
+            let split = FacebookShareText.split(from: [
+                title,
+                notes,
+                meta.title ?? "",
+                meta.description ?? "",
+            ])
+            if !split.title.isEmpty {
+                title = split.title
+                selectedCategories.insert(ItemCategory.guessed(urlString: link, title: split.title + " " + split.notes))
+            }
+            notes = split.notes
+        } else if XShareText.isXURL(link) || XShareText.needsCleanup(title: title) {
+            let split = XShareText.split(from: [
+                title,
+                notes,
+                meta.title ?? "",
+                meta.description ?? "",
+            ])
+            if !split.title.isEmpty {
+                title = split.title
+                selectedCategories.insert(ItemCategory.guessed(urlString: link, title: split.title + " " + split.notes))
+            }
+            notes = split.notes
+        } else if TikTokShareText.isTikTokURL(link) || TikTokShareText.needsCleanup(title: title) {
+            let split = TikTokShareText.split(from: [
+                title,
+                notes,
+                meta.title ?? "",
+                meta.description ?? "",
+            ])
+            if !split.title.isEmpty {
+                title = split.title
+                selectedCategories.insert(ItemCategory.guessed(urlString: link, title: split.title + " " + split.notes))
+            }
+            notes = split.notes
+        } else {
+            if PageMetadata.isPlaceholderTitle(title), let pageTitle = meta.title, !pageTitle.isEmpty {
+                title = pageTitle
+                selectedCategories.insert(ItemCategory.guessed(urlString: link, title: pageTitle))
+            }
+            if notes.isEmpty, let description = meta.description, !description.isEmpty {
+                notes = description
+            }
+        }
+        let cut = SharedText.cutTitle(title, notes: notes)
+        title = cut.title
+        notes = cut.notes
+        // Keep the clean link even if metadata parsing touched other fields.
+        urlString = link
+        if photoData == nil, let image = meta.image, let jpeg = PhotoJPEG.compressed(image) {
+            photoData = jpeg
+        }
+        isLoadingMeta = false
+        if saveIfReady {
+            saveOnce()
+        }
+    }
+
+    @MainActor
+    private func saveOnce() {
+        var trimmedTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        var trimmedLink = resolvedLink ?? ""
+
+        if let extracted = OpenableURL.firstRawHTTPURL(in: trimmedTitle) {
+            trimmedTitle = trimmedTitle.replacingOccurrences(of: extracted, with: "")
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            if trimmedLink.isEmpty {
+                trimmedLink = OpenableURL.from(extracted)?.absoluteString ?? extracted
+            }
+        }
+        if let clean = OpenableURL.from(trimmedLink) {
+            trimmedLink = clean.absoluteString
+        }
+        if trimmedTitle.isEmpty, let url = URL(string: trimmedLink) {
+            trimmedTitle = url.host?.replacingOccurrences(of: "www.", with: "") ?? "Saved link"
+        }
+        guard !trimmedTitle.isEmpty else { return }
+
+        let cut = SharedText.cutTitle(SharedText.normalized(trimmedTitle), notes: SharedText.reflowNotes(notes))
+        let chosen = selectedCategories.isEmpty ? [category] : ItemCategory.allCases.filter { selectedCategories.contains($0) }
+        let primary = chosen.first ?? category
+        let nextSortOrder = (items.filter {
+            ($0.pairID == PairSession.shared.pairID || $0.pairID.isEmpty || PairSession.shared.pairID == nil)
+                && $0.belongs(to: primary)
+        }.map(\.sortOrder).min() ?? 0) - 1
+        let item = TodoItem(
+            title: cut.title,
+            category: primary,
+            categories: chosen,
+            urlString: trimmedLink.lowercased().hasPrefix("http") ? trimmedLink : nil,
+            imageData: photoData,
+            notes: cut.notes,
+            sortOrder: nextSortOrder,
+            pairID: PairSession.shared.pairID
         )
+        modelContext.insert(item)
+        PairSession.shared.noteLocalEdit(item, kind: "add")
+        if let desktop = pendingDesktopItem {
+            let pairID = PairSession.shared.pairID
+            Task { await DesktopInboxStore.shared.consume(desktop, pairID: pairID) }
+            pendingDesktopItem = nil
+        }
         dismiss()
     }
 }
@@ -649,7 +2432,7 @@ struct ItemPhotoView: View {
             Palette.canvas(colorScheme)
             Image(systemName: item.category.systemImage)
                 .font(.system(size: placeholderIconSize))
-                .foregroundStyle(Palette.brandBlue(colorScheme))
+                .foregroundStyle(item.category.iconColor)
         }
     }
 }

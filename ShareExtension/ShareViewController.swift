@@ -17,6 +17,7 @@ final class ShareViewController: UIViewController {
             urlString: extracted.urlString,
             notes: extracted.notes,
             image: extracted.image,
+            pageImageURL: extracted.pageImageURL,
             onCancel: { [weak self] in
                 self?.extensionContext?.cancelRequest(withError: CocoaError(.userCancelled))
             },
@@ -44,6 +45,14 @@ private struct ExtractedShare {
     var urlString = ""
     var notes = ""
     var image: UIImage?
+    var pageImageURL = ""
+}
+
+private struct PageShareMeta {
+    var url = ""
+    var title = ""
+    var description = ""
+    var imageURL = ""
 }
 
 private enum SharedContent {
@@ -59,39 +68,36 @@ private enum SharedContent {
                 apply(text, to: &result)
             }
             for provider in item.attachments ?? [] {
-                if result.urlString.isEmpty, provider.hasItemConformingToTypeIdentifier(UTType.url.identifier) {
-                    if let url = await loadURL(provider) {
-                        result.urlString = url.absoluteString
-                        if result.title.isEmpty {
-                            result.title = prettyTitle(from: url)
-                        }
-                    }
+                if result.image == nil {
+                    result.image = await ShareMedia.image(from: provider)
                 }
-                if result.urlString.isEmpty, provider.hasItemConformingToTypeIdentifier("public.file-url") {
-                    if let url = await loadTypedURL(provider, type: "public.file-url"), url.scheme?.hasPrefix("http") == true {
-                        result.urlString = url.absoluteString
-                    }
-                }
-                if result.urlString.isEmpty, provider.hasItemConformingToTypeIdentifier(UTType.propertyList.identifier) {
+                if provider.hasItemConformingToTypeIdentifier(UTType.propertyList.identifier) {
                     apply(await loadPropertyList(provider), to: &result)
+                }
+                if provider.hasItemConformingToTypeIdentifier(UTType.url.identifier) {
+                    if let url = await loadURL(provider) {
+                        apply(url, to: &result)
+                    }
+                }
+                if provider.hasItemConformingToTypeIdentifier("public.file-url") {
+                    if let url = await loadTypedURL(provider, type: "public.file-url") {
+                        apply(url, to: &result)
+                    }
                 }
                 if result.urlString.isEmpty, provider.hasItemConformingToTypeIdentifier(UTType.plainText.identifier) {
                     if let text = await loadText(provider) {
                         apply(text, to: &result)
                     }
                 }
-                if result.image == nil {
-                    for type in [UTType.image, .jpeg, .png, .heic, .webP] {
-                        if provider.hasItemConformingToTypeIdentifier(type.identifier),
-                           let image = await loadImage(provider, type: type.identifier) {
-                            result.image = image
-                            break
-                        }
-                    }
-                }
             }
         }
 
+        if result.image == nil, !result.pageImageURL.isEmpty {
+            result.image = await PageMetadata.downloadImageURL(
+                result.pageImageURL,
+                referer: URL(string: result.urlString)
+            )
+        }
         if result.title.isEmpty {
             if !result.urlString.isEmpty, let url = URL(string: result.urlString) {
                 result.title = prettyTitle(from: url)
@@ -99,7 +105,49 @@ private enum SharedContent {
                 result.title = "Shared item"
             }
         }
+        if InstagramShareText.isInstagramURL(result.urlString) {
+            let split = InstagramShareText.refine(title: result.title, notes: result.notes)
+            if !split.title.isEmpty { result.title = split.title }
+            result.notes = split.notes
+        } else if FacebookShareText.isFacebookURL(result.urlString) {
+            let split = FacebookShareText.refine(title: result.title, notes: result.notes)
+            if !split.title.isEmpty { result.title = split.title }
+            result.notes = split.notes
+        } else if XShareText.isXURL(result.urlString) || XShareText.needsCleanup(title: result.title) {
+            let split = XShareText.refine(title: result.title, notes: result.notes)
+            if !split.title.isEmpty { result.title = split.title }
+            result.notes = split.notes
+        } else if TikTokShareText.isTikTokURL(result.urlString) || TikTokShareText.needsCleanup(title: result.title) {
+            let split = TikTokShareText.refine(title: result.title, notes: result.notes)
+            if !split.title.isEmpty { result.title = split.title }
+            result.notes = split.notes
+        }
+        let cut = SharedText.cutTitle(result.title, notes: result.notes)
+        result.title = cut.title
+        result.notes = cut.notes
         return result
+    }
+
+    private static func apply(_ meta: PageShareMeta, to result: inout ExtractedShare) {
+        if result.urlString.isEmpty, !meta.url.isEmpty { result.urlString = meta.url }
+        if result.title.isEmpty, !meta.title.isEmpty { result.title = meta.title }
+        if result.notes.isEmpty, !meta.description.isEmpty { result.notes = meta.description }
+        if result.pageImageURL.isEmpty, !meta.imageURL.isEmpty { result.pageImageURL = meta.imageURL }
+    }
+
+    private static func apply(_ url: URL, to result: inout ExtractedShare) {
+        if url.scheme?.hasPrefix("http") == true {
+            if result.urlString.isEmpty {
+                result.urlString = url.absoluteString
+                if result.title.isEmpty {
+                    result.title = prettyTitle(from: url)
+                }
+            }
+            return
+        }
+        if result.image == nil {
+            result.image = ShareMedia.image(fromFileURL: url)
+        }
     }
 
     private static func apply(_ text: String, to result: inout ExtractedShare) {
@@ -126,6 +174,7 @@ private enum SharedContent {
         let host = url.host?.replacingOccurrences(of: "www.", with: "") ?? ""
         if host.contains("airbnb") { return "Airbnb stay" }
         if host.contains("instagram") { return "Instagram" }
+        if host.contains("tiktok") { return "TikTok" }
         if host.contains("x.com") || host.contains("twitter") { return "X post" }
         if host.contains("facebook") || host.contains("fb.com") || host.contains("fb.watch") { return "Facebook" }
         return host.isEmpty ? "Shared item" : host
@@ -161,18 +210,21 @@ private enum SharedContent {
         }
     }
 
-    private static func loadPropertyList(_ provider: NSItemProvider) async -> String {
+    private static func loadPropertyList(_ provider: NSItemProvider) async -> PageShareMeta {
         await withCheckedContinuation { continuation in
             provider.loadItem(forTypeIdentifier: UTType.propertyList.identifier, options: nil) { item, _ in
                 if let dict = item as? [String: Any] {
-                    let js = dict[NSExtensionJavaScriptPreprocessingResultsKey] as? [String: Any]
-                    let url = (js?["URL"] as? String) ?? (dict["URL"] as? String) ?? ""
-                    let title = (js?["title"] as? String) ?? (dict["title"] as? String) ?? ""
-                    continuation.resume(returning: [title, url].filter { !$0.isEmpty }.joined(separator: " "))
+                    let js = dict[NSExtensionJavaScriptPreprocessingResultsKey] as? [String: Any] ?? dict
+                    continuation.resume(returning: PageShareMeta(
+                        url: (js["URL"] as? String) ?? (dict["URL"] as? String) ?? "",
+                        title: (js["title"] as? String) ?? (dict["title"] as? String) ?? "",
+                        description: (js["description"] as? String) ?? (dict["description"] as? String) ?? "",
+                        imageURL: (js["imageURL"] as? String) ?? (dict["imageURL"] as? String) ?? ""
+                    ))
                 } else if let url = item as? URL {
-                    continuation.resume(returning: url.absoluteString)
+                    continuation.resume(returning: PageShareMeta(url: url.absoluteString))
                 } else {
-                    continuation.resume(returning: "")
+                    continuation.resume(returning: PageShareMeta())
                 }
             }
         }
@@ -186,38 +238,16 @@ private enum SharedContent {
         }
     }
 
-    private static func loadImage(_ provider: NSItemProvider, type: String) async -> UIImage? {
-        if provider.canLoadObject(ofClass: UIImage.self) {
-            let loaded: UIImage? = await withCheckedContinuation { continuation in
-                _ = provider.loadObject(ofClass: UIImage.self) { object, _ in
-                    continuation.resume(returning: object as? UIImage)
-                }
-            }
-            if let loaded { return loaded }
-        }
-        return await withCheckedContinuation { continuation in
-            provider.loadItem(forTypeIdentifier: type, options: nil) { item, _ in
-                if let image = item as? UIImage {
-                    continuation.resume(returning: image)
-                } else if let data = item as? Data, let image = UIImage(data: data) {
-                    continuation.resume(returning: image)
-                } else if let url = item as? URL, let data = try? Data(contentsOf: url), let image = UIImage(data: data) {
-                    continuation.resume(returning: image)
-                } else {
-                    continuation.resume(returning: nil)
-                }
-            }
-        }
-    }
 }
 
 struct ShareFormView: View {
     @State var title: String
     @State var urlString: String
     @State var notes: String
-    @State var category: String
+    @State var selectedCategories: Set<String>
     @State var previewImage: UIImage?
     @State private var isLoadingMeta = false
+    var pageImageURL: String
     var onCancel: () -> Void
     var onSave: (SharePayload, UIImage?) -> Void
 
@@ -226,14 +256,16 @@ struct ShareFormView: View {
         urlString: String,
         notes: String,
         image: UIImage?,
+        pageImageURL: String = "",
         onCancel: @escaping () -> Void,
         onSave: @escaping (SharePayload, UIImage?) -> Void
     ) {
         _title = State(initialValue: title)
         _urlString = State(initialValue: urlString)
         _notes = State(initialValue: notes)
-        _category = State(initialValue: ShareInbox.guessedCategory(urlString: urlString, title: title))
+        _selectedCategories = State(initialValue: [ShareInbox.guessedCategory(urlString: urlString, title: title)])
         _previewImage = State(initialValue: image)
+        self.pageImageURL = pageImageURL
         self.onCancel = onCancel
         self.onSave = onSave
     }
@@ -268,14 +300,28 @@ struct ShareFormView: View {
                         .autocorrectionDisabled()
                     TextField("Notes", text: $notes, axis: .vertical)
                         .lineLimit(3...6)
-                    Picker("Category", selection: $category) {
-                        Text("Places").tag("places")
-                        Text("Fun").tag("fun")
-                        Text("Eats").tag("eats")
+                }
+                Section("Categories") {
+                    ForEach(ShareInbox.categoryDefaults, id: \.raw) { item in
+                        Button {
+                            toggle(item.raw)
+                        } label: {
+                            HStack {
+                                Image(systemName: ShareInbox.categorySymbol(item.raw))
+                                    .foregroundStyle(categoryColor(item.raw))
+                                Text(ShareInbox.categoryTitle(item.raw))
+                                    .foregroundStyle(.primary)
+                                Spacer()
+                                if selectedCategories.contains(item.raw) {
+                                    Image(systemName: "checkmark")
+                                        .foregroundStyle(.blue)
+                                }
+                            }
+                        }
                     }
                 }
             }
-            .navigationTitle("Add to ToDo42")
+            .navigationTitle("Add to Save4Two")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
@@ -283,35 +329,123 @@ struct ShareFormView: View {
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Save") {
+                        let encoded = ShareInbox.categoryDefaults
+                            .map(\.raw)
+                            .filter { selectedCategories.contains($0) }
+                            .joined(separator: ",")
                         onSave(
                             SharePayload(
-                                title: title.trimmingCharacters(in: .whitespacesAndNewlines),
+                                title: SharedText.normalized(title),
                                 urlString: urlString.trimmingCharacters(in: .whitespacesAndNewlines),
-                                notes: notes.trimmingCharacters(in: .whitespacesAndNewlines),
-                                category: category
+                                notes: SharedText.reflowNotes(notes),
+                                category: encoded.isEmpty ? "places" : encoded
                             ),
                             previewImage
                         )
                     }
-                    .disabled(title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                    .disabled(title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || isLoadingMeta)
                 }
             }
             .task { await enrichFromPage() }
         }
     }
 
+    private func toggle(_ raw: String) {
+        if selectedCategories.contains(raw) {
+            guard selectedCategories.count > 1 else { return }
+            selectedCategories.remove(raw)
+        } else {
+            selectedCategories.insert(raw)
+        }
+    }
+
+    private func categoryColor(_ raw: String) -> Color {
+        switch raw {
+        case "places", "health": return Color(red: 0.90, green: 0.20, blue: 0.22)
+        case "fun": return Color(red: 0.95, green: 0.76, blue: 0.08)
+        case "eats", "recipe": return Color(red: 0.16, green: 0.67, blue: 0.30)
+        case "projects", "trip": return Color(red: 0.20, green: 0.55, blue: 0.85)
+        case "vegasTrip", "londonTrip", "dcTrip": return Color(red: 0.56, green: 0.27, blue: 0.85)
+        default: return .blue
+        }
+    }
+
     private func enrichFromPage() async {
         let link = urlString.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard link.hasPrefix("http") else { return }
-        isLoadingMeta = previewImage == nil
+        let needsPhoto = previewImage == nil
+        if !needsPhoto && !link.hasPrefix("http") { return }
+        isLoadingMeta = needsPhoto
+        if previewImage == nil, !pageImageURL.isEmpty {
+            previewImage = await PageMetadata.downloadImageURL(pageImageURL, referer: URL(string: link))
+        }
+        guard link.hasPrefix("http") else {
+            isLoadingMeta = false
+            return
+        }
         let meta = await PageMetadata.fetch(from: link)
-        if PageMetadata.isPlaceholderTitle(title), let pageTitle = meta.title, !pageTitle.isEmpty {
-            title = pageTitle
-            category = ShareInbox.guessedCategory(urlString: link, title: pageTitle)
+        if InstagramShareText.isInstagramURL(link) {
+            let split = InstagramShareText.split(from: [
+                title,
+                notes,
+                meta.title ?? "",
+                meta.description ?? "",
+            ])
+            if !split.title.isEmpty {
+                title = split.title
+                selectedCategories.insert(ShareInbox.guessedCategory(urlString: link, title: split.title + " " + split.notes))
+            }
+            notes = split.notes
+        } else if FacebookShareText.isFacebookURL(link) {
+            if PageMetadata.isPlaceholderTitle(title), let pageTitle = meta.title, !pageTitle.isEmpty {
+                title = pageTitle
+            }
+            let split = FacebookShareText.split(from: [
+                title,
+                notes,
+                meta.title ?? "",
+                meta.description ?? "",
+            ])
+            if !split.title.isEmpty {
+                title = split.title
+                selectedCategories.insert(ShareInbox.guessedCategory(urlString: link, title: split.title + " " + split.notes))
+            }
+            notes = split.notes
+        } else if XShareText.isXURL(link) || XShareText.needsCleanup(title: title) {
+            let split = XShareText.split(from: [
+                title,
+                notes,
+                meta.title ?? "",
+                meta.description ?? "",
+            ])
+            if !split.title.isEmpty {
+                title = split.title
+                selectedCategories.insert(ShareInbox.guessedCategory(urlString: link, title: split.title + " " + split.notes))
+            }
+            notes = split.notes
+        } else if TikTokShareText.isTikTokURL(link) || TikTokShareText.needsCleanup(title: title) {
+            let split = TikTokShareText.split(from: [
+                title,
+                notes,
+                meta.title ?? "",
+                meta.description ?? "",
+            ])
+            if !split.title.isEmpty {
+                title = split.title
+                selectedCategories.insert(ShareInbox.guessedCategory(urlString: link, title: split.title + " " + split.notes))
+            }
+            notes = split.notes
+        } else {
+            if PageMetadata.isPlaceholderTitle(title), let pageTitle = meta.title, !pageTitle.isEmpty {
+                title = pageTitle
+                selectedCategories.insert(ShareInbox.guessedCategory(urlString: link, title: pageTitle))
+            }
+            if notes.isEmpty, let description = meta.description, !description.isEmpty {
+                notes = description
+            }
         }
-        if notes.isEmpty, let description = meta.description, !description.isEmpty {
-            notes = description
-        }
+        let cut = SharedText.cutTitle(title, notes: notes)
+        title = cut.title
+        notes = cut.notes
         if previewImage == nil {
             previewImage = meta.image
         }

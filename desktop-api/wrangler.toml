@@ -1,0 +1,22 @@
+name = "save4two-desktop-api"
+main = "src/index.js"
+compatibility_date = "2026-01-01"
+
+# Route after DNS: api.save4two.com/*
+# wrangler secret put CLOUDKIT_* when ready; KV is enough for v1 inbox.
+
+[[kv_namespaces]]
+binding = "DEVICES"
+id = "f3b2093c24d2458a88d365bfed9dfd6c"
+
+[[kv_namespaces]]
+binding = "CODES"
+id = "8644699a066d4e339c2b2dab4d4789c8"
+
+[[kv_namespaces]]
+binding = "INBOX"
+id = "3e229fff9dee4105807132f9365cda2f"
+
+[vars]
+# public; real CloudKit writes optional later
+APP_NAME = "Save4Two Desktop API"

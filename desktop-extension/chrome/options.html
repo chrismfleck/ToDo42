@@ -1,0 +1,23 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>Save 4 Two on iPhone — Link desktop &amp; iPhone</title>
+  <style>
+    body { font: 15px/1.45 -apple-system, BlinkMacSystemFont, sans-serif; max-width: 420px; margin: 32px auto; padding: 0 16px; color: #123; }
+    input { width: 100%; padding: 10px 12px; border: 1px solid #c5d0e0; border-radius: 10px; font-size: 18px; letter-spacing: 0.2em; box-sizing: border-box; }
+    button { margin-top: 12px; padding: 10px 14px; border: 0; border-radius: 10px; background: #246ef0; color: #fff; font-weight: 600; cursor: pointer; }
+    .msg { margin-top: 12px; color: #456; }
+    .err { color: #c0392b; }
+  </style>
+</head>
+<body>
+  <h1>Link desktop &amp; iPhone</h1>
+  <p>In the app on your phone: Pair → <strong>Link desktop &amp; iPhone</strong> → create a code. Enter it here to send links from this browser.</p>
+  <input id="code" inputmode="numeric" maxlength="6" placeholder="6-digit code" />
+  <button id="link">Link this browser</button>
+  <button id="unlink" style="background:#eee;color:#123;margin-left:8px">Unlink</button>
+  <div id="status" class="msg"></div>
+  <script src="options.js"></script>
+</body>
+</html>
