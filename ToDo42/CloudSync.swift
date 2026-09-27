@@ -688,27 +688,14 @@ final class CloudSync {
     func deleteRemote(_ id: UUID) async {
         guard PairSession.shared.isPaired else { return }
         await enqueue {
-            let itemRecordID = CKRecord.ID(recordName: "item-\(id.uuidString)")
-            do {
-                _ = await self.tombstoneRemote(id)
-                try await self.database.deleteRecord(withID: itemRecordID)
-                try? await self.database.deleteRecord(withID: self.extraRecordID(for: id))
-                try? await self.database.deleteRecord(withID: self.extra2RecordID(for: id))
-                try? await self.database.deleteRecord(withID: self.extra3RecordID(for: id))
-                try await self.removeItemID(id.uuidString)
-                PairSession.shared.statusMessage = ""
-            } catch let error as CKError where error.code == .unknownItem {
-                try? await self.removeItemID(id.uuidString)
-                PairSession.shared.statusMessage = ""
-            } catch {
-                // Partner is often not the CloudKit creator, so the record
-                // delete fails. The tombstone still syncs so both lists drop it.
-                if await self.tombstoneRemote(id) {
-                    PairSession.shared.statusMessage = ""
-                } else {
-                    PairSession.shared.statusMessage = Self.friendlyMessage(error)
-                }
-            }
+            // Keep a durable tombstone instead of hard-deleting the record. A hard
+            // delete leaves no trace on the server, so the partner device that
+            // still holds the item re-creates it on its next catch-up push
+            // (resurrection). The persistent tombstone (notifyKind == "delete")
+            // instead propagates the delete to both lists and blocks re-pushes.
+            _ = await self.tombstoneRemote(id)
+            try? await self.removeItemID(id.uuidString)
+            PairSession.shared.statusMessage = ""
         }
     }
 
@@ -1144,6 +1131,10 @@ final class CloudSync {
             // Do not push a blank title over iCloud. Hearts can still move,
             // and Chris's copy will republish the real title on catch-up.
             if let existing = try? await database.record(for: recordID) {
+                // Never write over a tombstone — the delete must stay deleted.
+                if RemoteItemApply.shouldSkipSaveOverTombstone(existingNotifyKind: existing["notifyKind"] as? String) {
+                    return
+                }
                 switch PairSession.shared.role {
                 case .chris:
                     existing["chrisHearted"] = item.chrisHearted ? 1 : 0
@@ -1160,6 +1151,11 @@ final class CloudSync {
         }
         let record: CKRecord
         if let existing = try? await database.record(for: recordID) {
+            // Never resurrect a deleted item: if the server copy is a tombstone,
+            // the delete wins over any local catch-up push or edit.
+            if RemoteItemApply.shouldSkipSaveOverTombstone(existingNotifyKind: existing["notifyKind"] as? String) {
+                return
+            }
             if notifyKind.isEmpty, shouldSkipCatchupPush(item, existing: existing) {
                 // Still publish a local bottom photo that never made it to iCloud
                 // (older builds dropped those uploads), without rewriting newer fields.
@@ -1380,28 +1376,55 @@ final class CloudSync {
         }
     }
 
-    private func registerItemIDs(_ itemIDs: [String]) async throws {
+    /// Read-modify-write the shared pair record with optimistic concurrency so a
+    /// simultaneous update from the partner device cannot clobber our change
+    /// (which used to drop freshly-added item IDs from the catalog and make new
+    /// entries disappear). `mutate` returns true when it changed the record.
+    private func mutatePairRecord(_ mutate: @escaping (CKRecord) -> Bool) async throws {
         guard let pairID = PairSession.shared.pairID else { return }
+        let recordID = CKRecord.ID(recordName: "pair-\(pairID)")
+        var attempt = 0
+        while true {
+            let record = try await database.record(for: recordID)
+            guard mutate(record) else { return }
+            do {
+                let outcome = try await database.modifyRecords(
+                    saving: [record],
+                    deleting: [],
+                    savePolicy: .ifServerRecordUnchanged
+                )
+                if case .failure(let error)? = outcome.saveResults[record.recordID] {
+                    throw error
+                }
+                return
+            } catch let error as CKError where error.code == .serverRecordChanged && attempt < 5 {
+                attempt += 1
+                continue
+            }
+        }
+    }
+
+    private func registerItemIDs(_ itemIDs: [String]) async throws {
         guard !itemIDs.isEmpty else { return }
-        let record = try await database.record(for: CKRecord.ID(recordName: "pair-\(pairID)"))
-        var ids = Set((record["itemIDs"] as? String ?? "").split(separator: ",").map(String.init).filter { !$0.isEmpty })
-        let before = ids.count
-        itemIDs.forEach { ids.insert($0) }
-        guard ids.count != before else { return }
-        record["itemIDs"] = ids.sorted().joined(separator: ",")
         do {
-            try await saveOverwriting(record)
+            try await mutatePairRecord { record in
+                let merged = CloudKitValues.mergedItemIDs(record["itemIDs"] as? String, itemIDs)
+                guard merged != (record["itemIDs"] as? String ?? "") else { return false }
+                record["itemIDs"] = merged
+                return true
+            }
         } catch {
             // The ID list can be too long for iCloud; items still sync by pairID.
         }
     }
 
     private func removeItemID(_ itemID: String) async throws {
-        guard let pairID = PairSession.shared.pairID else { return }
-        let record = try await database.record(for: CKRecord.ID(recordName: "pair-\(pairID)"))
-        let ids = (record["itemIDs"] as? String ?? "").split(separator: ",").map(String.init).filter { $0 != itemID && !$0.isEmpty }
-        record["itemIDs"] = ids.joined(separator: ",")
-        try await saveOverwriting(record)
+        try await mutatePairRecord { record in
+            let updated = CloudKitValues.removingItemID(record["itemIDs"] as? String, itemID)
+            guard updated != (record["itemIDs"] as? String ?? "") else { return false }
+            record["itemIDs"] = updated
+            return true
+        }
     }
 
     private func subscribe() async throws {
