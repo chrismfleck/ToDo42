@@ -19,6 +19,11 @@ enum PageMetadata {
         if isTikTokURL(url.absoluteString) {
             best = await fetchTikTokOEmbed(url)
         }
+        if isYouTubeURL(url.absoluteString) {
+            let yt = await fetchYouTubeOEmbed(url)
+            if best.title == nil { best.title = yt.title }
+            if best.image == nil { best.image = yt.image }
+        }
         if best.image == nil || best.title == nil {
             let page = await fetchPage(url)
             if best.title == nil { best.title = page.title }
@@ -45,6 +50,46 @@ enum PageMetadata {
         comps.path = "/oembed"
         comps.queryItems = [URLQueryItem(name: "url", value: pageURL.absoluteString)]
         return comps.url
+    }
+
+    static func isYouTubeURL(_ string: String) -> Bool {
+        let lower = string.lowercased()
+        return lower.contains("youtube.com") || lower.contains("youtu.be")
+    }
+
+    private static func youtubeOEmbedURL(for pageURL: URL) -> URL? {
+        var comps = URLComponents()
+        comps.scheme = "https"
+        comps.host = "www.youtube.com"
+        comps.path = "/oembed"
+        comps.queryItems = [
+            URLQueryItem(name: "url", value: pageURL.absoluteString),
+            URLQueryItem(name: "format", value: "json"),
+        ]
+        return comps.url
+    }
+
+    /// YouTube's oEmbed endpoint returns the real video title (and a thumbnail)
+    /// reliably, without scraping heavy/consent-gated watch-page HTML.
+    private static func fetchYouTubeOEmbed(_ url: URL) async -> Result {
+        guard let oembedURL = youtubeOEmbedURL(for: url) else { return Result() }
+        do {
+            var request = URLRequest(url: oembedURL, timeoutInterval: 12)
+            request.setValue(safariUA, forHTTPHeaderField: "User-Agent")
+            request.setValue("application/json", forHTTPHeaderField: "Accept")
+            let (data, _) = try await URLSession.shared.data(for: request)
+            guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+                return Result()
+            }
+            let title = (json["title"] as? String).map(clean)
+            var image: UIImage?
+            if let thumb = json["thumbnail_url"] as? String, !thumb.isEmpty {
+                image = await downloadImageURL(thumb, referer: URL(string: "https://www.youtube.com/"))
+            }
+            return Result(title: title, description: nil, image: image)
+        } catch {
+            return Result()
+        }
     }
 
     static func isPlaceholderTitle(_ title: String) -> Bool {
@@ -75,13 +120,16 @@ enum PageMetadata {
             "www.pinterest.com",
             "pin.it",
         ]
-        if placeholders.contains(trimmed) { return true }
+        // Strip trailing whitespace/punctuation and collapse inner whitespace so
+        // share-sheet variants like "youtube." or "Take a Look !" also match.
+        let condensed = trimmed
+            .replacingOccurrences(of: #"[\s!.,]+$"#, with: "", options: .regularExpression)
+            .replacingOccurrences(of: #"\s+"#, with: " ", options: .regularExpression)
+        if placeholders.contains(trimmed) || placeholders.contains(condensed) { return true }
         if trimmed.hasSuffix(".com") && !trimmed.contains(" ") { return true }
+        if condensed.hasSuffix(".com") && !condensed.contains(" ") { return true }
         // Generic share-sheet boilerplate that carries no real title
         // (e.g. Pinterest shares arrive titled "Take a Look !").
-        let condensed = trimmed
-            .replacingOccurrences(of: #"[\s!.]+$"#, with: "", options: .regularExpression)
-            .replacingOccurrences(of: #"\s+"#, with: " ", options: .regularExpression)
         let boilerplate: Set<String> = [
             "take a look",
             "check this out",

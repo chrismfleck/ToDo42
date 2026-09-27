@@ -32,13 +32,16 @@ enum PageMetadata {
             "www.pinterest.com",
             "pin.it",
         ]
-        if placeholders.contains(trimmed) { return true }
+        // Strip trailing whitespace/punctuation and collapse inner whitespace so
+        // share-sheet variants like "youtube." or "Take a Look !" also match.
+        let condensed = trimmed
+            .replacingOccurrences(of: #"[\s!.,]+$"#, with: "", options: .regularExpression)
+            .replacingOccurrences(of: #"\s+"#, with: " ", options: .regularExpression)
+        if placeholders.contains(trimmed) || placeholders.contains(condensed) { return true }
         if trimmed.hasSuffix(".com") && !trimmed.contains(" ") { return true }
+        if condensed.hasSuffix(".com") && !condensed.contains(" ") { return true }
         // Generic share-sheet boilerplate that carries no real title
         // (e.g. Pinterest shares arrive titled "Take a Look !").
-        let condensed = trimmed
-            .replacingOccurrences(of: #"[\s!.]+$"#, with: "", options: .regularExpression)
-            .replacingOccurrences(of: #"\s+"#, with: " ", options: .regularExpression)
         let boilerplate: Set<String> = [
             "take a look",
             "check this out",
@@ -69,8 +72,12 @@ expect("pinterest.com", true)
 print("\n== YouTube (should be placeholders → get replaced by real title) ==")
 expect("YouTube", true)
 expect("youtube", true)
+expect("youtube.", true)
+expect("YouTube.", true)
+expect("youtube. ", true)
 expect("youtu.be", true)
 expect("youtube.com", true)
+expect("youtube.com.", true)
 expect("m.youtube.com", true)
 
 print("\n== Real titles (must NOT be placeholders → keep them) ==")
