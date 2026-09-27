@@ -23,6 +23,25 @@ enum CloudKitValues {
         }
         return nil
     }
+
+    /// Merge item-id catalogs from two devices without losing either side's
+    /// additions (used when reconciling the pair record's `itemIDs` string).
+    static func mergedItemIDs(_ a: String?, _ b: [String]) -> String {
+        var ids = Set((a ?? "").split(separator: ",").map(String.init).filter { !$0.isEmpty })
+        for id in b where !id.isEmpty { ids.insert(id) }
+        return ids.sorted().joined(separator: ",")
+    }
+
+    /// Remove one id from a catalog string while preserving every other id
+    /// (so a concurrent add on the other device is not clobbered).
+    static func removingItemID(_ catalog: String?, _ itemID: String) -> String {
+        (catalog ?? "")
+            .split(separator: ",")
+            .map(String.init)
+            .filter { $0 != itemID && !$0.isEmpty }
+            .sorted()
+            .joined(separator: ",")
+    }
 }
 
 enum PartnerHeartMerge {
@@ -164,25 +183,6 @@ enum RemoteItemApply {
     /// other device that still holds the item locally. Delete wins.
     static func shouldSkipSaveOverTombstone(existingNotifyKind: String?) -> Bool {
         isTombstone(notifyKind: existingNotifyKind)
-    }
-
-    /// Merge item-id catalogs from two devices without losing either side's
-    /// additions (used when reconciling the pair record's `itemIDs` string).
-    static func mergedItemIDs(_ a: String?, _ b: [String]) -> String {
-        var ids = Set((a ?? "").split(separator: ",").map(String.init).filter { !$0.isEmpty })
-        for id in b where !id.isEmpty { ids.insert(id) }
-        return ids.sorted().joined(separator: ",")
-    }
-
-    /// Remove one id from a catalog string while preserving every other id
-    /// (so a concurrent add on the other device is not clobbered).
-    static func removingItemID(_ catalog: String?, _ itemID: String) -> String {
-        (catalog ?? "")
-            .split(separator: ",")
-            .map(String.init)
-            .filter { $0 != itemID && !$0.isEmpty }
-            .sorted()
-            .joined(separator: ",")
     }
 
     static func shouldApplyRemoteSort(
