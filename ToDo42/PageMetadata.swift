@@ -57,6 +57,8 @@ enum PageMetadata {
             "tiktok",
             "x post",
             "facebook",
+            "youtube",
+            "pinterest",
             "airbnb.com",
             "www.airbnb.com",
             "instagram.com",
@@ -65,9 +67,27 @@ enum PageMetadata {
             "www.tiktok.com",
             "vm.tiktok.com",
             "vt.tiktok.com",
+            "youtube.com",
+            "www.youtube.com",
+            "m.youtube.com",
+            "youtu.be",
+            "pinterest.com",
+            "www.pinterest.com",
+            "pin.it",
         ]
         if placeholders.contains(trimmed) { return true }
         if trimmed.hasSuffix(".com") && !trimmed.contains(" ") { return true }
+        // Generic share-sheet boilerplate that carries no real title
+        // (e.g. Pinterest shares arrive titled "Take a Look !").
+        let condensed = trimmed
+            .replacingOccurrences(of: #"[\s!.]+$"#, with: "", options: .regularExpression)
+            .replacingOccurrences(of: #"\s+"#, with: " ", options: .regularExpression)
+        let boilerplate: Set<String> = [
+            "take a look",
+            "check this out",
+            "check it out",
+        ]
+        if boilerplate.contains(condensed) { return true }
         return false
     }
 
