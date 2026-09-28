@@ -4,10 +4,78 @@ import Foundation
 // on Linux (the app target needs Xcode). Keep in sync with
 // ToDo42/CloudKitValues.swift (enum RemoteItemApply / CloudKitValues).
 enum CloudKitValues {
+    static let deletedMark = "x:"
+
+    static func isDeletedMark(_ token: String) -> Bool {
+        token.hasPrefix(deletedMark)
+    }
+
+    static func markedDeletedID(_ token: String) -> String? {
+        guard isDeletedMark(token) else { return nil }
+        let id = String(token.dropFirst(deletedMark.count))
+        return id.isEmpty ? nil : id
+    }
+
+    static func deletedIDs(in catalog: String?) -> [String] {
+        (catalog ?? "")
+            .split(separator: ",")
+            .compactMap { markedDeletedID(String($0)) }
+    }
+
+    static func liveItemIDs(in catalog: String?) -> [String] {
+        (catalog ?? "")
+            .split(separator: ",")
+            .map(String.init)
+            .filter { !$0.isEmpty && markedDeletedID($0) == nil }
+    }
+
+    static func markDeleted(_ catalog: String?, ids: [String], cap: Int = 500) -> String {
+        let drop = Set(ids.filter { !$0.isEmpty })
+        let live = liveItemIDs(in: catalog).filter { !drop.contains($0) }
+        var deleted = deletedIDs(in: catalog)
+        var seen = Set(deleted)
+        for id in ids where !id.isEmpty && !seen.contains(id) {
+            deleted.append(id)
+            seen.insert(id)
+        }
+        if deleted.count > cap { deleted = Array(deleted.suffix(cap)) }
+        return (live.sorted() + deleted.map { deletedMark + $0 }).joined(separator: ",")
+    }
+
     static func mergedItemIDs(_ a: String?, _ b: [String]) -> String {
-        var ids = Set((a ?? "").split(separator: ",").map(String.init).filter { !$0.isEmpty })
-        for id in b where !id.isEmpty { ids.insert(id) }
-        return ids.sorted().joined(separator: ",")
+        let deleted = Set(deletedIDs(in: a))
+        var ids = Set(liveItemIDs(in: a))
+        for id in b where !id.isEmpty && !deleted.contains(id) && markedDeletedID(id) == nil {
+            ids.insert(id)
+        }
+        let marks = deletedIDs(in: a).map { deletedMark + $0 }
+        return (ids.sorted() + marks).joined(separator: ",")
+    }
+
+    static func deletionURLKey(_ urlString: String?) -> String? {
+        let trimmed = (urlString ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+        guard let url = URL(string: trimmed), let host = url.host?.lowercased() else {
+            return trimmed.lowercased()
+        }
+        let bare = host.hasPrefix("www.") ? String(host.dropFirst(4)) : host
+        if bare == "youtu.be" {
+            let video = url.path.split(separator: "/").first.map(String.init) ?? ""
+            if !video.isEmpty { return "yt:\(video)" }
+        }
+        if bare == "youtube.com" || bare == "m.youtube.com" || bare == "music.youtube.com" {
+            if let items = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems,
+               let video = items.first(where: { $0.name == "v" })?.value, !video.isEmpty {
+                return "yt:\(video)"
+            }
+            let parts = url.path.split(separator: "/").map(String.init)
+            if parts.count >= 2, ["shorts", "embed", "live", "v"].contains(parts[0]), !parts[1].isEmpty {
+                return "yt:\(parts[1])"
+            }
+        }
+        var text = trimmed.lowercased()
+        while text.hasSuffix("/") { text.removeLast() }
+        return text
     }
 
     static func removingItemID(_ catalog: String?, _ itemID: String) -> String {
@@ -116,6 +184,40 @@ expect("dedupe existing", CloudKitValues.mergedDeletedIDs("A,B", adding: ["B"]),
 expect("empty base", CloudKitValues.mergedDeletedIDs("", adding: ["X"]), "X")
 // Cap keeps the most recently deleted ids (insertion order preserved).
 expect("cap keeps most recent", CloudKitValues.mergedDeletedIDs("A,B,C", adding: ["D"], cap: 2), "C,D")
+
+print("\n== markDeleted: x: marks live in itemIDs and are not resurrected ==")
+expect("mark B deleted", CloudKitValues.markDeleted("A,B,C", ids: ["B"]), "A,C,x:B")
+expect("mark keeps older marks", CloudKitValues.markDeleted("A,C,x:B", ids: ["A"]), "C,x:B,x:A")
+expect(
+    "merge must not re-add a marked id",
+    CloudKitValues.mergedItemIDs("A,C,x:B", ["B", "D"]),
+    "A,C,D,x:B"
+)
+expect("live ids ignore marks", CloudKitValues.liveItemIDs(in: "A,C,x:B").joined(separator: ","), "A,C")
+
+print("\n== deletionURLKey: same YouTube video, different share links ==")
+expect(
+    "watch url",
+    CloudKitValues.deletionURLKey("https://www.youtube.com/watch?v=dQw4w9WgXcQ") ?? "",
+    "yt:dQw4w9WgXcQ"
+)
+expect(
+    "short url",
+    CloudKitValues.deletionURLKey("https://youtu.be/dQw4w9WgXcQ") ?? "",
+    "yt:dQw4w9WgXcQ"
+)
+expectBool(
+    "same video",
+    CloudKitValues.deletionURLKey("https://www.youtube.com/watch?v=dQw4w9WgXcQ")
+        == CloudKitValues.deletionURLKey("https://youtu.be/dQw4w9WgXcQ"),
+    true
+)
+expectBool(
+    "different video",
+    CloudKitValues.deletionURLKey("https://youtu.be/aaaaaaaaaaa")
+        == CloudKitValues.deletionURLKey("https://youtu.be/dQw4w9WgXcQ"),
+    false
+)
 
 print(failures == 0 ? "\nALL SYNC CATALOG TESTS PASSED" : "\n\(failures) TEST(S) FAILED")
 if failures != 0 { exit(1) }

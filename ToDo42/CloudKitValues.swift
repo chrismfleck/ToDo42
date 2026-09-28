@@ -24,12 +24,88 @@ enum CloudKitValues {
         return nil
     }
 
+    /// Prefix stored in the existing `itemIDs` field. Production CloudKit rejects
+    /// a brand-new `deletedIDs` field, so a delete has to live in a field both
+    /// phones can already write. `x:<uuid>` is not a list row.
+    static let deletedMark = "x:"
+
+    static func isDeletedMark(_ token: String) -> Bool {
+        token.hasPrefix(deletedMark)
+    }
+
+    static func markedDeletedID(_ token: String) -> String? {
+        guard isDeletedMark(token) else { return nil }
+        let id = String(token.dropFirst(deletedMark.count))
+        return id.isEmpty ? nil : id
+    }
+
+    static func deletedIDs(in catalog: String?) -> [String] {
+        (catalog ?? "")
+            .split(separator: ",")
+            .compactMap { markedDeletedID(String($0)) }
+    }
+
+    static func liveItemIDs(in catalog: String?) -> [String] {
+        (catalog ?? "")
+            .split(separator: ",")
+            .map(String.init)
+            .filter { !$0.isEmpty && markedDeletedID($0) == nil }
+    }
+
+    /// Drop these ids from the live catalog and remember them with an `x:` mark.
+    /// Marks stay in insertion order so the cap keeps the most recent deletes.
+    static func markDeleted(_ catalog: String?, ids: [String], cap: Int = 500) -> String {
+        let drop = Set(ids.filter { !$0.isEmpty })
+        let live = liveItemIDs(in: catalog).filter { !drop.contains($0) }
+        var deleted = deletedIDs(in: catalog)
+        var seen = Set(deleted)
+        for id in ids where !id.isEmpty && !seen.contains(id) {
+            deleted.append(id)
+            seen.insert(id)
+        }
+        if deleted.count > cap { deleted = Array(deleted.suffix(cap)) }
+        return (live.sorted() + deleted.map { deletedMark + $0 }).joined(separator: ",")
+    }
+
     /// Merge item-id catalogs from two devices without losing either side's
     /// additions (used when reconciling the pair record's `itemIDs` string).
+    /// Ids already marked deleted are not added back.
     static func mergedItemIDs(_ a: String?, _ b: [String]) -> String {
-        var ids = Set((a ?? "").split(separator: ",").map(String.init).filter { !$0.isEmpty })
-        for id in b where !id.isEmpty { ids.insert(id) }
-        return ids.sorted().joined(separator: ",")
+        let deleted = Set(deletedIDs(in: a))
+        var ids = Set(liveItemIDs(in: a))
+        for id in b where !id.isEmpty && !deleted.contains(id) && markedDeletedID(id) == nil {
+            ids.insert(id)
+        }
+        let marks = deletedIDs(in: a).map { deletedMark + $0 }
+        return (ids.sorted() + marks).joined(separator: ",")
+    }
+
+    /// Stable key so the same YouTube video counts as one item across
+    /// `youtu.be` and `youtube.com/watch` links. Other links compare as text.
+    static func deletionURLKey(_ urlString: String?) -> String? {
+        let trimmed = (urlString ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+        guard let url = URL(string: trimmed), let host = url.host?.lowercased() else {
+            return trimmed.lowercased()
+        }
+        let bare = host.hasPrefix("www.") ? String(host.dropFirst(4)) : host
+        if bare == "youtu.be" {
+            let video = url.path.split(separator: "/").first.map(String.init) ?? ""
+            if !video.isEmpty { return "yt:\(video)" }
+        }
+        if bare == "youtube.com" || bare == "m.youtube.com" || bare == "music.youtube.com" {
+            if let items = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems,
+               let video = items.first(where: { $0.name == "v" })?.value, !video.isEmpty {
+                return "yt:\(video)"
+            }
+            let parts = url.path.split(separator: "/").map(String.init)
+            if parts.count >= 2, ["shorts", "embed", "live", "v"].contains(parts[0]), !parts[1].isEmpty {
+                return "yt:\(parts[1])"
+            }
+        }
+        var text = trimmed.lowercased()
+        while text.hasSuffix("/") { text.removeLast() }
+        return text
     }
 
     /// Append ids to the pair's `deletedIDs` list (a co-writable tombstone list
@@ -252,5 +328,71 @@ enum ListReorder {
 
     static func rebalanced(_ count: Int) -> [Int] {
         (0..<count).map { $0 * spacing }
+    }
+}
+
+/// Deletes this phone has made. Survives relaunch, and is checked before any
+/// iCloud row is shown again. A partner still on an older build can push a
+/// YouTube item back into the catalog; this list is what keeps it off the screen.
+enum DeletedItemLedger {
+    private struct Record: Codable {
+        var id: String
+        var urlKey: String
+    }
+
+    private static let cap = 500
+    private static let keyPrefix = "todo42.deletedLedger.v1."
+
+    static func record(pairID: String?, id: UUID, urlString: String?) {
+        let idString = id.uuidString
+        var rows = load(pairID: pairID).filter { $0.id != idString }
+        rows.append(Record(id: idString, urlKey: CloudKitValues.deletionURLKey(urlString) ?? ""))
+        save(rows, pairID: pairID)
+    }
+
+    /// A deliberate new save of the same link should stick. The old row's id
+    /// stays suppressed so that CloudKit copy cannot come back under the old id.
+    static func allowAgain(pairID: String?, urlString: String?, id: UUID) {
+        let idString = id.uuidString
+        let key = CloudKitValues.deletionURLKey(urlString) ?? ""
+        var rows = load(pairID: pairID).filter { $0.id != idString }
+        if !key.isEmpty {
+            for index in rows.indices where rows[index].urlKey == key {
+                rows[index].urlKey = ""
+            }
+        }
+        save(rows, pairID: pairID)
+    }
+
+    static func contains(pairID: String?, id: String) -> Bool {
+        load(pairID: pairID).contains { $0.id == id }
+    }
+
+    static func containsURL(pairID: String?, urlString: String?) -> Bool {
+        guard let key = CloudKitValues.deletionURLKey(urlString), !key.isEmpty else { return false }
+        return load(pairID: pairID).contains { $0.urlKey == key }
+    }
+
+    static func ids(pairID: String?) -> [String] {
+        load(pairID: pairID).map(\.id)
+    }
+
+    private static func storageKey(pairID: String?) -> String {
+        let id = (pairID ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        return keyPrefix + (id.isEmpty ? "local" : id)
+    }
+
+    private static func load(pairID: String?) -> [Record] {
+        guard let data = UserDefaults.standard.data(forKey: storageKey(pairID: pairID)),
+              let rows = try? JSONDecoder().decode([Record].self, from: data) else {
+            return []
+        }
+        return rows
+    }
+
+    private static func save(_ rows: [Record], pairID: String?) {
+        let trimmed = rows.count > cap ? Array(rows.suffix(cap)) : rows
+        guard let data = try? JSONEncoder().encode(trimmed) else { return }
+        UserDefaults.standard.set(data, forKey: storageKey(pairID: pairID))
     }
 }

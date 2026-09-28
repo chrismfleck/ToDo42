@@ -323,6 +323,10 @@ final class PairSession {
         if item.pairID.isEmpty, let pairID {
             item.pairID = pairID
         }
+        if kind == "add" {
+            let pair = item.pairID.isEmpty ? pairID : item.pairID
+            DeletedItemLedger.allowAgain(pairID: pair, urlString: item.urlString, id: item.id)
+        }
         item.updatedAt = Date()
         item.lastEditor = role?.rawValue ?? ""
         // Uploads are serialized on CloudSync's queue, so this waits for any
@@ -508,6 +512,7 @@ final class CloudSync {
                 try? await self.subscribe()
                 try? await self.requestNotifications()
                 ItemStore.migrateUnscopedItems(in: modelContext, to: PairSession.shared.pairID)
+                self.dropLedgerMatches(in: modelContext, pairID: PairSession.shared.pairID)
                 ItemStore.purgeBlankTitleGhosts(in: modelContext)
                 ItemStore.deduplicate(in: modelContext)
                 ItemStore.deduplicateContentTwins(in: modelContext)
@@ -694,17 +699,14 @@ final class CloudSync {
     func deleteRemote(_ id: UUID) async {
         guard PairSession.shared.isPaired else { return }
         await enqueue {
-            // Record the delete on the co-writable pair record FIRST. In the
-            // CloudKit public database only a record's creator can modify/delete
-            // it, so when the non-creating partner deletes an item the tombstone
-            // write on the item row fails and the delete used to be lost (the item
-            // came back). `deletedIDs` lives on the shared pair record that both
-            // devices can write, so it is an authoritative, ownership-independent
-            // delete signal. The tombstone on the row is still attempted (it works
-            // for our own rows and cleans them up), but is now best-effort.
+            // Two co-writable signals, saved separately. `deletedIDs` is a newer
+            // field and Production CloudKit can reject it. The `x:` mark lives
+            // in `itemIDs`, which already exists, so a partner on this build
+            // still sees the delete when that field save fails. The row
+            // tombstone works only for the record's creator.
             try? await self.addDeletedIDs([id.uuidString])
+            try? await self.markCatalogDeleted([id.uuidString])
             _ = await self.tombstoneRemote(id)
-            try? await self.removeItemID(id.uuidString)
             PairSession.shared.statusMessage = ""
         }
     }
@@ -779,19 +781,20 @@ final class CloudSync {
             guest: pair["guestName"] as? String
         )
         CategoryNames.shared.applyRemoteJSON(pair[CategoryNames.cloudField] as? String)
-        let listedIDs = (pair["itemIDs"] as? String ?? "")
-            .split(separator: ",")
-            .map(String.init)
-            .filter { !$0.isEmpty }
+        let catalogRaw = pair["itemIDs"] as? String ?? ""
+        let listedIDs = CloudKitValues.liveItemIDs(in: catalogRaw)
         let catalogIDs = Set(listedIDs)
-        // Authoritative, ownership-independent delete list on the co-writable
-        // pair record. Anything here must never be shown, inserted, or healed.
-        let deletedIDs = Set(
+        // Anything here must never be shown, inserted, or healed. The pair
+        // record's deletedIDs field, the `x:` marks inside itemIDs, and this
+        // phone's own delete ledger are all authoritative.
+        var deletedIDs = Set(
             (pair["deletedIDs"] as? String ?? "")
                 .split(separator: ",")
                 .map(String.init)
                 .filter { !$0.isEmpty }
         )
+        deletedIDs.formUnion(CloudKitValues.deletedIDs(in: catalogRaw))
+        deletedIDs.formUnion(DeletedItemLedger.ids(pairID: pairID))
         let fetched = await fetchRemoteItemRecords(pairID: pairID, listedIDs: listedIDs)
         let remote = fetched.records.filter { recordKind($0) == .listItem }
         let extraRecords = fetched.records.filter { recordKind($0) == .extraPhoto }
@@ -806,6 +809,7 @@ final class CloudSync {
 
         var localByID = ItemStore.keyedByID(ItemStore.allItems(in: modelContext))
         var idsToHeal: [String] = []
+        var idsToStrip: [String] = []
         for record in remote {
             // Companion photo rows must never become home-list tiles.
             if RemoteItemApply.extraSlot(recordName: record.recordID.recordName) != nil {
@@ -820,6 +824,16 @@ final class CloudSync {
                     localByID.removeValue(forKey: itemID)
                     notifyRemoved(record)
                 }
+                if catalogIDs.contains(itemID) { idsToStrip.append(itemID) }
+                continue
+            }
+            if DeletedItemLedger.containsURL(pairID: pairID, urlString: record["urlString"] as? String) {
+                DeletedItemLedger.record(pairID: pairID, id: uuid, urlString: record["urlString"] as? String)
+                if let local = localByID[itemID], local.pairID.isEmpty || local.pairID == pairID {
+                    modelContext.delete(local)
+                    localByID.removeValue(forKey: itemID)
+                }
+                idsToStrip.append(itemID)
                 continue
             }
             let notifyKind = record["notifyKind"] as? String
@@ -895,6 +909,11 @@ final class CloudSync {
             } else {
                 // Never revive a CloudKit orphan the catalog already dropped.
                 if catalogReady, !catalogIDs.contains(itemID) { continue }
+                if DeletedItemLedger.containsURL(pairID: pairID, urlString: record["urlString"] as? String) {
+                    DeletedItemLedger.record(pairID: pairID, id: uuid, urlString: record["urlString"] as? String)
+                    idsToStrip.append(itemID)
+                    continue
+                }
                 let title = RemoteItemApply.resolvedTitle(localTitle: "", remoteTitle: record["title"] as? String)
                 guard !title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { continue }
                 let item = TodoItem(
@@ -954,8 +973,14 @@ final class CloudSync {
             })
             for local in ItemStore.items(forPair: pairID, in: modelContext) {
                 let idString = local.id.uuidString
-                if deletedIDs.contains(idString) {
-                    // Authoritatively deleted on the shared pair record.
+                if deletedIDs.contains(idString)
+                    || DeletedItemLedger.containsURL(pairID: pairID, urlString: local.urlString) {
+                    if DeletedItemLedger.containsURL(pairID: pairID, urlString: local.urlString) {
+                        DeletedItemLedger.record(pairID: pairID, id: local.id, urlString: local.urlString)
+                    }
+                    if catalogIDs.contains(idString) {
+                        idsToStrip.append(idString)
+                    }
                     modelContext.delete(local)
                     continue
                 }
@@ -1021,13 +1046,35 @@ final class CloudSync {
                 // require an explicit tombstone or catalog drop above.
             }
         }
-        // Re-list our own live rows that had fallen off the shared catalog so
-        // they are no longer seen as orphans. Only rows confirmed (via a
-        // strongly-consistent fetch) to be non-tombstoned reach here, so this
-        // stops freshly-added items from vanishing without resurrecting deletes.
-        let healIDs = Set(idsToHeal)
+        // Re-read the ledger. A delete can land while this pull is awaiting
+        // iCloud, and the snapshot above would otherwise insert the item again.
+        let freshDeleted = Set(DeletedItemLedger.ids(pairID: pairID))
+        var stripIDs = Set(idsToStrip)
+            .union(deletedIDs.intersection(catalogIDs))
+            .union(freshDeleted.intersection(catalogIDs))
+        for local in ItemStore.items(forPair: pairID, in: modelContext) {
+            let idString = local.id.uuidString
+            let urlHit = DeletedItemLedger.containsURL(pairID: pairID, urlString: local.urlString)
+            guard freshDeleted.contains(idString) || urlHit else { continue }
+            if urlHit {
+                DeletedItemLedger.record(pairID: pairID, id: local.id, urlString: local.urlString)
+            }
+            modelContext.delete(local)
+            stripIDs.insert(idString)
+        }
+        let healIDs = Set(idsToHeal).subtracting(stripIDs).subtracting(freshDeleted)
         if !healIDs.isEmpty {
             try? await registerItemIDs(Array(healIDs))
+        }
+        if !stripIDs.isEmpty {
+            // Partner builds that do not understand deletes merge the id back
+            // into the catalog and can overwrite a tombstone. Put the mark back
+            // and tombstone again so the row does not stay listed.
+            try? await markCatalogDeleted(Array(stripIDs))
+            for id in stripIDs {
+                guard let uuid = UUID(uuidString: id) else { continue }
+                _ = await tombstoneRemote(uuid)
+            }
         }
         try? modelContext.save()
     }
@@ -1049,6 +1096,8 @@ final class CloudSync {
         let now = Date()
         var uploaded: [String] = []
         for item in items {
+            if DeletedItemLedger.contains(pairID: item.pairID, id: item.id.uuidString) { continue }
+            if DeletedItemLedger.containsURL(pairID: item.pairID, urlString: item.urlString) { continue }
             let mine = item.lastEditor.isEmpty || item.lastEditor == role
             let recent = now.timeIntervalSince(item.createdAt) < 48 * 3600
             guard mine, recent else { continue }
@@ -1268,6 +1317,9 @@ final class CloudSync {
             return
         }
         let recordID = CKRecord.ID(recordName: "item-\(item.id.uuidString)")
+        if DeletedItemLedger.contains(pairID: pairID, id: item.id.uuidString) {
+            return
+        }
         let wipedTitle = item.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         if wipedTitle {
             // Do not push a blank title over iCloud. Hearts can still move,
@@ -1547,10 +1599,12 @@ final class CloudSync {
     }
 
     private func registerItemIDs(_ itemIDs: [String]) async throws {
-        guard !itemIDs.isEmpty else { return }
+        let blocked = Set(DeletedItemLedger.ids(pairID: PairSession.shared.pairID))
+        let allowed = itemIDs.filter { !blocked.contains($0) && CloudKitValues.markedDeletedID($0) == nil }
+        guard !allowed.isEmpty else { return }
         do {
             try await mutatePairRecord { record in
-                let merged = CloudKitValues.mergedItemIDs(record["itemIDs"] as? String, itemIDs)
+                let merged = CloudKitValues.mergedItemIDs(record["itemIDs"] as? String, allowed)
                 guard merged != (record["itemIDs"] as? String ?? "") else { return false }
                 record["itemIDs"] = merged
                 return true
@@ -1560,12 +1614,36 @@ final class CloudSync {
         }
     }
 
-    private func removeItemID(_ itemID: String) async throws {
+    /// Remember a delete inside `itemIDs` (`x:<uuid>`), which Production CloudKit
+    /// already accepts. Saved apart from `deletedIDs` so a schema rejection of
+    /// that newer field cannot roll back the mark.
+    private func markCatalogDeleted(_ ids: [String]) async throws {
+        guard !ids.isEmpty else { return }
         try await mutatePairRecord { record in
-            let updated = CloudKitValues.removingItemID(record["itemIDs"] as? String, itemID)
+            let updated = CloudKitValues.markDeleted(record["itemIDs"] as? String, ids: ids)
             guard updated != (record["itemIDs"] as? String ?? "") else { return false }
             record["itemIDs"] = updated
             return true
+        }
+    }
+
+    /// Drop local rows this phone already deleted, including a copy of the same
+    /// YouTube link that came back under a new id.
+    private func dropLedgerMatches(in modelContext: ModelContext, pairID: String?) {
+        guard let pairID, !pairID.isEmpty else { return }
+        var didDelete = false
+        for item in ItemStore.items(forPair: pairID, in: modelContext) {
+            let idHit = DeletedItemLedger.contains(pairID: pairID, id: item.id.uuidString)
+            let urlHit = DeletedItemLedger.containsURL(pairID: pairID, urlString: item.urlString)
+            guard idHit || urlHit else { continue }
+            if urlHit {
+                DeletedItemLedger.record(pairID: pairID, id: item.id, urlString: item.urlString)
+            }
+            modelContext.delete(item)
+            didDelete = true
+        }
+        if didDelete {
+            try? modelContext.save()
         }
     }
 

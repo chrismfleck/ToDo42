@@ -834,9 +834,7 @@ struct ContentView: View {
     private func deleteItem(_ item: TodoItem) {
         withAnimation(.easeIn(duration: 0.2)) {
             if selectedItem?.id == item.id { selectedItem = nil }
-            let id = item.id
-            modelContext.delete(item)
-            Task { await CloudSync.shared.deleteRemote(id) }
+            ItemDeletion.perform(item, in: modelContext)
         }
     }
 
@@ -1297,6 +1295,17 @@ private struct LockedText: UIViewRepresentable {
     }
 }
 
+private enum ItemDeletion {
+    @MainActor
+    static func perform(_ item: TodoItem, in context: ModelContext) {
+        let id = item.id
+        let pairID = item.pairID.isEmpty ? PairSession.shared.pairID : item.pairID
+        DeletedItemLedger.record(pairID: pairID, id: id, urlString: item.urlString)
+        context.delete(item)
+        Task { await CloudSync.shared.deleteRemote(id) }
+    }
+}
+
 struct ItemPagerView: View {
     let items: [TodoItem]
     @Binding var selectedItem: TodoItem?
@@ -1407,10 +1416,13 @@ struct ItemDetailView: View {
     @Environment(\.scenePhase) private var scenePhase
     @Environment(PairSession.self) private var pairSession
     @Environment(HomeBase.self) private var homeBase
+    @Environment(\.modelContext) private var modelContext
     @Bindable var item: TodoItem
     var onEditingChange: ((Bool) -> Void)? = nil
     var onOpenLink: ((URL) -> Void)? = nil
     @State private var isEditing = false
+    @State private var didDelete = false
+    @State private var confirmDelete = false
     @State private var draftTitle = ""
     @State private var draftLink = ""
     @State private var draftNotes = ""
@@ -1563,6 +1575,22 @@ struct ItemDetailView: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .scrollContentBackground(.hidden)
             .scrollDismissesKeyboard(.interactively)
+
+            if isEditing {
+                Button {
+                    confirmDelete = true
+                } label: {
+                    Label("Delete", systemImage: "trash")
+                        .font(.headline)
+                        .foregroundStyle(.red)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 16)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Delete item")
+                .background(.ultraThinMaterial)
+            }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background {
@@ -1583,10 +1611,16 @@ struct ItemDetailView: View {
             await refreshPlaceLine()
         }
         .onDisappear {
-            if isEditing { commitEdits() }
+            if isEditing, !didDelete { commitEdits() }
         }
         .onChange(of: isEditing) { _, editing in
             onEditingChange?(editing)
+        }
+        .alert("Delete this item?", isPresented: $confirmDelete) {
+            Button("Delete", role: .destructive) { deleteThisItem() }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("It will come off this phone and the shared list.")
         }
     }
 
@@ -1928,6 +1962,14 @@ struct ItemDetailView: View {
             isEditing = false
         }
         onEditingChange?(false)
+    }
+
+    private func deleteThisItem() {
+        didDelete = true
+        isEditing = false
+        onEditingChange?(false)
+        ItemDeletion.perform(item, in: modelContext)
+        dismiss()
     }
 }
 
