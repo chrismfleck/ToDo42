@@ -784,6 +784,7 @@ final class CloudSync {
 
         var localByID = ItemStore.keyedByID(ItemStore.allItems(in: modelContext))
         var orphanIDs: [UUID] = []
+        var idsToHeal: [String] = []
         for record in remote {
             // Companion photo rows must never become home-list tiles.
             if RemoteItemApply.extraSlot(recordName: record.recordID.recordName) != nil {
@@ -800,14 +801,23 @@ final class CloudSync {
                 continue
             }
             if catalogReady, !catalogIDs.contains(itemID) {
-                // Deleted from the shared catalog but still a live TDItem — kill it.
-                if let local = localByID[itemID], local.pairID.isEmpty || local.pairID == pairID {
-                    modelContext.delete(local)
-                    localByID.removeValue(forKey: itemID)
-                    notifyRemoved(record)
+                // A live TDItem row that is missing from the shared catalog. If it
+                // is our own row, the catalog registration simply raced/failed —
+                // re-list it instead of deleting, or freshly-added items vanish on
+                // the next relaunch. A row that is not ours is treated as an
+                // orphan from an older hard-delete and healed into a tombstone.
+                if RemoteItemApply.isOwnEdit(lastEditor: record["lastEditor"] as? String, myRole: session.role?.rawValue) {
+                    idsToHeal.append(itemID)
+                    // fall through and keep/refresh the local copy below
+                } else {
+                    if let local = localByID[itemID], local.pairID.isEmpty || local.pairID == pairID {
+                        modelContext.delete(local)
+                        localByID.removeValue(forKey: itemID)
+                        notifyRemoved(record)
+                    }
+                    orphanIDs.append(uuid)
+                    continue
                 }
-                orphanIDs.append(uuid)
-                continue
             }
             let remoteUpdated = record["updatedAt"] as? Date ?? .distantPast
             let local = localByID[itemID] ?? ItemStore.item(id: uuid, in: modelContext)
@@ -862,8 +872,12 @@ final class CloudSync {
                     notifyUpdate(record, heartChanged: false)
                 }
             } else {
-                // Never revive a CloudKit orphan the catalog already dropped.
-                if catalogReady, !catalogIDs.contains(itemID) { continue }
+                // Never revive a CloudKit orphan the catalog already dropped,
+                // unless it is our own row we are healing back into the catalog.
+                if catalogReady, !catalogIDs.contains(itemID),
+                   !RemoteItemApply.isOwnEdit(lastEditor: record["lastEditor"] as? String, myRole: session.role?.rawValue) {
+                    continue
+                }
                 let title = RemoteItemApply.resolvedTitle(localTitle: "", remoteTitle: record["title"] as? String)
                 guard !title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { continue }
                 let item = TodoItem(
@@ -924,14 +938,16 @@ final class CloudSync {
             for local in ItemStore.items(forPair: pairID, in: modelContext) {
                 let idString = local.id.uuidString
                 if catalogReady, !catalogIDs.contains(idString) {
-                    // Off the shared catalog — drop local leftover (grace for a
-                    // brand-new add still waiting on registerItemIDs).
-                    let mine = local.lastEditor.isEmpty
-                        || local.lastEditor == session.role?.rawValue
-                    let recent = Date().timeIntervalSince(local.createdAt) < 180
-                    if mine, recent { continue }
+                    // Off the shared catalog. Our own item is missing because its
+                    // first registration raced/failed, not because it was deleted
+                    // — re-list it (pushAll re-creates the row) instead of
+                    // deleting, so new entries stop vanishing on relaunch. Genuine
+                    // deletions arrive as tombstones and are handled above.
+                    if RemoteItemApply.isOwnEdit(lastEditor: local.lastEditor, myRole: session.role?.rawValue) {
+                        idsToHeal.append(idString)
+                        continue
+                    }
                     modelContext.delete(local)
-                    orphanIDs.append(local.id)
                     continue
                 }
                 if remoteIDs.contains(idString) {
@@ -967,6 +983,13 @@ final class CloudSync {
                 // local so catch-up / pushMissingLocals can upload it. Removals
                 // require an explicit tombstone or catalog drop above.
             }
+        }
+        // Re-list our own rows that had fallen off the shared catalog so they are
+        // no longer seen as orphans (and get their row (re)created by pushAll).
+        // This is what stops freshly-added items from disappearing on relaunch.
+        let healIDs = Set(idsToHeal).subtracting(Set(orphanIDs.map(\.uuidString)))
+        if !healIDs.isEmpty {
+            try? await registerItemIDs(Array(healIDs))
         }
         // Tombstone any catalog orphans discovered while pruning locals too.
         for orphanID in Set(orphanIDs) {

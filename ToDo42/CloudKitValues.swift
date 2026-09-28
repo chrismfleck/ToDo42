@@ -193,6 +193,15 @@ enum RemoteItemApply {
         isTombstone(notifyKind: existingNotifyKind)
     }
 
+    /// True when a row/item was last touched by us (or has no editor yet). Used
+    /// to tell an own add whose catalog registration merely raced/failed (heal
+    /// it) apart from a genuine remote removal (which arrives as a tombstone).
+    static func isOwnEdit(lastEditor: String?, myRole: String?) -> Bool {
+        let editor = (lastEditor ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        if editor.isEmpty { return true }
+        return editor == (myRole ?? "")
+    }
+
     static func shouldApplyRemoteSort(
         myRole: String?,
         lastEditor: String?,
