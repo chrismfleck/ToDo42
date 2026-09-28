@@ -519,6 +519,10 @@ final class CloudSync {
                     try await self.pull(modelContext: modelContext)
                     let afterPull = ItemStore.items(forPair: PairSession.shared.pairID, in: modelContext)
                     try await self.pushAll(afterPull, allowCreate: false)
+                    // Re-try brand-new locals that never got an iCloud row (failed first
+                    // upload). Does not recreate old partner zombies — only recent
+                    // items we authored, and never over a delete tombstone.
+                    try await self.pushMissingLocals(afterPull)
                 }
                 PairSession.shared.statusMessage = ""
             } catch {
@@ -701,7 +705,25 @@ final class CloudSync {
 
     private func tombstoneRemote(_ id: UUID) async -> Bool {
         let recordID = CKRecord.ID(recordName: "item-\(id.uuidString)")
-        guard let record = try? await database.record(for: recordID) else { return false }
+        let record: CKRecord
+        if let existing = try? await database.record(for: recordID) {
+            if RemoteItemApply.isTombstone(notifyKind: existing["notifyKind"] as? String) {
+                return true
+            }
+            record = existing
+        } else {
+            // Item never made it to iCloud (or was hard-deleted by an older build).
+            // Still write a tombstone so the partner’s catch-up push cannot recreate it.
+            record = CKRecord(recordType: "TDItem", recordID: recordID)
+            record["itemID"] = id.uuidString
+            record["pairID"] = PairSession.shared.pairID ?? ""
+            record["title"] = ""
+            record["chrisHearted"] = 0
+            record["deenaHearted"] = 0
+            record["isDone"] = 0
+            record["sortOrder"] = 0
+            record["createdAt"] = Date()
+        }
         record["notifyKind"] = "delete"
         record["notifyText"] = Self.pushBody(kind: "delete", title: record["title"] as? String ?? "")
         record["lastEditor"] = PairSession.shared.role?.rawValue ?? ""
@@ -909,11 +931,10 @@ final class CloudSync {
                     }
                     continue
                 }
-                if Date().timeIntervalSince(local.createdAt) < 180,
-                   local.lastEditor == session.role?.rawValue || local.lastEditor.isEmpty {
-                    continue
-                }
-                modelContext.delete(local)
+                // Do NOT delete local rows just because they are missing from the
+                // remote catalog. Query lag / a failed first upload used to wipe
+                // brand-new items here before catch-up could push them. Removals
+                // only happen when pull sees an explicit delete tombstone above.
             }
         }
         try? modelContext.save()
@@ -924,6 +945,33 @@ final class CloudSync {
             try await saveItem(item, notifyKind: "", allowCreate: allowCreate)
         }
         try? await registerItemIDs(items.map(\.id.uuidString))
+    }
+
+    /// Upload locals that have no CloudKit row yet (first push failed / raced).
+    /// Skips older rows so a partner’s leftover copy of a hard-deleted item is
+    /// not resurrected as a brand-new record.
+    private func pushMissingLocals(_ items: [TodoItem]) async throws {
+        let role = PairSession.shared.role?.rawValue ?? ""
+        let now = Date()
+        var uploaded: [String] = []
+        for item in items {
+            let mine = item.lastEditor.isEmpty || item.lastEditor == role
+            let recent = now.timeIntervalSince(item.createdAt) < 48 * 3600
+            guard mine, recent else { continue }
+            let recordID = CKRecord.ID(recordName: "item-\(item.id.uuidString)")
+            if let existing = try? await database.record(for: recordID) {
+                if RemoteItemApply.isTombstone(notifyKind: existing["notifyKind"] as? String) {
+                    // Partner (or we) already deleted this — drop the local leftover.
+                    continue
+                }
+                continue
+            }
+            try await saveItem(item, notifyKind: "add", allowCreate: true)
+            uploaded.append(item.id.uuidString)
+        }
+        if !uploaded.isEmpty {
+            try? await registerItemIDs(uploaded)
+        }
     }
 
     private func fetchRemoteItemRecords(pairID: String, listedIDs: [String]) async -> (records: [CKRecord], catalogComplete: Bool) {

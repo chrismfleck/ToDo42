@@ -144,9 +144,17 @@ enum RemoteItemApply {
         return localHas && remoteEmpty
     }
 
+    /// Catch-up pushes (`allowCreate: false`, empty `notifyKind`) must not invent
+    /// CloudKit rows that are simply missing — that resurrected hard-deleted items
+    /// when the partner still held a local copy. Explicit adds/edits and full
+    /// restore (`allowCreate: true`) still create records as before.
     static func shouldCreateMissingRecord(allowCreate: Bool, notifyKind: String, title: String) -> Bool {
-        if allowCreate || !notifyKind.isEmpty { return true }
+        if allowCreate { return true }
+        let kind = notifyKind.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard !kind.isEmpty, kind != "delete" else { return false }
         return !title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            || kind == "heart"
+            || kind == "reorder"
     }
 
     static func extraItemID(recordName: String, itemID: String?) -> String? {

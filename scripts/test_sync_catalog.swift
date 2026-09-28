@@ -27,6 +27,14 @@ enum RemoteItemApply {
     static func shouldSkipSaveOverTombstone(existingNotifyKind: String?) -> Bool {
         isTombstone(notifyKind: existingNotifyKind)
     }
+    static func shouldCreateMissingRecord(allowCreate: Bool, notifyKind: String, title: String) -> Bool {
+        if allowCreate { return true }
+        let kind = notifyKind.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard !kind.isEmpty, kind != "delete" else { return false }
+        return !title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            || kind == "heart"
+            || kind == "reorder"
+    }
 }
 
 var failures = 0
@@ -61,6 +69,23 @@ expectBool("existing is DELETE (case)", RemoteItemApply.shouldSkipSaveOverTombst
 expectBool("existing is normal edit", RemoteItemApply.shouldSkipSaveOverTombstone(existingNotifyKind: ""), false)
 expectBool("existing is reorder", RemoteItemApply.shouldSkipSaveOverTombstone(existingNotifyKind: "reorder"), false)
 expectBool("existing is nil", RemoteItemApply.shouldSkipSaveOverTombstone(existingNotifyKind: nil), false)
+
+print("\n== shouldCreateMissingRecord: catch-up must not resurrect deletes ==")
+expectBool(
+    "catch-up empty kind + title",
+    RemoteItemApply.shouldCreateMissingRecord(allowCreate: false, notifyKind: "", title: "Old Cabin"),
+    false
+)
+expectBool(
+    "explicit add",
+    RemoteItemApply.shouldCreateMissingRecord(allowCreate: false, notifyKind: "add", title: "New Cabin"),
+    true
+)
+expectBool(
+    "allowCreate restore",
+    RemoteItemApply.shouldCreateMissingRecord(allowCreate: true, notifyKind: "", title: "Restored"),
+    true
+)
 
 print(failures == 0 ? "\nALL SYNC CATALOG TESTS PASSED" : "\n\(failures) TEST(S) FAILED")
 if failures != 0 { exit(1) }

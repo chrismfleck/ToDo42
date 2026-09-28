@@ -170,8 +170,12 @@ enum RemoteItemApply {
     }
 
     static func shouldCreateMissingRecord(allowCreate: Bool, notifyKind: String, title: String) -> Bool {
-        if allowCreate || !notifyKind.isEmpty { return true }
+        if allowCreate { return true }
+        let kind = notifyKind.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard !kind.isEmpty, kind != "delete" else { return false }
         return !title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            || kind == "heart"
+            || kind == "reorder"
     }
 
     static func extraItemID(recordName: String, itemID: String?) -> String? {
@@ -362,8 +366,8 @@ expect(
     "Negative sortOrder marks companion photos even with a leftover title"
 )
 expect(
-    RemoteItemApply.shouldCreateMissingRecord(allowCreate: false, notifyKind: "", title: "Lake House"),
-    "Catch-up creates a titled item that is not yet in iCloud"
+    RemoteItemApply.shouldCreateMissingRecord(allowCreate: false, notifyKind: "", title: "Lake House") == false,
+    "Catch-up must not invent missing CloudKit rows (stops delete resurrection)"
 )
 expect(
     RemoteItemApply.shouldCreateMissingRecord(allowCreate: false, notifyKind: "", title: "") == false,
@@ -372,6 +376,10 @@ expect(
 expect(
     RemoteItemApply.shouldCreateMissingRecord(allowCreate: false, notifyKind: "add", title: "Lake House"),
     "An add upload creates the iCloud record"
+)
+expect(
+    RemoteItemApply.shouldCreateMissingRecord(allowCreate: true, notifyKind: "", title: "Lake House"),
+    "Full restore/allowCreate may create titled rows"
 )
 expect(
     RemoteItemApply.isTombstone(notifyKind: "delete"),
