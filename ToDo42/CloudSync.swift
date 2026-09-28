@@ -694,14 +694,28 @@ final class CloudSync {
     func deleteRemote(_ id: UUID) async {
         guard PairSession.shared.isPaired else { return }
         await enqueue {
-            // Keep a durable tombstone instead of hard-deleting the record. A hard
-            // delete leaves no trace on the server, so the partner device that
-            // still holds the item re-creates it on its next catch-up push
-            // (resurrection). The persistent tombstone (notifyKind == "delete")
-            // instead propagates the delete to both lists and blocks re-pushes.
+            // Record the delete on the co-writable pair record FIRST. In the
+            // CloudKit public database only a record's creator can modify/delete
+            // it, so when the non-creating partner deletes an item the tombstone
+            // write on the item row fails and the delete used to be lost (the item
+            // came back). `deletedIDs` lives on the shared pair record that both
+            // devices can write, so it is an authoritative, ownership-independent
+            // delete signal. The tombstone on the row is still attempted (it works
+            // for our own rows and cleans them up), but is now best-effort.
+            try? await self.addDeletedIDs([id.uuidString])
             _ = await self.tombstoneRemote(id)
             try? await self.removeItemID(id.uuidString)
             PairSession.shared.statusMessage = ""
+        }
+    }
+
+    private func addDeletedIDs(_ ids: [String]) async throws {
+        guard !ids.isEmpty else { return }
+        try await mutatePairRecord { record in
+            let merged = CloudKitValues.mergedDeletedIDs(record["deletedIDs"] as? String, adding: ids)
+            guard merged != (record["deletedIDs"] as? String ?? "") else { return false }
+            record["deletedIDs"] = merged
+            return true
         }
     }
 
@@ -770,6 +784,14 @@ final class CloudSync {
             .map(String.init)
             .filter { !$0.isEmpty }
         let catalogIDs = Set(listedIDs)
+        // Authoritative, ownership-independent delete list on the co-writable
+        // pair record. Anything here must never be shown, inserted, or healed.
+        let deletedIDs = Set(
+            (pair["deletedIDs"] as? String ?? "")
+                .split(separator: ",")
+                .map(String.init)
+                .filter { !$0.isEmpty }
+        )
         let fetched = await fetchRemoteItemRecords(pairID: pairID, listedIDs: listedIDs)
         let remote = fetched.records.filter { recordKind($0) == .listItem }
         let extraRecords = fetched.records.filter { recordKind($0) == .extraPhoto }
@@ -790,6 +812,16 @@ final class CloudSync {
                 continue
             }
             guard let itemID = record["itemID"] as? String, let uuid = UUID(uuidString: itemID) else { continue }
+            // Authoritatively deleted on the shared pair record — never revive it,
+            // regardless of who owns the (creator-only) item row.
+            if deletedIDs.contains(itemID) {
+                if let local = localByID[itemID], local.pairID.isEmpty || local.pairID == pairID {
+                    modelContext.delete(local)
+                    localByID.removeValue(forKey: itemID)
+                    notifyRemoved(record)
+                }
+                continue
+            }
             let notifyKind = record["notifyKind"] as? String
             if RemoteItemApply.isTombstone(notifyKind: notifyKind) {
                 if let local = localByID[itemID], local.pairID.isEmpty || local.pairID == pairID {
@@ -922,6 +954,11 @@ final class CloudSync {
             })
             for local in ItemStore.items(forPair: pairID, in: modelContext) {
                 let idString = local.id.uuidString
+                if deletedIDs.contains(idString) {
+                    // Authoritatively deleted on the shared pair record.
+                    modelContext.delete(local)
+                    continue
+                }
                 if catalogReady, !catalogIDs.contains(idString) {
                     // Off the shared catalog — this is the ambiguous case that
                     // caused both "new items vanish" and "deleted items come
