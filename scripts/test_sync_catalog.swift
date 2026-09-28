@@ -27,6 +27,11 @@ enum RemoteItemApply {
     static func shouldSkipSaveOverTombstone(existingNotifyKind: String?) -> Bool {
         isTombstone(notifyKind: existingNotifyKind)
     }
+    static func isOwnEdit(lastEditor: String?, myRole: String?) -> Bool {
+        let editor = (lastEditor ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        if editor.isEmpty { return true }
+        return editor == (myRole ?? "")
+    }
     static func shouldCreateMissingRecord(allowCreate: Bool, notifyKind: String, title: String) -> Bool {
         if allowCreate { return true }
         let kind = notifyKind.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
@@ -86,6 +91,13 @@ expectBool(
     RemoteItemApply.shouldCreateMissingRecord(allowCreate: true, notifyKind: "", title: "Restored"),
     true
 )
+
+print("\n== isOwnEdit: our own catalog-orphans are healed, not deleted ==")
+expectBool("empty editor = mine", RemoteItemApply.isOwnEdit(lastEditor: "", myRole: "chris"), true)
+expectBool("nil editor = mine", RemoteItemApply.isOwnEdit(lastEditor: nil, myRole: "chris"), true)
+expectBool("same role = mine", RemoteItemApply.isOwnEdit(lastEditor: "chris", myRole: "chris"), true)
+expectBool("padded same role = mine", RemoteItemApply.isOwnEdit(lastEditor: " chris ", myRole: "chris"), true)
+expectBool("partner role = not mine", RemoteItemApply.isOwnEdit(lastEditor: "deena", myRole: "chris"), false)
 
 print(failures == 0 ? "\nALL SYNC CATALOG TESTS PASSED" : "\n\(failures) TEST(S) FAILED")
 if failures != 0 { exit(1) }
