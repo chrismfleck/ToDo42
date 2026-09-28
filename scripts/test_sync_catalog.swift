@@ -18,6 +18,17 @@ enum CloudKitValues {
             .sorted()
             .joined(separator: ",")
     }
+
+    static func mergedDeletedIDs(_ existing: String?, adding: [String], cap: Int = 500) -> String {
+        var ids = (existing ?? "").split(separator: ",").map(String.init).filter { !$0.isEmpty }
+        var seen = Set(ids)
+        for id in adding where !id.isEmpty && !seen.contains(id) {
+            ids.append(id)
+            seen.insert(id)
+        }
+        if ids.count > cap { ids = Array(ids.suffix(cap)) }
+        return ids.joined(separator: ",")
+    }
 }
 
 enum RemoteItemApply {
@@ -98,6 +109,13 @@ expectBool("nil editor = mine", RemoteItemApply.isOwnEdit(lastEditor: nil, myRol
 expectBool("same role = mine", RemoteItemApply.isOwnEdit(lastEditor: "chris", myRole: "chris"), true)
 expectBool("padded same role = mine", RemoteItemApply.isOwnEdit(lastEditor: " chris ", myRole: "chris"), true)
 expectBool("partner role = not mine", RemoteItemApply.isOwnEdit(lastEditor: "deena", myRole: "chris"), false)
+
+print("\n== mergedDeletedIDs: co-writable authoritative delete list ==")
+expect("add new deleted id", CloudKitValues.mergedDeletedIDs("A,B", adding: ["C"]), "A,B,C")
+expect("dedupe existing", CloudKitValues.mergedDeletedIDs("A,B", adding: ["B"]), "A,B")
+expect("empty base", CloudKitValues.mergedDeletedIDs("", adding: ["X"]), "X")
+// Cap keeps the most recently deleted ids (insertion order preserved).
+expect("cap keeps most recent", CloudKitValues.mergedDeletedIDs("A,B,C", adding: ["D"], cap: 2), "C,D")
 
 print(failures == 0 ? "\nALL SYNC CATALOG TESTS PASSED" : "\n\(failures) TEST(S) FAILED")
 if failures != 0 { exit(1) }

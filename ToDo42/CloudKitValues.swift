@@ -32,6 +32,21 @@ enum CloudKitValues {
         return ids.sorted().joined(separator: ",")
     }
 
+    /// Append ids to the pair's `deletedIDs` list (a co-writable tombstone list
+    /// on the pair record). Insertion order is preserved so the cap keeps the
+    /// most recently deleted ids; both devices can write this even when they do
+    /// not own the item's own CloudKit row (public DB records are creator-only).
+    static func mergedDeletedIDs(_ existing: String?, adding: [String], cap: Int = 500) -> String {
+        var ids = (existing ?? "").split(separator: ",").map(String.init).filter { !$0.isEmpty }
+        var seen = Set(ids)
+        for id in adding where !id.isEmpty && !seen.contains(id) {
+            ids.append(id)
+            seen.insert(id)
+        }
+        if ids.count > cap { ids = Array(ids.suffix(cap)) }
+        return ids.joined(separator: ",")
+    }
+
     /// Remove one id from a catalog string while preserving every other id
     /// (so a concurrent add on the other device is not clobbered).
     static func removingItemID(_ catalog: String?, _ itemID: String) -> String {
