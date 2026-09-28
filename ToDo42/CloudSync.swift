@@ -514,6 +514,8 @@ final class CloudSync {
                 let pairItems = ItemStore.items(forPair: PairSession.shared.pairID, in: modelContext)
                 if allowCreate {
                     try await self.pushAll(pairItems, allowCreate: true)
+                    // Restore may create rows that were never catalogued — list them once.
+                    try? await self.registerItemIDs(pairItems.map(\.id.uuidString))
                     try await self.pull(modelContext: modelContext)
                 } else {
                     try await self.pull(modelContext: modelContext)
@@ -767,15 +769,21 @@ final class CloudSync {
             .split(separator: ",")
             .map(String.init)
             .filter { !$0.isEmpty }
+        let catalogIDs = Set(listedIDs)
         let fetched = await fetchRemoteItemRecords(pairID: pairID, listedIDs: listedIDs)
         let remote = fetched.records.filter { recordKind($0) == .listItem }
         let extraRecords = fetched.records.filter { recordKind($0) == .extraPhoto }
+        // When the pair catalog is known and non-empty, CloudKit rows that are
+        // NOT listed are orphans left by older hard-deletes / partner re-pushes.
+        // Heal them into tombstones and never re-insert them locally.
+        let catalogReady = fetched.catalogComplete && !listedIDs.isEmpty
 
         let session = PairSession.shared
         session.isApplyingRemote = true
         defer { session.isApplyingRemote = false }
 
         var localByID = ItemStore.keyedByID(ItemStore.allItems(in: modelContext))
+        var orphanIDs: [UUID] = []
         for record in remote {
             // Companion photo rows must never become home-list tiles.
             if RemoteItemApply.extraSlot(recordName: record.recordID.recordName) != nil {
@@ -789,6 +797,16 @@ final class CloudSync {
                     localByID.removeValue(forKey: itemID)
                     notifyRemoved(record)
                 }
+                continue
+            }
+            if catalogReady, !catalogIDs.contains(itemID) {
+                // Deleted from the shared catalog but still a live TDItem — kill it.
+                if let local = localByID[itemID], local.pairID.isEmpty || local.pairID == pairID {
+                    modelContext.delete(local)
+                    localByID.removeValue(forKey: itemID)
+                    notifyRemoved(record)
+                }
+                orphanIDs.append(uuid)
                 continue
             }
             let remoteUpdated = record["updatedAt"] as? Date ?? .distantPast
@@ -844,6 +862,8 @@ final class CloudSync {
                     notifyUpdate(record, heartChanged: false)
                 }
             } else {
+                // Never revive a CloudKit orphan the catalog already dropped.
+                if catalogReady, !catalogIDs.contains(itemID) { continue }
                 let title = RemoteItemApply.resolvedTitle(localTitle: "", remoteTitle: record["title"] as? String)
                 guard !title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { continue }
                 let item = TodoItem(
@@ -902,9 +922,21 @@ final class CloudSync {
                 )
             })
             for local in ItemStore.items(forPair: pairID, in: modelContext) {
-                if remoteIDs.contains(local.id.uuidString) {
+                let idString = local.id.uuidString
+                if catalogReady, !catalogIDs.contains(idString) {
+                    // Off the shared catalog — drop local leftover (grace for a
+                    // brand-new add still waiting on registerItemIDs).
+                    let mine = local.lastEditor.isEmpty
+                        || local.lastEditor == session.role?.rawValue
+                    let recent = Date().timeIntervalSince(local.createdAt) < 180
+                    if mine, recent { continue }
+                    modelContext.delete(local)
+                    orphanIDs.append(local.id)
+                    continue
+                }
+                if remoteIDs.contains(idString) {
                     let remoteItem = remote.first {
-                        ($0["itemID"] as? String) == local.id.uuidString
+                        ($0["itemID"] as? String) == idString
                     }
                     let remoteUpdated = remoteItem?["updatedAt"] as? Date
                         ?? remoteItem?.modificationDate
@@ -919,23 +951,26 @@ final class CloudSync {
                     let iAmLastEditor = local.lastEditor == session.role?.rawValue
                         && !(session.role?.rawValue ?? "").isEmpty
                     if remoteClearlyNewer, !iAmLastEditor {
-                        if local.hasExtraPhoto, !extrasByItemID.contains(local.id.uuidString) {
+                        if local.hasExtraPhoto, !extrasByItemID.contains(idString) {
                             local.extraImageData = nil
                         }
-                        if local.hasExtraPhoto2, !extra2ByItemID.contains(local.id.uuidString) {
+                        if local.hasExtraPhoto2, !extra2ByItemID.contains(idString) {
                             local.extraImageData2 = nil
                         }
-                        if local.hasExtraPhoto3, !extra3ByItemID.contains(local.id.uuidString) {
+                        if local.hasExtraPhoto3, !extra3ByItemID.contains(idString) {
                             local.extraImageData3 = nil
                         }
                     }
                     continue
                 }
-                // Do NOT delete local rows just because they are missing from the
-                // remote catalog. Query lag / a failed first upload used to wipe
-                // brand-new items here before catch-up could push them. Removals
-                // only happen when pull sees an explicit delete tombstone above.
+                // Missing from the remote query but still in the catalog: keep
+                // local so catch-up / pushMissingLocals can upload it. Removals
+                // require an explicit tombstone or catalog drop above.
             }
+        }
+        // Tombstone any catalog orphans discovered while pruning locals too.
+        for orphanID in Set(orphanIDs) {
+            _ = await tombstoneRemote(orphanID)
         }
         try? modelContext.save()
     }
@@ -944,7 +979,9 @@ final class CloudSync {
         for item in items {
             try await saveItem(item, notifyKind: "", allowCreate: allowCreate)
         }
-        try? await registerItemIDs(items.map(\.id.uuidString))
+        // Do NOT register every local ID on catch-up. That merged deleted items
+        // back into pair.itemIDs whenever the partner still held a local copy,
+        // which made old deletes reappear on the other phone.
     }
 
     /// Upload locals that have no CloudKit row yet (first push failed / raced).
