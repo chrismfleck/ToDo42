@@ -3,13 +3,17 @@ import SwiftData
 import UIKit
 import PhotosUI
 
-/// Shared size for the home wordmark and the item title on the edit page.
+/// Home wordmark. The item-page title is separate so the logo can stay large.
 private enum TitleMark {
     static let size: CGFloat = 26 * 1.15
     /// title-wordmark.png is 895×240, but the script only occupies 192px of that height.
-    /// The frame has to be taller than `size` or the logo draws smaller than the edit-page title.
     static let wordmarkHeight: CGFloat = size / (192.0 / 240.0)
     static let wordmarkWidth: CGFloat = wordmarkHeight * (895.0 / 240.0)
+}
+
+/// Item-page title: smaller than the home wordmark, larger than the notes (16pt).
+private enum ItemTitleFont {
+    static let size: CGFloat = 22
 }
 
 enum Palette {
@@ -1519,7 +1523,7 @@ struct ItemDetailView: View {
             if isEditing {
                 labeledField("Title") {
                     TextField("Title", text: $draftTitle, axis: .vertical)
-                        .font(.system(size: TitleMark.size))
+                        .font(.system(size: ItemTitleFont.size, weight: .semibold))
                         .lineLimit(1...6)
                         .multilineTextAlignment(.leading)
                         .padding(12)
@@ -1716,7 +1720,7 @@ struct ItemDetailView: View {
     @ViewBuilder
     private var titleView: some View {
         let titleText = Text(verbatim: SharedText.normalized(item.title))
-            .font(.system(size: TitleMark.size))
+            .font(.system(size: ItemTitleFont.size, weight: .semibold))
             .underline(savedURL != nil)
             .multilineTextAlignment(.leading)
 
