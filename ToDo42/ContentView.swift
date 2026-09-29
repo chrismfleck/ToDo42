@@ -3,6 +3,11 @@ import SwiftData
 import UIKit
 import PhotosUI
 
+/// Shared size for the home wordmark and the item title on the edit page.
+private enum TitleMark {
+    static let size: CGFloat = 26 * 1.15
+}
+
 enum Palette {
     static func isDark(_ scheme: ColorScheme) -> Bool {
         scheme == .dark || UITraitCollection.current.userInterfaceStyle == .dark
@@ -417,8 +422,6 @@ struct ContentView: View {
     @State private var isListEditing = !UserDefaults.standard.bool(forKey: Self.hasLeftListEditKey)
     @State private var reorderDrag: ReorderDrag?
     @State private var rowHeights: [UUID: CGFloat] = [:]
-    /// Matches the item edit page title, which uses the body font.
-    @ScaledMetric(relativeTo: .body) private var homeTitleHeight: CGFloat = 17
 
     private static let hasLeftListEditKey = "todo42.hasLeftListEditMode"
     private static let headerIconHit: CGFloat = 44
@@ -624,7 +627,7 @@ struct ContentView: View {
                     .renderingMode(.template)
                     .resizable()
                     .scaledToFit()
-                    .frame(height: homeTitleHeight)
+                    .frame(height: TitleMark.size)
                     .foregroundStyle(Palette.brandBlue(colorScheme))
                     .accessibilityLabel("Save 4 Two")
                     .allowsHitTesting(false)
@@ -1510,7 +1513,7 @@ struct ItemDetailView: View {
             if isEditing {
                 labeledField("Title") {
                     TextField("Title", text: $draftTitle, axis: .vertical)
-                        .font(.body)
+                        .font(.system(size: TitleMark.size))
                         .lineLimit(1...6)
                         .multilineTextAlignment(.leading)
                         .padding(12)
@@ -1707,7 +1710,7 @@ struct ItemDetailView: View {
     @ViewBuilder
     private var titleView: some View {
         let titleText = Text(verbatim: SharedText.normalized(item.title))
-            .font(.body)
+            .font(.system(size: TitleMark.size))
             .underline(savedURL != nil)
             .multilineTextAlignment(.leading)
 
