@@ -334,10 +334,10 @@ private struct CategoryTabStrip: View {
                 } label: {
                     VStack(spacing: 4) {
                         Image(systemName: cat.systemImage)
-                            .font(.system(size: compact ? 13 : 16, weight: .semibold))
+                            .font(.system(size: compact ? 14.5 : 16, weight: .semibold))
                             .foregroundStyle(cat.iconColor)
                         Text(categoryNames.title(for: cat))
-                            .font(.system(size: compact ? 9 : 11, weight: .semibold))
+                            .font(.system(size: compact ? 10 : 11, weight: .semibold))
                             .multilineTextAlignment(.center)
                             .lineLimit(2)
                             .minimumScaleFactor(0.7)
@@ -417,6 +417,8 @@ struct ContentView: View {
     @State private var isListEditing = !UserDefaults.standard.bool(forKey: Self.hasLeftListEditKey)
     @State private var reorderDrag: ReorderDrag?
     @State private var rowHeights: [UUID: CGFloat] = [:]
+    /// Matches the item edit page title, which uses the body font.
+    @ScaledMetric(relativeTo: .body) private var homeTitleHeight: CGFloat = 17
 
     private static let hasLeftListEditKey = "todo42.hasLeftListEditMode"
     private static let headerIconHit: CGFloat = 44
@@ -622,7 +624,7 @@ struct ContentView: View {
                     .renderingMode(.template)
                     .resizable()
                     .scaledToFit()
-                    .frame(height: 26 * 1.15)
+                    .frame(height: homeTitleHeight)
                     .foregroundStyle(Palette.brandBlue(colorScheme))
                     .accessibilityLabel("Save 4 Two")
                     .allowsHitTesting(false)
@@ -2114,7 +2116,7 @@ struct AddItemView: View {
                                 )
                                 Spacer()
                                 Image(systemName: "chevron.right")
-                                    .font(.caption2.weight(.semibold))
+                                    .font(.system(size: 11.5, weight: .semibold))
                                     .foregroundStyle(.tertiary)
                             }
                         }
@@ -2150,7 +2152,7 @@ struct AddItemView: View {
                     }
                 } header: {
                     Text("Or Paste a link")
-                        .font(.caption2)
+                        .font(.system(size: 12))
                 }
 
                 Section {
@@ -2166,7 +2168,7 @@ struct AddItemView: View {
                                     Text("Photo added")
                                         .foregroundStyle(.primary)
                                     Text("Tap to change")
-                                        .font(.caption2)
+                                        .font(.system(size: 11.5))
                                         .foregroundStyle(.secondary)
                                 }
                                 Spacer()
@@ -2191,22 +2193,26 @@ struct AddItemView: View {
                     CategoryPickerGrid(selection: $selectedCategories, compact: true)
                 } header: {
                     Text("Details")
-                        .font(.caption2)
+                        .font(.system(size: 12))
                 }
             }
-            .font(.system(size: 14))
+            .font(.system(size: 15.5))
             .navigationTitle("Add item")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
+                ToolbarItem(placement: .principal) {
+                    Text("Add item")
+                        .font(.system(size: 25.5, weight: .bold))
+                }
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel") { dismiss() }
-                        .font(.system(size: 15))
+                        .font(.system(size: 16))
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Save") {
                         Task { await prepareAndSave() }
                     }
-                    .font(.system(size: 15, weight: .semibold))
+                    .font(.system(size: 16, weight: .semibold))
                     .disabled(!canSave)
                 }
             }
