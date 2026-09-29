@@ -319,6 +319,7 @@ struct PairHeadAvatar: View {
 
 private struct CategoryTabStrip: View {
     var categories: [ItemCategory]
+    var compact: Bool = false
     var isSelected: (ItemCategory) -> Bool
     var onSelect: (ItemCategory) -> Void
     @Environment(CategoryNames.self) private var categoryNames
@@ -333,10 +334,10 @@ private struct CategoryTabStrip: View {
                 } label: {
                     VStack(spacing: 4) {
                         Image(systemName: cat.systemImage)
-                            .font(.system(size: 16, weight: .semibold))
+                            .font(.system(size: compact ? 13 : 16, weight: .semibold))
                             .foregroundStyle(cat.iconColor)
                         Text(categoryNames.title(for: cat))
-                            .font(.caption2.weight(.semibold))
+                            .font(.system(size: compact ? 9 : 11, weight: .semibold))
                             .multilineTextAlignment(.center)
                             .lineLimit(2)
                             .minimumScaleFactor(0.7)
@@ -369,12 +370,14 @@ private struct CategoryTabStrip: View {
 
 struct CategoryPickerGrid: View {
     @Binding var selection: Set<ItemCategory>
+    var compact: Bool = false
 
     var body: some View {
         VStack(spacing: 8) {
             ForEach(Array(ItemCategory.pages.enumerated()), id: \.offset) { _, page in
                 CategoryTabStrip(
                     categories: page,
+                    compact: compact,
                     isSelected: { selection.contains($0) },
                     onSelect: { toggle($0) }
                 )
@@ -619,7 +622,7 @@ struct ContentView: View {
                     .renderingMode(.template)
                     .resizable()
                     .scaledToFit()
-                    .frame(height: 26)
+                    .frame(height: 26 * 1.15)
                     .foregroundStyle(Palette.brandBlue(colorScheme))
                     .accessibilityLabel("Save 4 Two")
                     .allowsHitTesting(false)
@@ -2111,7 +2114,7 @@ struct AddItemView: View {
                                 )
                                 Spacer()
                                 Image(systemName: "chevron.right")
-                                    .font(.caption.weight(.semibold))
+                                    .font(.caption2.weight(.semibold))
                                     .foregroundStyle(.tertiary)
                             }
                         }
@@ -2129,7 +2132,7 @@ struct AddItemView: View {
                     }
                 }
 
-                Section("Or Paste a link") {
+                Section {
                     TextField("https://", text: $urlString)
                         .textInputAutocapitalization(.never)
                         .keyboardType(.URL)
@@ -2145,9 +2148,12 @@ struct AddItemView: View {
                                 .foregroundStyle(.secondary)
                         }
                     }
+                } header: {
+                    Text("Or Paste a link")
+                        .font(.caption2)
                 }
 
-                Section("Details") {
+                Section {
                     PhotosPicker(selection: $photoItem, matching: .images) {
                         if let photoData, let uiImage = UIImage(data: photoData) {
                             HStack(spacing: 12) {
@@ -2160,7 +2166,7 @@ struct AddItemView: View {
                                     Text("Photo added")
                                         .foregroundStyle(.primary)
                                     Text("Tap to change")
-                                        .font(.caption)
+                                        .font(.caption2)
                                         .foregroundStyle(.secondary)
                                 }
                                 Spacer()
@@ -2182,18 +2188,25 @@ struct AddItemView: View {
                         .lineLimit(1...4)
                     TextField("Notes", text: $notes, axis: .vertical)
                         .lineLimit(3...6)
-                    CategoryPickerGrid(selection: $selectedCategories)
+                    CategoryPickerGrid(selection: $selectedCategories, compact: true)
+                } header: {
+                    Text("Details")
+                        .font(.caption2)
                 }
             }
+            .font(.system(size: 14))
             .navigationTitle("Add item")
+            .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel") { dismiss() }
+                        .font(.system(size: 15))
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Save") {
                         Task { await prepareAndSave() }
                     }
+                    .font(.system(size: 15, weight: .semibold))
                     .disabled(!canSave)
                 }
             }
