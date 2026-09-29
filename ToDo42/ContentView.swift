@@ -6,6 +6,10 @@ import PhotosUI
 /// Shared size for the home wordmark and the item title on the edit page.
 private enum TitleMark {
     static let size: CGFloat = 26 * 1.15
+    /// title-wordmark.png is 895×240, but the script only occupies 192px of that height.
+    /// The frame has to be taller than `size` or the logo draws smaller than the edit-page title.
+    static let wordmarkHeight: CGFloat = size / (192.0 / 240.0)
+    static let wordmarkWidth: CGFloat = wordmarkHeight * (895.0 / 240.0)
 }
 
 enum Palette {
@@ -598,9 +602,9 @@ struct ContentView: View {
             }
             .frame(minWidth: Self.headerIconHit, alignment: .leading)
 
-            Spacer(minLength: 20)
+            Spacer(minLength: 4)
 
-            HStack(spacing: 14) {
+            HStack(spacing: 6) {
                 if pairSession.isPaired, !isListEditing {
                     PairHeadButton(
                         label: pairSession.myHeartLabel,
@@ -627,7 +631,8 @@ struct ContentView: View {
                     .renderingMode(.template)
                     .resizable()
                     .scaledToFit()
-                    .frame(height: TitleMark.size)
+                    .frame(width: TitleMark.wordmarkWidth, height: TitleMark.wordmarkHeight)
+                    .layoutPriority(1)
                     .foregroundStyle(Palette.brandBlue(colorScheme))
                     .accessibilityLabel("Save 4 Two")
                     .allowsHitTesting(false)
@@ -654,8 +659,9 @@ struct ContentView: View {
                     )
                 }
             }
+            .layoutPriority(1)
 
-            Spacer(minLength: 20)
+            Spacer(minLength: 4)
 
             HStack(spacing: 8) {
                 if showPairChrome {
