@@ -1,7 +1,7 @@
 import Foundation
 
 enum IdeaSource: String, CaseIterable {
-    case airbnb, google, maps, instagram, tiktok, x, tripadvisor
+    case airbnb, google, maps, instagram, pinterest, tiktok, x, tripadvisor
 
     var opensInAppBrowser: Bool {
         switch self {
@@ -35,6 +35,10 @@ enum IdeaSource: String, CaseIterable {
                 let encodedTags = tags.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? ""
                 string = "https://www.google.com/search?q=\(encodedTags)+site:instagram.com"
             }
+        case .pinterest:
+            string = query.isEmpty
+                ? "https://www.pinterest.com/"
+                : "https://www.pinterest.com/search/pins/?q=\(encoded)"
         case .tiktok:
             string = query.isEmpty
                 ? "https://www.tiktok.com/"
@@ -127,6 +131,14 @@ expect(instagram.contains("site:instagram.com") || instagram.contains("site%3Ain
 expect(IdeaSource.instagram.opensInAppBrowser, "instagram in-app")
 expect(IdeaSource.instagram.nativeSearchURLs(keywords: query).isEmpty, "instagram has no native scheme")
 expect(IdeaSource.hashtagQuery(query) == "#asheville #cabin #hot #tub", "hashtag query")
+
+let pinterest = IdeaSource.pinterest.searchURL(keywords: query)?.absoluteString ?? ""
+expect(pinterest.contains("pinterest.com/search/pins/"), "pinterest search")
+expect(pinterest.contains("q=Asheville"), "pinterest query")
+expect(IdeaSource.pinterest.opensInAppBrowser, "pinterest in-app")
+expect(IdeaSource.pinterest.nativeSearchURLs(keywords: query).isEmpty, "pinterest has no native scheme")
+let emptyPinterest = IdeaSource.pinterest.searchURL(keywords: "  ")?.absoluteString ?? ""
+expect(emptyPinterest == "https://www.pinterest.com/", "empty pinterest homepage")
 
 let tiktok = IdeaSource.tiktok.searchURL(keywords: query)?.absoluteString ?? ""
 expect(tiktok.contains("tiktok.com/search"), "tiktok search")

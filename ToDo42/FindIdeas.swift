@@ -7,6 +7,7 @@ enum IdeaSource: String, CaseIterable, Identifiable {
     case google
     case maps
     case instagram
+    case pinterest
     case tiktok
     case x
     case tripadvisor
@@ -19,6 +20,7 @@ enum IdeaSource: String, CaseIterable, Identifiable {
         case .google: "Google"
         case .maps: "Maps"
         case .instagram: "Instagram"
+        case .pinterest: "Pinterest"
         case .tiktok: "TikTok"
         case .x: "X (Twitter)"
         case .tripadvisor: "TripAdvisor"
@@ -31,6 +33,7 @@ enum IdeaSource: String, CaseIterable, Identifiable {
         case .google: "globe"
         case .maps: "map"
         case .instagram: "camera"
+        case .pinterest: "pin"
         case .tiktok: "play.rectangle"
         case .x: "at"
         case .tripadvisor: "binoculars"
@@ -71,6 +74,10 @@ enum IdeaSource: String, CaseIterable, Identifiable {
                 let encodedTags = tags.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? ""
                 string = "https://www.google.com/search?q=\(encodedTags)+site:instagram.com"
             }
+        case .pinterest:
+            string = query.isEmpty
+                ? "https://www.pinterest.com/"
+                : "https://www.pinterest.com/search/pins/?q=\(encoded)"
         case .tiktok:
             string = query.isEmpty
                 ? "https://www.tiktok.com/"
@@ -163,8 +170,10 @@ struct FindIdeasView: View {
                     .autocorrectionDisabled()
             } header: {
                 Text("Keywords")
+                    .font(.system(size: 12))
             } footer: {
                 Text("Type a few words, then pick where to look.")
+                    .font(.system(size: 12))
             }
 
             Section {
@@ -177,10 +186,13 @@ struct FindIdeasView: View {
                 }
             } header: {
                 Text("Look in")
+                    .font(.system(size: 12))
             } footer: {
-                Text("Airbnb, Google, Maps, Instagram, TripAdvisor, and X open here. TikTok opens that app to search.")
+                Text("Airbnb, Google, Maps, Instagram, Pinterest, TripAdvisor, and X open here. TikTok opens that app to search.")
+                    .font(.system(size: 12))
             }
         }
+        .font(.system(size: 15.5))
         .navigationTitle("Find Ideas")
         .navigationBarTitleDisplayMode(.inline)
         .fullScreenCover(item: $browser) { page in
