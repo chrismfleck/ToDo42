@@ -542,6 +542,13 @@ final class CloudSync {
         guard PairSession.shared.isPaired else { return }
         await enqueue {
             do {
+                // List the id in the shared catalog BEFORE writing the TDItem row.
+                // Subscriptions fire only on TDItem, so a partner pull triggered by
+                // saveItem used to race ahead of registerItemIDs and skip the new
+                // row as a "catalog orphan" (Build 153+ catalogReady gate).
+                if notifyKind == "add" {
+                    try? await self.registerItemIDs([item.id.uuidString])
+                }
                 try await self.saveItem(item, notifyKind: notifyKind)
                 try? await self.registerItemIDs([item.id.uuidString])
                 PairSession.shared.statusMessage = ""
@@ -799,8 +806,10 @@ final class CloudSync {
         let remote = fetched.records.filter { recordKind($0) == .listItem }
         let extraRecords = fetched.records.filter { recordKind($0) == .extraPhoto }
         // When the pair catalog is known and non-empty, CloudKit rows that are
-        // NOT listed are orphans left by older hard-deletes / partner re-pushes.
-        // Heal them into tombstones and never re-insert them locally.
+        // NOT listed are usually orphans from older hard-deletes — but a brand-
+        // new add can also miss the catalog for a moment (registerItemIDs races
+        // or fails). Authoritative deletes are already filtered via deletedIDs /
+        // x: marks / the local ledger above; recent live rows are accepted below.
         let catalogReady = fetched.catalogComplete && !listedIDs.isEmpty
 
         let session = PairSession.shared
@@ -846,13 +855,25 @@ final class CloudSync {
                 continue
             }
             if catalogReady, !catalogIDs.contains(itemID) {
-                // Off the shared catalog. Do NOT decide anything from this query
-                // record: CloudKit queries are eventually consistent, so a just-
-                // deleted item's tombstone may be missing here while a stale live
-                // row still shows up (which previously resurrected deletes). Any
-                // local copy is resolved authoritatively below with a per-record
-                // (strongly consistent) fetch; remote-only orphans are not revived.
-                continue
+                // Off the shared catalog. Deletes are already handled above via
+                // deletedIDs / x: marks / ledger / tombstones. A live row here is
+                // almost always a brand-new add whose registerItemIDs has not
+                // landed yet (partner pull is triggered by the TDItem push,
+                // which races ahead of the catalog write). Accept recent/"add"
+                // rows and heal them into the catalog; leave older orphans alone
+                // so pre-tombstone hard-deletes stay gone.
+                let created = record["createdAt"] as? Date
+                    ?? record["updatedAt"] as? Date
+                    ?? .distantPast
+                if RemoteItemApply.isProvisionalCatalogAdd(
+                    notifyKind: notifyKind,
+                    createdAt: created
+                ) {
+                    idsToHeal.append(itemID)
+                    // fall through — merge/insert below
+                } else {
+                    continue
+                }
             }
             let remoteUpdated = record["updatedAt"] as? Date ?? .distantPast
             let local = localByID[itemID] ?? ItemStore.item(id: uuid, in: modelContext)
@@ -907,8 +928,12 @@ final class CloudSync {
                     notifyUpdate(record, heartChanged: false)
                 }
             } else {
-                // Never revive a CloudKit orphan the catalog already dropped.
-                if catalogReady, !catalogIDs.contains(itemID) { continue }
+                // Never revive a CloudKit orphan the catalog already dropped,
+                // unless it is a provisional new add we are healing above.
+                if catalogReady, !catalogIDs.contains(itemID),
+                   !idsToHeal.contains(itemID) {
+                    continue
+                }
                 if DeletedItemLedger.containsURL(pairID: pairID, urlString: record["urlString"] as? String) {
                     DeletedItemLedger.record(pairID: pairID, id: uuid, urlString: record["urlString"] as? String)
                     idsToStrip.append(itemID)
@@ -1610,7 +1635,9 @@ final class CloudSync {
                 return true
             }
         } catch {
-            // The ID list can be too long for iCloud; items still sync by pairID.
+            // The ID list can be too long for iCloud. Pull still accepts recent
+            // uncatalogued "add" rows (isProvisionalCatalogAdd), and heal/retry
+            // paths call registerItemIDs again on the next sync.
         }
     }
 

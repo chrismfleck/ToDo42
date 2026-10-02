@@ -293,6 +293,24 @@ enum RemoteItemApply {
         return editor == (myRole ?? "")
     }
 
+    /// A live CloudKit row missing from the shared catalog is usually a brand-new
+    /// add whose `registerItemIDs` raced behind the TDItem push that wakes the
+    /// partner. Accept `notifyKind == "add"` or a recently created row so the
+    /// partner inserts it; older uncatalogued rows stay ignored (pre-tombstone
+    /// hard-deletes). Authoritative deletes must already have been filtered via
+    /// `deletedIDs` / `x:` marks / the local ledger before this is consulted.
+    static func isProvisionalCatalogAdd(
+        notifyKind: String?,
+        createdAt: Date,
+        now: Date = Date(),
+        recentSeconds: TimeInterval = 48 * 3600
+    ) -> Bool {
+        let kind = (notifyKind ?? "").trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        if kind == "add" { return true }
+        if kind == "delete" { return false }
+        return now.timeIntervalSince(createdAt) < recentSeconds
+    }
+
     static func shouldApplyRemoteSort(
         myRole: String?,
         lastEditor: String?,

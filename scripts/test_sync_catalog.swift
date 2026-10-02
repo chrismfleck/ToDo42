@@ -111,6 +111,17 @@ enum RemoteItemApply {
         if editor.isEmpty { return true }
         return editor == (myRole ?? "")
     }
+    static func isProvisionalCatalogAdd(
+        notifyKind: String?,
+        createdAt: Date,
+        now: Date = Date(),
+        recentSeconds: TimeInterval = 48 * 3600
+    ) -> Bool {
+        let kind = (notifyKind ?? "").trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        if kind == "add" { return true }
+        if kind == "delete" { return false }
+        return now.timeIntervalSince(createdAt) < recentSeconds
+    }
     static func shouldCreateMissingRecord(allowCreate: Bool, notifyKind: String, title: String) -> Bool {
         if allowCreate { return true }
         let kind = notifyKind.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
@@ -177,6 +188,29 @@ expectBool("nil editor = mine", RemoteItemApply.isOwnEdit(lastEditor: nil, myRol
 expectBool("same role = mine", RemoteItemApply.isOwnEdit(lastEditor: "chris", myRole: "chris"), true)
 expectBool("padded same role = mine", RemoteItemApply.isOwnEdit(lastEditor: " chris ", myRole: "chris"), true)
 expectBool("partner role = not mine", RemoteItemApply.isOwnEdit(lastEditor: "deena", myRole: "chris"), false)
+
+print("\n== isProvisionalCatalogAdd: partner must accept raced new adds ==")
+let now = Date()
+expectBool(
+    "notifyKind add",
+    RemoteItemApply.isProvisionalCatalogAdd(notifyKind: "add", createdAt: now.addingTimeInterval(-200_000), now: now),
+    true
+)
+expectBool(
+    "recent empty kind",
+    RemoteItemApply.isProvisionalCatalogAdd(notifyKind: "", createdAt: now.addingTimeInterval(-60), now: now),
+    true
+)
+expectBool(
+    "old empty kind ignored",
+    RemoteItemApply.isProvisionalCatalogAdd(notifyKind: "", createdAt: now.addingTimeInterval(-200_000), now: now),
+    false
+)
+expectBool(
+    "delete never provisional",
+    RemoteItemApply.isProvisionalCatalogAdd(notifyKind: "delete", createdAt: now, now: now),
+    false
+)
 
 print("\n== mergedDeletedIDs: co-writable authoritative delete list ==")
 expect("add new deleted id", CloudKitValues.mergedDeletedIDs("A,B", adding: ["C"]), "A,B,C")
