@@ -84,6 +84,7 @@ private let heartPink = Color(red: 0.92, green: 0.28, blue: 0.45)
 struct PairHeartPlusIcon: View {
     /// Match other header chrome circles (`headerGlyphPoint` = 28).
     var size: CGFloat = 28
+    /// Ring color — same brand blue as pencil / ? / +.
     var tint: Color
     /// Same ring math as `ChromeCircleIcon` / header chrome (`diameter * 0.054`).
     var lineWidth: CGFloat? = nil
@@ -96,13 +97,16 @@ struct PairHeartPlusIcon: View {
         ZStack {
             Circle()
                 .strokeBorder(tint, lineWidth: ringWidth)
-            Image("PairHeartsChrome")
-                .renderingMode(.template)
-                .resizable()
-                .scaledToFit()
-                .foregroundStyle(tint)
-                // Inset so hearts sit inside the stroke like SF glyphs in ChromeCircleIcon.
-                .padding(size * 0.14)
+            // Red heart + white plus — same circle diameter as the other chrome icons.
+            ZStack(alignment: .top) {
+                Image(systemName: "heart.fill")
+                    .font(.system(size: size * 0.48, weight: .semibold))
+                    .foregroundStyle(Color(red: 0.90, green: 0.16, blue: 0.22))
+                Image(systemName: "plus")
+                    .font(.system(size: size * 0.20, weight: .heavy))
+                    .foregroundStyle(.white)
+                    .offset(y: size * 0.12)
+            }
         }
         .frame(width: size, height: size)
         .accessibilityHidden(true)

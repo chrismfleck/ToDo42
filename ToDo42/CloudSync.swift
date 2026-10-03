@@ -948,7 +948,8 @@ final class CloudSync {
         """
         Join \(PairSession.shared.trimmedMyName.isEmpty ? "me" : PairSession.shared.trimmedMyName) on Save4Two.
 
-        1. Both of us install Save4Two from the App Store.
+        1. Install Save4Two from the App Store:
+        https://apps.apple.com/us/app/save4two/id6806054108
         2. Open the app and tap the red heart with a plus.
         3. Choose “I have a code” and enter: \(code)
 

@@ -57,7 +57,7 @@ struct HelpView: View {
 
                         HelpStep(
                             number: 3,
-                            spoken: "To add a partner tap the circled double hearts. Enter names and headshots, send invite to partner. Or enter a code if you are sent one. To add second partner tap Add a pair."
+                            spoken: "To add a partner tap the red heart with a plus. Enter names and headshots, send invite to partner. Or enter a code if you are sent one. To add second partner tap Add a pair."
                         ) {
                             partnerHelpRow
                         }

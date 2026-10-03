@@ -1,5 +1,5 @@
 #!/bin/bash
-# Find every ToDo42 checkout, sync THIS one to Build 170, close Xcode, open the right project.
+# Find every ToDo42 checkout, sync THIS one to Build 171, close Xcode, open the right project.
 set -euo pipefail
 
 echo "=============================================="
@@ -86,9 +86,9 @@ echo "  • Destination = Deena’s iPhone (not Chris, not a Simulator)"
 echo "  • Product → Clean Build Folder"
 echo "  • Product → Run"
 echo
-echo "PROOF YOU GOT 170:"
-echo "  1. In-app bottom label:   Build 170"
-echo "  2. Xcode console:         >>> Save4Two AppBuild 170 SRC <<<"
+echo "PROOF YOU GOT 171:"
+echo "  1. In-app bottom label:   Build 171"
+echo "  2. Xcode console:         >>> Save4Two AppBuild 171 SRC <<<"
 echo
 echo "If Help/bottom still says Build 130/135, Xcode opened a different folder."
 echo "Do NOT delete the app (that wipes items). Restore via Pair → iCloud."
