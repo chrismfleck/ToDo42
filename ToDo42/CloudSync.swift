@@ -671,15 +671,7 @@ final class CloudSync {
                 // brief pair-record conflicts without failing the whole upload.
                 do {
                     try await self.registerItemIDs([item.id.uuidString], retries: 3)
-                    if notifyKind == "add" {
-                        PairSession.shared.statusMessage = "Saved to iCloud."
-                    } else if PairSession.shared.statusMessage.hasPrefix("iCloud field")
-                        || PairSession.shared.statusMessage.localizedCaseInsensitiveContains("rejected a field")
-                    {
-                        PairSession.shared.statusMessage = ""
-                    } else {
-                        PairSession.shared.statusMessage = ""
-                    }
+                    PairSession.shared.statusMessage = ""
                 } catch {
                     // Item row is already on iCloud; catalog miss is recoverable.
                     PairSession.shared.statusMessage = notifyKind == "add"
