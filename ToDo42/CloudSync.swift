@@ -296,14 +296,31 @@ final class PairSession {
     func applyRemoteNames(host: String?, guest: String?) {
         let hostName = host?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         let guestName = guest?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        // Only fill blanks. Blind overwrite let a third joiner rename the couple
+        // (Chris saw “paired to Diane” after Diane wrote guestName).
+        var changed = false
         if role == .deena {
-            if !guestName.isEmpty { myName = guestName }
-            if !hostName.isEmpty { partnerName = hostName }
+            if trimmedMyName.isEmpty, !guestName.isEmpty {
+                myName = guestName
+                changed = true
+            }
+            if trimmedPartnerName.isEmpty, !hostName.isEmpty {
+                partnerName = hostName
+                changed = true
+            }
         } else {
-            if !hostName.isEmpty { myName = hostName }
-            if !guestName.isEmpty { partnerName = guestName }
+            if trimmedMyName.isEmpty, !hostName.isEmpty {
+                myName = hostName
+                changed = true
+            }
+            if trimmedPartnerName.isEmpty, !guestName.isEmpty {
+                partnerName = guestName
+                changed = true
+            }
         }
-        persistLocal()
+        if changed {
+            persistLocal()
+        }
     }
 
     func displayName(forEditor editor: String) -> String {
@@ -517,6 +534,26 @@ final class CloudSync {
         return code
     }
 
+    /// New 6-digit code for the **same** shared list (re-invite). Does not create
+    /// a second CloudKit pair or copy items.
+    func rotateInviteCode() async throws -> String {
+        try await ensureiCloud()
+        guard let pairID = PairSession.shared.pairID, !pairID.isEmpty else {
+            throw SyncError.message("Pair first, then you can send a new code.")
+        }
+        let code = String((0..<6).map { _ in "0123456789".randomElement()! })
+        let codeRecord = CKRecord(recordType: "TDPairCode", recordID: CKRecord.ID(recordName: "code-\(code)"))
+        codeRecord["pairID"] = pairID
+        codeRecord["createdAt"] = Date()
+        _ = try await database.modifyRecords(saving: [codeRecord], deleting: [], savePolicy: .allKeys)
+        if let old = PairSession.shared.inviteCode, old != code {
+            try? await database.deleteRecord(withID: CKRecord.ID(recordName: "code-\(old)"))
+        }
+        PairSession.shared.inviteCode = code
+        PairSession.shared.persistLocal()
+        return code
+    }
+
     func join(code: String) async throws {
         try await ensureiCloud()
         let trimmed = code.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -537,23 +574,35 @@ final class CloudSync {
         if !session.isComposingNewPair {
             session.discardActivePairSlotBeforeReplace()
         }
+        let pair = try await database.record(for: CKRecord.ID(recordName: "pair-\(pairID)"))
+        let host = (pair["hostName"] as? String ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        let guest = (pair["guestName"] as? String ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        guard RemoteItemApply.canJoinExistingPair(
+            myName: session.trimmedMyName,
+            hostName: host,
+            guestName: guest
+        ) else {
+            throw SyncError.message(
+                "This list already has two people. For a separate list, your partner must tap Add a pair and send a new code — not the code from their other pair."
+            )
+        }
         session.pairID = pairID
         session.role = .deena
         session.inviteCode = trimmed
         session.markComposeFinished()
-        session.persistLocal()
-        if let pair = try? await database.record(for: CKRecord.ID(recordName: "pair-\(pairID)")) {
-            let host = pair["hostName"] as? String ?? ""
-            if !host.isEmpty {
-                session.partnerName = host
-            }
-            CategoryNames.shared.applyRemoteJSON(pair[CategoryNames.cloudField] as? String)
-            pair["guestName"] = session.trimmedMyName
-            if session.trimmedPartnerName.isEmpty == false, host.isEmpty {
-                pair["hostName"] = session.trimmedPartnerName
-            }
-            try await saveOverwriting(pair)
+        if !host.isEmpty {
+            session.partnerName = host
         }
+        CategoryNames.shared.applyRemoteJSON(pair[CategoryNames.cloudField] as? String)
+        // Only claim the open guest seat (or refresh the same guest re-joining).
+        // Never replace an existing guest name with a third person.
+        if guest.isEmpty || guest.caseInsensitiveCompare(session.trimmedMyName) == .orderedSame {
+            pair["guestName"] = session.trimmedMyName
+        }
+        if session.trimmedPartnerName.isEmpty == false, host.isEmpty {
+            pair["hostName"] = session.trimmedPartnerName
+        }
+        try await saveOverwriting(pair)
         session.persistLocal()
         try await subscribe()
         try await requestNotifications()
@@ -617,7 +666,13 @@ final class CloudSync {
                 ItemStore.purgeBlankTitleGhosts(in: modelContext)
                 ItemStore.deduplicate(in: modelContext)
                 ItemStore.deduplicateContentTwins(in: modelContext)
-                let pairItems = ItemStore.items(forPair: PairSession.shared.pairID, in: modelContext)
+                // Strict pair scope for uploads — never push another list's rows
+                // (or unscoped leftovers) into this pair's CloudKit catalog.
+                let pairItems = ItemStore.items(
+                    forPair: PairSession.shared.pairID,
+                    in: modelContext,
+                    includeUnscoped: false
+                )
                 if allowCreate {
                     try await self.pushAll(pairItems, allowCreate: true)
                     // Restore may create rows that were never catalogued — list them once.
@@ -625,7 +680,11 @@ final class CloudSync {
                     try await self.pull(modelContext: modelContext, hintRecordIDs: hintRecordIDs)
                 } else {
                     try await self.pull(modelContext: modelContext, hintRecordIDs: hintRecordIDs)
-                    let afterPull = ItemStore.items(forPair: PairSession.shared.pairID, in: modelContext)
+                    let afterPull = ItemStore.items(
+                        forPair: PairSession.shared.pairID,
+                        in: modelContext,
+                        includeUnscoped: false
+                    )
                     try await self.pushAll(afterPull, allowCreate: false)
                     // Re-try brand-new locals that never got an iCloud row (failed first
                     // upload). Does not recreate old partner zombies — only recent
@@ -1577,6 +1636,11 @@ final class CloudSync {
             // Do not push a blank title over iCloud. Hearts can still move,
             // and Chris's copy will republish the real title on catch-up.
             if let existing = try? await database.record(for: recordID) {
+                let remotePair = (existing["pairID"] as? String ?? "")
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                if !remotePair.isEmpty, remotePair != pairID {
+                    return
+                }
                 // Never write over a tombstone — the delete must stay deleted.
                 if RemoteItemApply.shouldSkipSaveOverTombstone(existingNotifyKind: existing["notifyKind"] as? String) {
                     return
@@ -1597,6 +1661,13 @@ final class CloudSync {
         }
         let record: CKRecord
         if let existing = try? await database.record(for: recordID) {
+            let remotePair = (existing["pairID"] as? String ?? "")
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            // item-<uuid> ids are global in the public DB. Never rewrite another
+            // list's row onto this pair (that is how Diane inherited Chris/Deena).
+            if !remotePair.isEmpty, remotePair != pairID {
+                return
+            }
             // Never resurrect a deleted item: if the server copy is a tombstone,
             // the delete wins over any local catch-up push or edit.
             if RemoteItemApply.shouldSkipSaveOverTombstone(existingNotifyKind: existing["notifyKind"] as? String) {

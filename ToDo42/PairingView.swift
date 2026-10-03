@@ -116,7 +116,7 @@ struct PairingView: View {
                     .font(.title2.bold())
                 Text(
                     session.isComposingNewPair
-                        ? "Start a separate list with someone else. Your other pairs stay as they are."
+                        ? "Start a separate empty list with someone else. Do not reuse a code from another pair — that mixes lists and names."
                         : "Share your list with someone you trust. Both phones must be signed in to iCloud."
                 )
                     .font(.caption)
@@ -349,10 +349,13 @@ struct PairingView: View {
                     Button("Send the code again") { showShare = true }
                         .font(.subheadline.weight(.semibold))
                     Button("New invite code") {
-                        Task { await createInvite() }
+                        Task { await rotateInviteCode() }
                     }
                     .font(.subheadline)
                     .disabled(session.isBusy || !session.hasNames)
+                    Text("New invite code keeps this same list (for your current partner). For a different person, use Add a pair above.")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
                 }
             }
             Button {
@@ -450,7 +453,7 @@ struct PairingView: View {
     private var restoreCard: some View {
         pairCard {
             cardTitle("Restore from iCloud", icon: "clock.fill", tint: Color(red: 0.98, green: 0.72, blue: 0.20))
-            Text("Enter the same 6-digit invite code from Messages (the one used to pair before). Restore reconnects that pair and pulls the list. Do not tap Invite / New invite on either phone — that starts a blank list. Leave Deena’s phone as-is if it still has the items.")
+            Text("Enter the same 6-digit invite code from Messages (the one used to pair before). Restore reconnects that pair and pulls the list. Do not tap Invite / New invite on either phone — that starts a blank list. Leave your partner’s phone as-is if it still has the items.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
             pairField("Older 6-digit code", text: $restoreCode)
@@ -587,8 +590,27 @@ struct PairingView: View {
         session.persistLocal()
         do {
             _ = try await CloudSync.shared.createInvite()
-            await CloudSync.shared.sync(modelContext: modelContext, allowCreate: true)
+            // New / second pairs start empty. Do not allowCreate-push the other
+            // list's items into this pair (that shared Chris/Deena with Diane).
+            await CloudSync.shared.sync(
+                modelContext: modelContext,
+                allowCreate: false,
+                coalesce: false
+            )
             showShare = true
+        } catch {
+            errorText = error.localizedDescription
+        }
+    }
+
+    private func rotateInviteCode() async {
+        errorText = ""
+        session.isBusy = true
+        defer { session.isBusy = false }
+        do {
+            _ = try await CloudSync.shared.rotateInviteCode()
+            showShare = true
+            session.statusMessage = "New code for this same list. Send it to your partner."
         } catch {
             errorText = error.localizedDescription
         }
@@ -649,7 +671,13 @@ struct PairingView: View {
         session.persistLocal()
         do {
             try await CloudSync.shared.join(code: joinCode)
-            await CloudSync.shared.sync(modelContext: modelContext, allowCreate: true)
+            // Pull only — never upload this phone's other-pair items into the list
+            // we just joined.
+            await CloudSync.shared.sync(
+                modelContext: modelContext,
+                allowCreate: false,
+                coalesce: false
+            )
         } catch {
             errorText = error.localizedDescription
         }

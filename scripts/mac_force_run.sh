@@ -1,5 +1,5 @@
 #!/bin/bash
-# Find every ToDo42 checkout, sync THIS one to Build 171, close Xcode, open the right project.
+# Find every ToDo42 checkout, sync THIS one to Build 173, close Xcode, open the right project.
 set -euo pipefail
 
 echo "=============================================="
@@ -37,13 +37,20 @@ if [[ "$FOUND" -eq 0 ]]; then
 fi
 echo
 
-echo "3) GIT SYNC → origin/cursor/save4two-unified-ac25"
-git fetch origin cursor/save4two-unified-ac25
-git checkout cursor/save4two-unified-ac25
-git reset --hard origin/cursor/save4two-unified-ac25
+BRANCH="cursor/multi-pair-isolation-ac25"
+echo "3) GIT SYNC → origin/${BRANCH} (Build 173 multi-pair fix)"
+git fetch origin "$BRANCH"
+git checkout "$BRANCH"
+git reset --hard "origin/${BRANCH}"
 bash scripts/confirm_build.sh
 echo "   AppBuild.swift now:"
 grep -n 'static let number' ToDo42/AppBuild.swift
+STAMP=$(sed -n 's/.*static let number = "\([0-9]*\)".*/\1/p' ToDo42/AppBuild.swift | head -1)
+if [[ "$STAMP" != "173" ]]; then
+  echo "ERROR: expected Build 173 after sync, got ${STAMP:-?}."
+  echo "Wrong folder or fetch failed. Path must be this checkout: $ROOT"
+  exit 1
+fi
 echo
 
 echo "4) QUIT XCODE + CLEAR DERIVEDDATA (fixes 'Couldn't create workspace arena')"
@@ -86,9 +93,9 @@ echo "  • Destination = Deena’s iPhone (not Chris, not a Simulator)"
 echo "  • Product → Clean Build Folder"
 echo "  • Product → Run"
 echo
-echo "PROOF YOU GOT 171:"
-echo "  1. In-app bottom label:   Build 171"
-echo "  2. Xcode console:         >>> Save4Two AppBuild 171 SRC <<<"
+echo "PROOF YOU GOT 173:"
+echo "  1. In-app bottom label:   Build 173"
+echo "  2. Xcode console:         >>> Save4Two AppBuild 173 SRC <<<"
 echo
 echo "If Help/bottom still says Build 130/135, Xcode opened a different folder."
 echo "Do NOT delete the app (that wipes items). Restore via Pair → iCloud."
