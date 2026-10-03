@@ -430,6 +430,7 @@ struct ContentView: View {
     @State private var isListEditing = !UserDefaults.standard.bool(forKey: Self.hasLeftListEditKey)
     @State private var reorderDrag: ReorderDrag?
     @State private var rowHeights: [UUID: CGFloat] = [:]
+    @State private var syncPollTask: Task<Void, Never>?
 
     private static let hasLeftListEditKey = "todo42.hasLeftListEditMode"
     private static let headerIconHit: CGFloat = 44
@@ -560,13 +561,25 @@ struct ContentView: View {
             normalizeStoredText()
             offerPairRestoreIfNeeded()
             Task { await refreshFromCloud() }
+            startSyncPolling()
+        }
+        .onDisappear {
+            syncPollTask?.cancel()
+            syncPollTask = nil
         }
         .onChange(of: scenePhase) { _, phase in
             if phase == .active {
                 importSharedDrafts()
                 offerPairRestoreIfNeeded()
                 Task { await refreshFromCloud() }
+                startSyncPolling()
+            } else {
+                syncPollTask?.cancel()
+                syncPollTask = nil
             }
+        }
+        .onChange(of: pairSession.pairID) { _, _ in
+            startSyncPolling()
         }
         .onReceive(NotificationCenter.default.publisher(for: .todo42CloudPush)) { notification in
             let pushInfo = notification.object as? [AnyHashable: Any]
@@ -768,14 +781,17 @@ struct ContentView: View {
         ]
 
         if rows.isEmpty {
-            // No ScrollView: Color.clear often ignores hits. Near-invisible fill +
-            // the same .gesture as the category row makes blank-page swipes work.
-            Rectangle()
-                .fill(Color.primary.opacity(0.001))
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .contentShape(Rectangle())
-                .gesture(categoryPageSwipeGesture)
-                .accessibilityLabel("No items. Swipe sideways for the next category page.")
+            // Near-invisible fill + the same .gesture as the category row makes
+            // blank-page swipes work. ScrollView enables pull-to-refresh sync.
+            ScrollView(.vertical, showsIndicators: false) {
+                Rectangle()
+                    .fill(Color.primary.opacity(0.001))
+                    .frame(maxWidth: .infinity, minHeight: 420)
+                    .contentShape(Rectangle())
+            }
+            .refreshable { await refreshFromCloud() }
+            .gesture(categoryPageSwipeGesture)
+            .accessibilityLabel("No items. Swipe sideways for the next category page. Pull down to sync.")
         } else {
             GeometryReader { geo in
                 ScrollView(.vertical, showsIndicators: false) {
@@ -833,6 +849,7 @@ struct ContentView: View {
                     .contentShape(Rectangle())
                     .onPreferenceChange(RowHeightPreferenceKey.self) { rowHeights = $0 }
                 }
+                .refreshable { await refreshFromCloud() }
                 .scrollDisabled(reorderDrag != nil)
             }
             .simultaneousGesture(categoryPageSwipeGesture)
@@ -870,6 +887,25 @@ struct ContentView: View {
         repairSampleLinks()
         if let cat = PairSession.shared.takeRevealCategory() {
             selectCategory(cat)
+        }
+    }
+
+    /// Push delivery is unreliable on the public DB. While the app is open and
+    /// paired, pull every few seconds so Deena sees Chris's adds without relaunch.
+    private func startSyncPolling() {
+        syncPollTask?.cancel()
+        guard pairSession.isPaired else {
+            syncPollTask = nil
+            return
+        }
+        syncPollTask = Task { @MainActor in
+            while !Task.isCancelled {
+                try? await Task.sleep(nanoseconds: 4_000_000_000)
+                guard !Task.isCancelled else { break }
+                guard pairSession.isPaired else { break }
+                guard scenePhase == .active else { break }
+                await refreshFromCloud()
+            }
         }
     }
 

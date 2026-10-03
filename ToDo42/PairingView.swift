@@ -14,7 +14,15 @@ struct PairingView: View {
     @State private var showShare = false
     @State private var myHeadPicker: PhotosPickerItem?
     @State private var partnerHeadPicker: PhotosPickerItem?
+    @State private var restorePhase: RestorePhase = .idle
     @Bindable private var desktopInbox = DesktopInboxStore.shared
+
+    private enum RestorePhase: Equatable {
+        case idle
+        case working
+        case done(String)
+        case failed(String)
+    }
 
     private var showInviteJoin: Bool {
         !session.isPaired || session.isComposingNewPair
@@ -409,15 +417,53 @@ struct PairingView: View {
             Button {
                 Task { await restore() }
             } label: {
-                Label("Restore my list from iCloud", systemImage: "arrow.clockwise")
+                HStack(spacing: 8) {
+                    if restorePhase == .working {
+                        ProgressView()
+                            .controlSize(.small)
+                    }
+                    Label(
+                        restorePhase == .working ? "Restoring…" : "Restore my list from iCloud",
+                        systemImage: "arrow.clockwise"
+                    )
                     .font(.subheadline.weight(.semibold))
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 10)
-                    .foregroundStyle(Palette.brandBlue(colorScheme))
-                    .background(softButtonFill, in: Capsule())
+                }
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 10)
+                .foregroundStyle(Palette.brandBlue(colorScheme))
+                .background(softButtonFill, in: Capsule())
             }
             .buttonStyle(.plain)
-            .disabled(session.isBusy)
+            .disabled(session.isBusy || restorePhase == .working)
+            .opacity(session.isBusy || restorePhase == .working ? 0.7 : 1)
+
+            switch restorePhase {
+            case .idle:
+                EmptyView()
+            case .working:
+                HStack(spacing: 8) {
+                    ProgressView()
+                        .controlSize(.small)
+                    Text("Restoring from iCloud…")
+                        .font(.subheadline.weight(.semibold))
+                }
+                .foregroundStyle(.secondary)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.top, 2)
+            case .done(let message):
+                Label(message, systemImage: "checkmark.circle.fill")
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(Color(red: 0.12, green: 0.62, blue: 0.38))
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.top, 2)
+                    .accessibilityLabel("Done. \(message)")
+            case .failed(let message):
+                Label(message, systemImage: "xmark.octagon.fill")
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(.red)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.top, 2)
+            }
         }
     }
 
@@ -508,23 +554,46 @@ struct PairingView: View {
 
     private func restore() async {
         errorText = ""
+        restorePhase = .working
         session.isBusy = true
         defer { session.isBusy = false }
         session.persistLocal()
         let code = restoreCode.trimmingCharacters(in: .whitespacesAndNewlines)
         guard code.count == 6 else {
-            errorText = "Enter the 6-digit invite code from Messages first."
+            let message = "Enter the 6-digit invite code from Messages first."
+            errorText = message
+            restorePhase = .failed(message)
             return
         }
         await CloudSync.shared.restoreFromCloud(modelContext: modelContext, oldCode: code)
+        // Capture before sync — a successful sync clears statusMessage.
+        let restoreMessage = session.statusMessage.trimmingCharacters(in: .whitespacesAndNewlines)
         if session.isPaired {
             await CloudSync.shared.sync(modelContext: modelContext, allowCreate: true)
         }
-        if session.statusMessage.localizedCaseInsensitiveContains("not found")
-            || session.statusMessage.localizedCaseInsensitiveContains("could not find")
-            || session.statusMessage.localizedCaseInsensitiveContains("failed") {
-            errorText = session.statusMessage
+        let failed = restoreMessage.localizedCaseInsensitiveContains("not found")
+            || restoreMessage.localizedCaseInsensitiveContains("could not find")
+            || restoreMessage.localizedCaseInsensitiveContains("failed")
+            || restoreMessage.localizedCaseInsensitiveContains("sign in to icloud")
+            || restoreMessage.localizedCaseInsensitiveContains("couldn't reach")
+        if failed {
+            errorText = restoreMessage
+            restorePhase = .failed(restoreMessage)
+            return
         }
+        if !session.isPaired {
+            let message = restoreMessage.isEmpty
+                ? "Restore finished, but this phone is not paired. Try Join with the same code."
+                : restoreMessage
+            restorePhase = .failed(message)
+            errorText = message
+            return
+        }
+        let done = restoreMessage.isEmpty
+            ? "Done. Pair reconnected."
+            : "Done. \(restoreMessage)"
+        restorePhase = .done(done)
+        session.statusMessage = done
     }
 
     private func join() async {

@@ -552,7 +552,7 @@ final class CloudSync {
                 // row as a "catalog orphan" (Build 153+ catalogReady gate).
                 if notifyKind == "add" {
                     do {
-                        try await self.registerItemIDs([item.id.uuidString])
+                        try await self.registerItemIDs([item.id.uuidString], retries: 3)
                     } catch {
                         // Still save the item — partner pull can accept provisional
                         // adds / push-hint fetches. Surface the catalog error.
@@ -560,8 +560,14 @@ final class CloudSync {
                     }
                 }
                 try await self.saveItem(item, notifyKind: notifyKind)
-                try await self.registerItemIDs([item.id.uuidString])
-                PairSession.shared.statusMessage = ""
+                // Catalog must land even if the first register raced. Retries cover
+                // brief pair-record conflicts without failing the whole upload.
+                do {
+                    try await self.registerItemIDs([item.id.uuidString], retries: 3)
+                    PairSession.shared.statusMessage = ""
+                } catch {
+                    PairSession.shared.statusMessage = Self.friendlyMessage(error)
+                }
             } catch {
                 PairSession.shared.statusMessage = Self.friendlyMessage(error)
             }
@@ -675,26 +681,41 @@ final class CloudSync {
         else { return nil }
 
         let session = PairSession.shared
+        // Remember role before discardActivePairSlotBeforeReplace drops the slot.
+        // Defaulting both phones to .chris after Restore broke partner push filters.
+        let priorRole: PairRole? = {
+            if let saved = session.savedPairs.first(where: { $0.pairID == pairID })?.role {
+                return saved
+            }
+            if session.pairID == pairID { return session.role }
+            if session.inviteCode == code { return session.role }
+            return nil
+        }()
+
         if !session.isComposingNewPair {
             session.discardActivePairSlotBeforeReplace()
         }
         session.pairID = pairID
         session.inviteCode = code
 
-        var role: PairRole = .chris
+        var role: PairRole = priorRole ?? .chris
         if let pair = try? await database.record(for: CKRecord.ID(recordName: "pair-\(pairID)")) {
             let host = (pair["hostName"] as? String ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
             let guest = (pair["guestName"] as? String ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
             let me = session.trimmedMyName
             let partner = session.trimmedPartnerName
-            if !me.isEmpty, me.caseInsensitiveCompare(guest) == .orderedSame {
-                role = .deena
-            } else if !me.isEmpty, me.caseInsensitiveCompare(host) == .orderedSame {
-                role = .chris
-            } else if !partner.isEmpty, partner.caseInsensitiveCompare(host) == .orderedSame {
-                role = .deena
-            } else {
-                role = .chris
+            if priorRole == nil {
+                if !me.isEmpty, me.caseInsensitiveCompare(guest) == .orderedSame {
+                    role = .deena
+                } else if !me.isEmpty, me.caseInsensitiveCompare(host) == .orderedSame {
+                    role = .chris
+                } else if !partner.isEmpty, partner.caseInsensitiveCompare(host) == .orderedSame {
+                    role = .deena
+                } else if !partner.isEmpty, partner.caseInsensitiveCompare(guest) == .orderedSame {
+                    role = .chris
+                } else {
+                    role = .chris
+                }
             }
             if role == .chris {
                 if session.trimmedMyName.isEmpty, !host.isEmpty { session.myName = host }
@@ -1671,19 +1692,34 @@ final class CloudSync {
         }
     }
 
-    private func registerItemIDs(_ itemIDs: [String]) async throws {
+    private func registerItemIDs(_ itemIDs: [String], retries: Int = 1) async throws {
         let blocked = Set(DeletedItemLedger.ids(pairID: PairSession.shared.pairID))
         let allowed = itemIDs.filter { !blocked.contains($0) && CloudKitValues.markedDeletedID($0) == nil }
         guard !allowed.isEmpty else { return }
         // Rethrow so upload can surface catalog failures. Callers that must not
         // fail (heal / reorder) use try?. Pull still accepts push-hint and
         // provisional uncatalogued adds when this write races or is rejected.
-        try await mutatePairRecord { record in
-            let merged = CloudKitValues.mergedItemIDs(record["itemIDs"] as? String, allowed)
-            guard merged != (record["itemIDs"] as? String ?? "") else { return false }
-            record["itemIDs"] = merged
-            return true
+        var attempt = 0
+        var lastError: Error?
+        let maxAttempts = max(1, retries)
+        while attempt < maxAttempts {
+            do {
+                try await mutatePairRecord { record in
+                    let merged = CloudKitValues.mergedItemIDs(record["itemIDs"] as? String, allowed)
+                    guard merged != (record["itemIDs"] as? String ?? "") else { return false }
+                    record["itemIDs"] = merged
+                    return true
+                }
+                return
+            } catch {
+                lastError = error
+                attempt += 1
+                if attempt < maxAttempts {
+                    try? await Task.sleep(nanoseconds: UInt64(250_000_000 * attempt))
+                }
+            }
         }
+        if let lastError { throw lastError }
     }
 
     /// Remember a delete inside `itemIDs` (`x:<uuid>`), which Production CloudKit
@@ -1724,15 +1760,17 @@ final class CloudSync {
               let myRole = PairSession.shared.role else { return }
         let partnerRole = myRole == .chris ? PairRole.deena.rawValue : PairRole.chris.rawValue
         let prefix = pairID.prefix(8)
-        let alertID = "todo42-alert-v4-\(prefix)-\(myRole.rawValue)"
-        let silentID = "todo42-silent-v4-\(prefix)-\(myRole.rawValue)"
+        let alertID = "todo42-alert-v5-\(prefix)-\(myRole.rawValue)"
+        let silentID = "todo42-silent-v5-\(prefix)-\(myRole.rawValue)"
 
-        let migrateKey = "todo42.pushSub.v4.\(prefix)"
+        let migrateKey = "todo42.pushSub.v5.\(prefix)"
         if !UserDefaults.standard.bool(forKey: migrateKey) {
             for oldID in [
                 "todo42-tditem-\(prefix)",
                 "todo42-tditem-all",
                 "todo42-alert-\(prefix)-\(myRole.rawValue)",
+                "todo42-alert-v4-\(prefix)-\(myRole.rawValue)",
+                "todo42-silent-v4-\(prefix)-\(myRole.rawValue)",
             ] {
                 try? await database.deleteSubscription(withID: oldID)
             }
@@ -1742,6 +1780,8 @@ final class CloudSync {
         let silentInfo = CKSubscription.NotificationInfo()
         silentInfo.shouldSendContentAvailable = true
         silentInfo.shouldBadge = false
+        // Prefer the broad pairID predicate. Role-filtered alert subs below can
+        // miss updates when Restore assigned both phones the same role.
         let silent = CKQuerySubscription(
             recordType: "TDItem",
             predicate: NSPredicate(format: "pairID == %@", pairID),
@@ -1749,13 +1789,19 @@ final class CloudSync {
             options: [.firesOnRecordCreation, .firesOnRecordUpdate, .firesOnRecordDeletion]
         )
         silent.notificationInfo = silentInfo
-        try? await database.save(silent)
+        do {
+            _ = try await database.save(silent)
+        } catch {
+            // Already exists with same id — force replace once.
+            try? await database.deleteSubscription(withID: silentID)
+            try? await database.save(silent)
+        }
 
         let notifyKinds = ["add", "heart", "edit", "reorder", "delete"]
         let predicates = [
             NSPredicate(format: "pairID == %@ AND lastEditor == %@ AND notifyKind IN %@", pairID, partnerRole, notifyKinds),
-            NSPredicate(format: "pairID == %@ AND lastEditor == %@ AND sortOrder >= 0", pairID, partnerRole),
             NSPredicate(format: "pairID == %@ AND lastEditor == %@", pairID, partnerRole),
+            // Last resort when Restore assigned both phones the same role.
             NSPredicate(format: "pairID == %@", pairID),
         ]
         for predicate in predicates {
@@ -1770,6 +1816,10 @@ final class CloudSync {
                 _ = try await database.save(subscription)
                 return
             } catch {
+                try? await database.deleteSubscription(withID: alertID)
+                if let _ = try? await database.save(subscription) {
+                    return
+                }
                 continue
             }
         }
