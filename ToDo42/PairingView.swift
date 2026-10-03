@@ -358,11 +358,17 @@ struct PairingView: View {
             Button {
                 Task { await forceSync() }
             } label: {
-                Label(
-                    session.isBusy ? "Syncing…" : "Force sync now",
-                    systemImage: "arrow.triangle.2.circlepath"
-                )
-                .font(.subheadline.weight(.semibold))
+                HStack(spacing: 8) {
+                    if session.isBusy {
+                        ProgressView()
+                            .controlSize(.small)
+                    }
+                    Label(
+                        session.isBusy ? "Syncing…" : "Force sync now",
+                        systemImage: "arrow.triangle.2.circlepath"
+                    )
+                    .font(.subheadline.weight(.semibold))
+                }
                 .frame(maxWidth: .infinity)
                 .padding(.vertical, 10)
                 .foregroundStyle(Palette.brandBlue(colorScheme))
@@ -602,10 +608,14 @@ struct PairingView: View {
             return
         }
         await CloudSync.shared.restoreFromCloud(modelContext: modelContext, oldCode: code)
-        // Capture before sync — a successful sync clears statusMessage.
+        // Capture before sync — a successful sync may clear statusMessage.
         let restoreMessage = session.statusMessage.trimmingCharacters(in: .whitespacesAndNewlines)
         if session.isPaired {
-            await CloudSync.shared.sync(modelContext: modelContext, allowCreate: true)
+            await CloudSync.shared.sync(
+                modelContext: modelContext,
+                allowCreate: true,
+                coalesce: false
+            )
         }
         let failed = restoreMessage.localizedCaseInsensitiveContains("not found")
             || restoreMessage.localizedCaseInsensitiveContains("could not find")
@@ -648,8 +658,13 @@ struct PairingView: View {
     private func forceSync() async {
         errorText = ""
         session.isBusy = true
+        session.statusMessage = "Syncing with iCloud…"
         defer { session.isBusy = false }
-        await CloudSync.shared.sync(modelContext: modelContext, allowCreate: false)
+        await CloudSync.shared.sync(
+            modelContext: modelContext,
+            allowCreate: false,
+            coalesce: false
+        )
         let report = await CloudSync.shared.syncDiagnostics()
         session.statusMessage = report
     }

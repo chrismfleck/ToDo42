@@ -911,10 +911,11 @@ struct ContentView: View {
         }
         syncPollTask = Task { @MainActor in
             while !Task.isCancelled {
-                try? await Task.sleep(nanoseconds: 2_000_000_000)
+                try? await Task.sleep(nanoseconds: 5_000_000_000)
                 guard !Task.isCancelled else { break }
                 guard pairSession.isPaired else { break }
                 guard scenePhase == .active else { break }
+                if CloudSync.shared.isBusySyncing { continue }
                 await refreshFromCloud()
             }
         }

@@ -358,6 +358,10 @@ final class CloudSync {
     private var database: CKDatabase { container.publicCloudDatabase }
 
     private var operationTail: Task<Void, Never> = Task {}
+    /// True while a sync body is running. Polling skips when set so Force sync
+    /// is not stuck behind an endless queue of 2s refreshes.
+    private(set) var isBusySyncing = false
+    private var lastSubscribeAt: Date?
 
     private func enqueue(_ work: @escaping () async -> Void) async {
         let previous = operationTail
@@ -507,14 +511,27 @@ final class CloudSync {
     func sync(
         modelContext: ModelContext,
         allowCreate: Bool = false,
-        hintRecordIDs: [CKRecord.ID] = []
+        hintRecordIDs: [CKRecord.ID] = [],
+        coalesce: Bool = true
     ) async {
         guard PairSession.shared.isPaired else { return }
+        // Background polls coalesce onto the in-flight sync instead of queueing
+        // forever (which froze Force sync / Restore on Build 165).
+        if coalesce, isBusySyncing {
+            await operationTail.value
+            return
+        }
         await enqueue {
+            self.isBusySyncing = true
+            defer { self.isBusySyncing = false }
             do {
                 try await self.ensureiCloud()
-                try? await self.subscribe()
-                try? await self.requestNotifications()
+                let shouldRefreshSubs = self.lastSubscribeAt.map { Date().timeIntervalSince($0) > 600 } ?? true
+                if shouldRefreshSubs {
+                    try? await self.subscribe()
+                    try? await self.requestNotifications()
+                    self.lastSubscribeAt = Date()
+                }
                 ItemStore.migrateUnscopedItems(in: modelContext, to: PairSession.shared.pairID)
                 self.dropLedgerMatches(in: modelContext, pairID: PairSession.shared.pairID)
                 ItemStore.purgeBlankTitleGhosts(in: modelContext)
@@ -535,7 +552,6 @@ final class CloudSync {
                     // items we authored, and never over a delete tombstone.
                     try await self.pushMissingLocals(afterPull)
                 }
-                PairSession.shared.statusMessage = ""
             } catch {
                 PairSession.shared.statusMessage = Self.friendlyMessage(error)
             }
@@ -1250,15 +1266,8 @@ final class CloudSync {
             }
         }
 
-        if !catalogComplete {
-            let anyQuery = CKQuery(recordType: "TDItem", predicate: NSPredicate(value: true))
-            if let queried = try? await queryAll(anyQuery) {
-                catalogComplete = true
-                for record in queried where (record["pairID"] as? String) == pairID {
-                    found[record.recordID.recordName] = record
-                }
-            }
-        }
+        // Do NOT fall back to querying every TDItem in the public DB — that can
+        // hang Force sync / Restore for minutes on a non-moving spinner.
 
         // Push payloads name the changed record. Query indexes can lag seconds
         // behind a save, so the partner's pull would miss the brand-new TDItem
@@ -1273,29 +1282,31 @@ final class CloudSync {
             }
         }
 
-        // Always named-fetch catalog ids. Query indexes lag; the pair catalog +
-        // record fetch is the reliable path for partner phones.
-        if !listedIDs.isEmpty {
-            for record in await fetchNamedRecords(listedIDs.map { "item-\($0)" }) {
+        // Named-fetch catalog ids the query missed, plus the newest catalog
+        // tail (query lag). Avoid re-fetching the entire catalog every poll.
+        let missing = listedIDs.filter { found["item-\($0)"] == nil }
+        let refreshNames = Array(Set(missing + Array(listedIDs.suffix(30))))
+        if !refreshNames.isEmpty {
+            for record in await fetchNamedRecords(refreshNames.map { "item-\($0)" }) {
                 found[record.recordID.recordName] = record
             }
-            let missingExtras = listedIDs.filter { found["extra-\($0)"] == nil }
-            if !missingExtras.isEmpty {
-                for record in await fetchNamedRecords(missingExtras.map { "extra-\($0)" }) {
-                    found[record.recordID.recordName] = record
-                }
+        }
+        let missingExtras = listedIDs.filter { found["extra-\($0)"] == nil }
+        if !missingExtras.isEmpty {
+            for record in await fetchNamedRecords(missingExtras.map { "extra-\($0)" }) {
+                found[record.recordID.recordName] = record
             }
-            let missingExtra2 = listedIDs.filter { found["extra2-\($0)"] == nil }
-            if !missingExtra2.isEmpty {
-                for record in await fetchNamedRecords(missingExtra2.map { "extra2-\($0)" }) {
-                    found[record.recordID.recordName] = record
-                }
+        }
+        let missingExtra2 = listedIDs.filter { found["extra2-\($0)"] == nil }
+        if !missingExtra2.isEmpty {
+            for record in await fetchNamedRecords(missingExtra2.map { "extra2-\($0)" }) {
+                found[record.recordID.recordName] = record
             }
-            let missingExtra3 = listedIDs.filter { found["extra3-\($0)"] == nil }
-            if !missingExtra3.isEmpty {
-                for record in await fetchNamedRecords(missingExtra3.map { "extra3-\($0)" }) {
-                    found[record.recordID.recordName] = record
-                }
+        }
+        let missingExtra3 = listedIDs.filter { found["extra3-\($0)"] == nil }
+        if !missingExtra3.isEmpty {
+            for record in await fetchNamedRecords(missingExtra3.map { "extra3-\($0)" }) {
+                found[record.recordID.recordName] = record
             }
         }
         return (Array(found.values), catalogComplete || !listedIDs.isEmpty)
