@@ -335,17 +335,41 @@ struct PairingView: View {
             Text("This phone is \(session.myHeartLabel). Hearts and new items sync to \(session.partnerHeartLabel).")
                 .font(.caption)
                 .foregroundStyle(.secondary)
-            if let code = session.inviteCode, session.role == .chris {
+            Text(pairIdentityLine)
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.primary)
+                .textSelection(.enabled)
+            Text("Both phones must show the same Pair …id and code. If they differ, Restore with the same 6-digit code on both.")
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+            if let code = session.inviteCode {
                 Text("Invite code: \(code)")
                     .font(.subheadline.weight(.semibold))
-                Button("Send the code again") { showShare = true }
-                    .font(.subheadline.weight(.semibold))
-                Button("New invite code") {
-                    Task { await createInvite() }
+                if session.role == .chris {
+                    Button("Send the code again") { showShare = true }
+                        .font(.subheadline.weight(.semibold))
+                    Button("New invite code") {
+                        Task { await createInvite() }
+                    }
+                    .font(.subheadline)
+                    .disabled(session.isBusy || !session.hasNames)
                 }
-                .font(.subheadline)
-                .disabled(session.isBusy || !session.hasNames)
             }
+            Button {
+                Task { await forceSync() }
+            } label: {
+                Label(
+                    session.isBusy ? "Syncing…" : "Force sync now",
+                    systemImage: "arrow.triangle.2.circlepath"
+                )
+                .font(.subheadline.weight(.semibold))
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 10)
+                .foregroundStyle(Palette.brandBlue(colorScheme))
+                .background(softButtonFill, in: Capsule())
+            }
+            .buttonStyle(.plain)
+            .disabled(session.isBusy)
             Button {
                 session.unpair()
             } label: {
@@ -360,6 +384,18 @@ struct PairingView: View {
             .foregroundStyle(.red)
             .accessibilityLabel("Unpair \(session.partnerHeartLabel)")
         }
+    }
+
+    private var pairIdentityLine: String {
+        let short: String = {
+            guard let id = session.pairID, id.count >= 8 else {
+                return session.pairID ?? "?"
+            }
+            return String(id.suffix(8))
+        }()
+        let role = session.role?.rawValue ?? "?"
+        let code = session.inviteCode ?? "no-code"
+        return "Pair …\(short) · \(role) · code \(code)"
     }
 
     private var desktopLinkCard: some View {
@@ -607,6 +643,15 @@ struct PairingView: View {
         } catch {
             errorText = error.localizedDescription
         }
+    }
+
+    private func forceSync() async {
+        errorText = ""
+        session.isBusy = true
+        defer { session.isBusy = false }
+        await CloudSync.shared.sync(modelContext: modelContext, allowCreate: false)
+        let report = await CloudSync.shared.syncDiagnostics()
+        session.statusMessage = report
     }
 }
 

@@ -487,6 +487,17 @@ struct ContentView: View {
             homeHeaderBar
                 .zIndex(2)
 
+            if !pairSession.statusMessage.isEmpty {
+                Text(pairSession.statusMessage)
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+                    .padding(.horizontal, 20)
+                    .padding(.top, 6)
+                    .frame(maxWidth: .infinity)
+                    .accessibilityLabel(pairSession.statusMessage)
+            }
+
             // Tabs sit above the pager so horizontal swipes here never fight the item grid.
             CategoryTabStrip(
                 categories: ItemCategory.pages[categoryPage],
@@ -900,7 +911,7 @@ struct ContentView: View {
         }
         syncPollTask = Task { @MainActor in
             while !Task.isCancelled {
-                try? await Task.sleep(nanoseconds: 4_000_000_000)
+                try? await Task.sleep(nanoseconds: 2_000_000_000)
                 guard !Task.isCancelled else { break }
                 guard pairSession.isPaired else { break }
                 guard scenePhase == .active else { break }

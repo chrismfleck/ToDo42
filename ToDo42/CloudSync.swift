@@ -564,13 +564,42 @@ final class CloudSync {
                 // brief pair-record conflicts without failing the whole upload.
                 do {
                     try await self.registerItemIDs([item.id.uuidString], retries: 3)
-                    PairSession.shared.statusMessage = ""
+                    if notifyKind == "add" {
+                        PairSession.shared.statusMessage = "Saved to iCloud."
+                    } else {
+                        PairSession.shared.statusMessage = ""
+                    }
                 } catch {
                     PairSession.shared.statusMessage = Self.friendlyMessage(error)
                 }
             } catch {
                 PairSession.shared.statusMessage = Self.friendlyMessage(error)
             }
+        }
+    }
+
+    /// Short report so both phones can confirm they share the same CloudKit pair.
+    func syncDiagnostics() async -> String {
+        guard let pairID = PairSession.shared.pairID else {
+            return "Not paired — Restore with the 6-digit code first."
+        }
+        let role = PairSession.shared.role?.rawValue ?? "?"
+        let code = PairSession.shared.inviteCode ?? "no-code"
+        let short = String(pairID.suffix(8))
+        do {
+            try await ensureiCloud()
+            let pair = try await database.record(for: CKRecord.ID(recordName: "pair-\(pairID)"))
+            let live = CloudKitValues.liveItemIDs(in: pair["itemIDs"] as? String)
+            let sample = Array(live.suffix(5))
+            let fetched = await fetchNamedRecords(sample.map { "item-\($0)" })
+            let query = CKQuery(
+                recordType: "TDItem",
+                predicate: NSPredicate(format: "pairID == %@", pairID)
+            )
+            let queried = (try? await queryAll(query))?.filter { recordKind($0) == .listItem }.count ?? -1
+            return "Pair …\(short) · \(role) · code \(code) · catalog \(live.count) · fetch \(fetched.count)/\(sample.count) · query \(queried)"
+        } catch {
+            return "Pair …\(short) · \(role) · code \(code) · \(Self.friendlyMessage(error))"
         }
     }
 
@@ -906,21 +935,29 @@ final class CloudSync {
                 // Off the shared catalog. Deletes are already handled above via
                 // deletedIDs / x: marks / ledger / tombstones. A live row here is
                 // almost always a brand-new add whose registerItemIDs has not
-                // landed yet (partner pull is triggered by the TDItem push,
-                // which races ahead of the catalog write). Accept:
-                //   • rows named in the push payload (strongly-consistent hint)
+                // landed yet. Accept:
+                //   • push-hinted rows
+                //   • rows last-edited by the partner (even if roles were wrong)
                 //   • recent / notifyKind=="add" provisional rows
-                // Leave older non-hinted orphans alone so pre-tombstone
+                // Leave older non-hinted own-side orphans alone so pre-tombstone
                 // hard-deletes stay gone.
                 let created = record["createdAt"] as? Date
                     ?? record["updatedAt"] as? Date
                     ?? .distantPast
                 let hinted = hintNames.contains(record.recordID.recordName)
                     || hintNames.contains("item-\(itemID)")
-                if hinted || RemoteItemApply.isProvisionalCatalogAdd(
-                    notifyKind: notifyKind,
-                    createdAt: created
-                ) {
+                let editor = (record["lastEditor"] as? String ?? "")
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                let myRole = (session.role?.rawValue ?? "")
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                let fromPartner = !editor.isEmpty && editor != myRole
+                if hinted
+                    || fromPartner
+                    || RemoteItemApply.isProvisionalCatalogAdd(
+                        notifyKind: notifyKind,
+                        createdAt: created
+                    )
+                {
                     idsToHeal.append(itemID)
                     // fall through — merge/insert below
                 } else {
@@ -1236,31 +1273,32 @@ final class CloudSync {
             }
         }
 
-        let missing = listedIDs.filter { found["item-\($0)"] == nil }
-        if !missing.isEmpty {
-            for record in await fetchNamedRecords(missing.map { "item-\($0)" }) {
+        // Always named-fetch catalog ids. Query indexes lag; the pair catalog +
+        // record fetch is the reliable path for partner phones.
+        if !listedIDs.isEmpty {
+            for record in await fetchNamedRecords(listedIDs.map { "item-\($0)" }) {
                 found[record.recordID.recordName] = record
             }
-        }
-        let missingExtras = listedIDs.filter { found["extra-\($0)"] == nil }
-        if !missingExtras.isEmpty {
-            for record in await fetchNamedRecords(missingExtras.map { "extra-\($0)" }) {
-                found[record.recordID.recordName] = record
+            let missingExtras = listedIDs.filter { found["extra-\($0)"] == nil }
+            if !missingExtras.isEmpty {
+                for record in await fetchNamedRecords(missingExtras.map { "extra-\($0)" }) {
+                    found[record.recordID.recordName] = record
+                }
+            }
+            let missingExtra2 = listedIDs.filter { found["extra2-\($0)"] == nil }
+            if !missingExtra2.isEmpty {
+                for record in await fetchNamedRecords(missingExtra2.map { "extra2-\($0)" }) {
+                    found[record.recordID.recordName] = record
+                }
+            }
+            let missingExtra3 = listedIDs.filter { found["extra3-\($0)"] == nil }
+            if !missingExtra3.isEmpty {
+                for record in await fetchNamedRecords(missingExtra3.map { "extra3-\($0)" }) {
+                    found[record.recordID.recordName] = record
+                }
             }
         }
-        let missingExtra2 = listedIDs.filter { found["extra2-\($0)"] == nil }
-        if !missingExtra2.isEmpty {
-            for record in await fetchNamedRecords(missingExtra2.map { "extra2-\($0)" }) {
-                found[record.recordID.recordName] = record
-            }
-        }
-        let missingExtra3 = listedIDs.filter { found["extra3-\($0)"] == nil }
-        if !missingExtra3.isEmpty {
-            for record in await fetchNamedRecords(missingExtra3.map { "extra3-\($0)" }) {
-                found[record.recordID.recordName] = record
-            }
-        }
-        return (Array(found.values), catalogComplete)
+        return (Array(found.values), catalogComplete || !listedIDs.isEmpty)
     }
 
     private func fetchRecoverableItemRecords(oldCode: String) async -> (records: [CKRecord], emptyMessage: String) {
@@ -1483,8 +1521,10 @@ final class CloudSync {
         record["createdAt"] = item.createdAt
         record["updatedAt"] = item.updatedAt ?? item.createdAt
         record["lastEditor"] = item.lastEditor
-        record["notifyKind"] = notifyKind
+        // Catch-up pushes pass an empty notifyKind — do not wipe "add" on the
+        // server or the partner's provisional-catalog accept can miss the row.
         if !notifyKind.isEmpty {
+            record["notifyKind"] = notifyKind
             record["notifyText"] = Self.pushBody(kind: notifyKind, title: item.title)
         }
         if let data = item.imageData, !data.isEmpty {
