@@ -504,7 +504,11 @@ final class CloudSync {
         }
     }
 
-    func sync(modelContext: ModelContext, allowCreate: Bool = false) async {
+    func sync(
+        modelContext: ModelContext,
+        allowCreate: Bool = false,
+        hintRecordIDs: [CKRecord.ID] = []
+    ) async {
         guard PairSession.shared.isPaired else { return }
         await enqueue {
             do {
@@ -521,9 +525,9 @@ final class CloudSync {
                     try await self.pushAll(pairItems, allowCreate: true)
                     // Restore may create rows that were never catalogued — list them once.
                     try? await self.registerItemIDs(pairItems.map(\.id.uuidString))
-                    try await self.pull(modelContext: modelContext)
+                    try await self.pull(modelContext: modelContext, hintRecordIDs: hintRecordIDs)
                 } else {
-                    try await self.pull(modelContext: modelContext)
+                    try await self.pull(modelContext: modelContext, hintRecordIDs: hintRecordIDs)
                     let afterPull = ItemStore.items(forPair: PairSession.shared.pairID, in: modelContext)
                     try await self.pushAll(afterPull, allowCreate: false)
                     // Re-try brand-new locals that never got an iCloud row (failed first
@@ -547,10 +551,16 @@ final class CloudSync {
                 // saveItem used to race ahead of registerItemIDs and skip the new
                 // row as a "catalog orphan" (Build 153+ catalogReady gate).
                 if notifyKind == "add" {
-                    try? await self.registerItemIDs([item.id.uuidString])
+                    do {
+                        try await self.registerItemIDs([item.id.uuidString])
+                    } catch {
+                        // Still save the item — partner pull can accept provisional
+                        // adds / push-hint fetches. Surface the catalog error.
+                        PairSession.shared.statusMessage = Self.friendlyMessage(error)
+                    }
                 }
                 try await self.saveItem(item, notifyKind: notifyKind)
-                try? await self.registerItemIDs([item.id.uuidString])
+                try await self.registerItemIDs([item.id.uuidString])
                 PairSession.shared.statusMessage = ""
             } catch {
                 PairSession.shared.statusMessage = Self.friendlyMessage(error)
@@ -764,8 +774,17 @@ final class CloudSync {
         }
     }
 
-    func handleRemoteNotification(modelContext: ModelContext) async {
-        await sync(modelContext: modelContext)
+    func handleRemoteNotification(
+        modelContext: ModelContext,
+        userInfo: [AnyHashable: Any]? = nil
+    ) async {
+        var hintIDs: [CKRecord.ID] = []
+        if let userInfo,
+           let note = CKQueryNotification(fromRemoteNotificationDictionary: userInfo),
+           let recordID = note.recordID {
+            hintIDs.append(recordID)
+        }
+        await sync(modelContext: modelContext, hintRecordIDs: hintIDs)
     }
 
     func inviteText(code: String) -> String {
@@ -780,7 +799,10 @@ final class CloudSync {
         """
     }
 
-    private func pull(modelContext: ModelContext) async throws {
+    private func pull(
+        modelContext: ModelContext,
+        hintRecordIDs: [CKRecord.ID] = []
+    ) async throws {
         guard let pairID = PairSession.shared.pairID else { return }
         let pair = try await database.record(for: CKRecord.ID(recordName: "pair-\(pairID)"))
         PairSession.shared.applyRemoteNames(
@@ -802,9 +824,14 @@ final class CloudSync {
         )
         deletedIDs.formUnion(CloudKitValues.deletedIDs(in: catalogRaw))
         deletedIDs.formUnion(DeletedItemLedger.ids(pairID: pairID))
-        let fetched = await fetchRemoteItemRecords(pairID: pairID, listedIDs: listedIDs)
+        let fetched = await fetchRemoteItemRecords(
+            pairID: pairID,
+            listedIDs: listedIDs,
+            hintRecordIDs: hintRecordIDs
+        )
         let remote = fetched.records.filter { recordKind($0) == .listItem }
         let extraRecords = fetched.records.filter { recordKind($0) == .extraPhoto }
+        let hintNames = Set(hintRecordIDs.map(\.recordName))
         // When the pair catalog is known and non-empty, CloudKit rows that are
         // NOT listed are usually orphans from older hard-deletes — but a brand-
         // new add can also miss the catalog for a moment (registerItemIDs races
@@ -859,13 +886,17 @@ final class CloudSync {
                 // deletedIDs / x: marks / ledger / tombstones. A live row here is
                 // almost always a brand-new add whose registerItemIDs has not
                 // landed yet (partner pull is triggered by the TDItem push,
-                // which races ahead of the catalog write). Accept recent/"add"
-                // rows and heal them into the catalog; leave older orphans alone
-                // so pre-tombstone hard-deletes stay gone.
+                // which races ahead of the catalog write). Accept:
+                //   • rows named in the push payload (strongly-consistent hint)
+                //   • recent / notifyKind=="add" provisional rows
+                // Leave older non-hinted orphans alone so pre-tombstone
+                // hard-deletes stay gone.
                 let created = record["createdAt"] as? Date
                     ?? record["updatedAt"] as? Date
                     ?? .distantPast
-                if RemoteItemApply.isProvisionalCatalogAdd(
+                let hinted = hintNames.contains(record.recordID.recordName)
+                    || hintNames.contains("item-\(itemID)")
+                if hinted || RemoteItemApply.isProvisionalCatalogAdd(
                     notifyKind: notifyKind,
                     createdAt: created
                 ) {
@@ -1142,7 +1173,11 @@ final class CloudSync {
         }
     }
 
-    private func fetchRemoteItemRecords(pairID: String, listedIDs: [String]) async -> (records: [CKRecord], catalogComplete: Bool) {
+    private func fetchRemoteItemRecords(
+        pairID: String,
+        listedIDs: [String],
+        hintRecordIDs: [CKRecord.ID] = []
+    ) async -> (records: [CKRecord], catalogComplete: Bool) {
         var found: [String: CKRecord] = [:]
         var catalogComplete = false
 
@@ -1164,6 +1199,19 @@ final class CloudSync {
                 for record in queried where (record["pairID"] as? String) == pairID {
                     found[record.recordID.recordName] = record
                 }
+            }
+        }
+
+        // Push payloads name the changed record. Query indexes can lag seconds
+        // behind a save, so the partner's pull would miss the brand-new TDItem
+        // without this strongly-consistent named fetch.
+        let hintNames = hintRecordIDs.map(\.recordName).filter { found[$0] == nil }
+        if !hintNames.isEmpty {
+            for record in await fetchNamedRecords(hintNames) {
+                if let pid = record["pairID"] as? String, !pid.isEmpty, pid != pairID {
+                    continue
+                }
+                found[record.recordID.recordName] = record
             }
         }
 
@@ -1627,17 +1675,14 @@ final class CloudSync {
         let blocked = Set(DeletedItemLedger.ids(pairID: PairSession.shared.pairID))
         let allowed = itemIDs.filter { !blocked.contains($0) && CloudKitValues.markedDeletedID($0) == nil }
         guard !allowed.isEmpty else { return }
-        do {
-            try await mutatePairRecord { record in
-                let merged = CloudKitValues.mergedItemIDs(record["itemIDs"] as? String, allowed)
-                guard merged != (record["itemIDs"] as? String ?? "") else { return false }
-                record["itemIDs"] = merged
-                return true
-            }
-        } catch {
-            // The ID list can be too long for iCloud. Pull still accepts recent
-            // uncatalogued "add" rows (isProvisionalCatalogAdd), and heal/retry
-            // paths call registerItemIDs again on the next sync.
+        // Rethrow so upload can surface catalog failures. Callers that must not
+        // fail (heal / reorder) use try?. Pull still accepts push-hint and
+        // provisional uncatalogued adds when this write races or is rejected.
+        try await mutatePairRecord { record in
+            let merged = CloudKitValues.mergedItemIDs(record["itemIDs"] as? String, allowed)
+            guard merged != (record["itemIDs"] as? String ?? "") else { return false }
+            record["itemIDs"] = merged
+            return true
         }
     }
 

@@ -15,6 +15,7 @@ struct ToDo42App: App {
         ItemStore.purgeBlankTitleGhosts(in: container.mainContext)
         ItemStore.deduplicate(in: container.mainContext)
         ItemStore.deduplicateContentTwins(in: container.mainContext)
+        AppDelegate.sharedModelContainer = container
         return container
     }()
 
@@ -31,6 +32,9 @@ struct ToDo42App: App {
 }
 
 final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCenterDelegate {
+    /// Set from `ToDo42App` so background pushes can sync before the fetch budget ends.
+    static var sharedModelContainer: ModelContainer?
+
     func application(
         _ application: UIApplication,
         didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil
@@ -48,7 +52,17 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
         fetchCompletionHandler completionHandler: @escaping (UIBackgroundFetchResult) -> Void
     ) {
         NotificationCenter.default.post(name: .todo42CloudPush, object: userInfo)
-        completionHandler(.newData)
+        guard let container = AppDelegate.sharedModelContainer else {
+            completionHandler(.noData)
+            return
+        }
+        Task { @MainActor in
+            await CloudSync.shared.handleRemoteNotification(
+                modelContext: container.mainContext,
+                userInfo: userInfo
+            )
+            completionHandler(.newData)
+        }
     }
 
     func userNotificationCenter(

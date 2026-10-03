@@ -568,8 +568,9 @@ struct ContentView: View {
                 Task { await refreshFromCloud() }
             }
         }
-        .onReceive(NotificationCenter.default.publisher(for: .todo42CloudPush)) { _ in
-            Task { await refreshFromCloud() }
+        .onReceive(NotificationCenter.default.publisher(for: .todo42CloudPush)) { notification in
+            let pushInfo = notification.object as? [AnyHashable: Any]
+            Task { await refreshFromCloud(pushUserInfo: pushInfo) }
         }
         .onChange(of: category) { _, _ in
             reorderDrag = nil
@@ -856,8 +857,15 @@ struct ContentView: View {
         }
     }
 
-    private func refreshFromCloud() async {
-        await CloudSync.shared.sync(modelContext: modelContext)
+    private func refreshFromCloud(pushUserInfo: [AnyHashable: Any]? = nil) async {
+        if let pushUserInfo {
+            await CloudSync.shared.handleRemoteNotification(
+                modelContext: modelContext,
+                userInfo: pushUserInfo
+            )
+        } else {
+            await CloudSync.shared.sync(modelContext: modelContext)
+        }
         seedIfNeeded()
         repairSampleLinks()
         if let cat = PairSession.shared.takeRevealCategory() {
