@@ -374,6 +374,9 @@ final class CloudSync {
     }
 
     private static func friendlyMessage(_ error: Error) -> String {
+        if let sync = error as? SyncError {
+            return sync.errorDescription ?? "Couldn't sync the list."
+        }
         if let ck = error as? CKError {
             switch ck.code {
             case .networkUnavailable, .networkFailure, .serviceUnavailable, .requestRateLimited:
@@ -382,8 +385,18 @@ final class CloudSync {
                 return "Sign in to iCloud on this iPhone so the lists can sync."
             case .quotaExceeded:
                 return "iCloud storage is full on this Apple Account."
+            case .permissionFailure:
+                return "iCloud blocked a sync write. Both phones must use the same Apple Account iCloud login used to pair."
+            case .unknownItem:
+                return "That pair was not found in iCloud. Restore with the 6-digit invite code."
+            case .serverRecordChanged:
+                return "iCloud had a sync conflict. Tap Force sync now."
+            case .limitExceeded, .partialFailure:
+                return "iCloud rejected part of the sync. Tap Force sync now."
+            case .invalidArguments:
+                return "iCloud rejected a field on sync. Try Force sync now."
             default:
-                break
+                return "Couldn't sync the list (iCloud \(ck.code.rawValue)). Try Force sync now."
             }
         }
         return "Couldn't sync the list. Try again in a moment."
@@ -551,6 +564,17 @@ final class CloudSync {
                     // upload). Does not recreate old partner zombies — only recent
                     // items we authored, and never over a delete tombstone.
                     try await self.pushMissingLocals(afterPull)
+                }
+                // Clear a prior failure banner once sync completes. Keep
+                // success/diagnostic lines from upload / Force sync.
+                let msg = PairSession.shared.statusMessage
+                let keep = msg.hasPrefix("Saved")
+                    || msg.hasPrefix("Pair …")
+                    || msg.hasPrefix("Done")
+                    || msg.hasPrefix("Restored")
+                    || msg.hasPrefix("Syncing")
+                if !keep {
+                    PairSession.shared.statusMessage = ""
                 }
             } catch {
                 PairSession.shared.statusMessage = Self.friendlyMessage(error)
