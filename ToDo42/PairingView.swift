@@ -453,7 +453,7 @@ struct PairingView: View {
     private var restoreCard: some View {
         pairCard {
             cardTitle("Restore from iCloud", icon: "clock.fill", tint: Color(red: 0.98, green: 0.72, blue: 0.20))
-            Text("Enter the same 6-digit invite code from Messages (the one used to pair before). Restore reconnects that pair and pulls the list. Do not tap Invite / New invite on either phone — that starts a blank list. Leave Deena’s phone as-is if it still has the items.")
+            Text("Enter the same 6-digit invite code from Messages (the one used to pair before). Restore reconnects that pair and pulls the list. Do not tap Invite / New invite on either phone — that starts a blank list. Leave your partner’s phone as-is if it still has the items.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
             pairField("Older 6-digit code", text: $restoreCode)
