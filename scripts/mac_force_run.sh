@@ -46,11 +46,31 @@ echo "   AppBuild.swift now:"
 grep -n 'static let number' ToDo42/AppBuild.swift
 echo
 
-echo "4) QUIT XCODE + CLEAR CACHES"
+echo "4) QUIT XCODE + CLEAR DERIVEDDATA (fixes 'Couldn't create workspace arena')"
 osascript -e 'quit app "Xcode"' >/dev/null 2>&1 || true
 sleep 2
-rm -rf "${HOME}/Library/Developer/Xcode/DerivedData/ToDo42-"* 2>/dev/null || true
+# Kill leftover build helpers that hold DerivedData locks.
+pkill -9 -f 'Xcode' 2>/dev/null || true
+pkill -9 -f 'XCBuild' 2>/dev/null || true
+pkill -9 -f 'SourceKitService' 2>/dev/null || true
+pkill -9 -f 'SWBBuildService' 2>/dev/null || true
+pkill -9 -f 'com.apple.dt.SKAgent' 2>/dev/null || true
+sleep 1
+DD="${HOME}/Library/Developer/Xcode/DerivedData"
+if [[ -d "$DD" ]]; then
+  # Drop uchg/flags that block delete, then remove ToDo42 arenas (and whole
+  # DerivedData if a ToDo42 folder still cannot be removed).
+  chflags -R nouchg,noschg "$DD"/ToDo42-* 2>/dev/null || true
+  rm -rf "$DD"/ToDo42-* 2>/dev/null || true
+  if compgen -G "$DD/ToDo42-*" > /dev/null; then
+    echo "   ToDo42 DerivedData still stuck — clearing ALL DerivedData"
+    chflags -R nouchg,noschg "$DD" 2>/dev/null || true
+    rm -rf "$DD" 2>/dev/null || true
+  fi
+fi
 rm -rf "${HOME}/Library/Caches/com.apple.dt.Xcode" 2>/dev/null || true
+rm -rf "${HOME}/Library/Developer/Xcode/iOS DeviceSupport"/*/Symbols/System/Library/Caches 2>/dev/null || true
+mkdir -p "${HOME}/Library/Developer/Xcode/DerivedData"
 echo "   Done."
 echo
 
@@ -62,7 +82,7 @@ echo "=============================================="
 echo "IN XCODE NOW:"
 echo "  • File → Project Settings / Open Recent — path MUST be:"
 echo "    ${ROOT}"
-echo "  • Destination = your physical iPhone"
+echo "  • Destination = Deena’s iPhone (not Chris, not a Simulator)"
 echo "  • Product → Clean Build Folder"
 echo "  • Product → Run"
 echo
@@ -72,4 +92,8 @@ echo "  2. Xcode console:         >>> Save4Two AppBuild 164 SRC <<<"
 echo
 echo "If Help/bottom still says Build 130/135, Xcode opened a different folder."
 echo "Do NOT delete the app (that wipes items). Restore via Pair → iCloud."
+echo
+echo "If you still see 'Couldn't create workspace arena' / Unable to write info.plist:"
+echo "  • Apple menu → Log Out, log back in, re-run this script"
+echo "  • Or reboot the Mac, then re-run this script"
 echo "=============================================="
