@@ -33,8 +33,8 @@ https://save4two.com
 wishlist,couple,instagram,tiktok,travel,restaurants,places,todo,memories,shared,safari,recipes
 
 ## What's New
-New installs now open with How to use Save 4 Two, then sample Places, Fun, and Eats items you can keep or delete.
+Fixes partner sync so new items show up on both phones reliably.
 
-Clearer steps for adding by hand, pairing, sharing from Instagram or TikTok, reordering, editing, and deleting.
+Also improves restore-from-iCloud feedback and keeps pairing on the same shared list.
 
 Your existing list is unchanged.
