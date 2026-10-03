@@ -451,7 +451,13 @@ struct ContentView: View {
         let active = pairSession.pairID
         let scoped: [TodoItem]
         if let active, !active.isEmpty {
-            scoped = items.filter { $0.pairID == active || $0.pairID.isEmpty }
+            // With more than one pair, never show unscoped leftovers on the
+            // open list (that mixed Chris/Deena rows into a Diane list).
+            if pairSession.hasMultiplePairs {
+                scoped = items.filter { $0.pairID == active }
+            } else {
+                scoped = items.filter { $0.pairID == active || $0.pairID.isEmpty }
+            }
         } else {
             scoped = Array(items)
         }

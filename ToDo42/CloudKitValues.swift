@@ -248,6 +248,22 @@ enum RemoteItemApply {
             || kind == "reorder"
     }
 
+    /// A shared list has one host seat and one guest seat. A third person (or a
+    /// second partner code reused from an already-paired list) must not join —
+    /// that overwrote `guestName`, copied the catalog, and fired partner pushes
+    /// at the original couple (Diane on Chris/Deena).
+    ///
+    /// Allow: empty guest seat, or the same guest re-joining. Hosts reconnect
+    /// with Restore, not Join.
+    static func canJoinExistingPair(myName: String, hostName: String, guestName: String) -> Bool {
+        _ = hostName
+        let me = myName.trimmingCharacters(in: .whitespacesAndNewlines)
+        let guest = guestName.trimmingCharacters(in: .whitespacesAndNewlines)
+        if guest.isEmpty { return true }
+        guard !me.isEmpty else { return false }
+        return me.caseInsensitiveCompare(guest) == .orderedSame
+    }
+
     static func extraItemID(recordName: String, itemID: String?) -> String? {
         if let itemID, !itemID.isEmpty { return itemID }
         if recordName.hasPrefix("extra3-") {

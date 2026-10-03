@@ -116,7 +116,7 @@ struct PairingView: View {
                     .font(.title2.bold())
                 Text(
                     session.isComposingNewPair
-                        ? "Start a separate list with someone else. Your other pairs stay as they are."
+                        ? "Start a separate empty list with someone else. Do not reuse a code from another pair — that mixes lists and names."
                         : "Share your list with someone you trust. Both phones must be signed in to iCloud."
                 )
                     .font(.caption)
@@ -349,10 +349,13 @@ struct PairingView: View {
                     Button("Send the code again") { showShare = true }
                         .font(.subheadline.weight(.semibold))
                     Button("New invite code") {
-                        Task { await createInvite() }
+                        Task { await rotateInviteCode() }
                     }
                     .font(.subheadline)
                     .disabled(session.isBusy || !session.hasNames)
+                    Text("New invite code keeps this same list (for your current partner). For a different person, use Add a pair above.")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
                 }
             }
             Button {
@@ -587,8 +590,27 @@ struct PairingView: View {
         session.persistLocal()
         do {
             _ = try await CloudSync.shared.createInvite()
-            await CloudSync.shared.sync(modelContext: modelContext, allowCreate: true)
+            // New / second pairs start empty. Do not allowCreate-push the other
+            // list's items into this pair (that shared Chris/Deena with Diane).
+            await CloudSync.shared.sync(
+                modelContext: modelContext,
+                allowCreate: false,
+                coalesce: false
+            )
             showShare = true
+        } catch {
+            errorText = error.localizedDescription
+        }
+    }
+
+    private func rotateInviteCode() async {
+        errorText = ""
+        session.isBusy = true
+        defer { session.isBusy = false }
+        do {
+            _ = try await CloudSync.shared.rotateInviteCode()
+            showShare = true
+            session.statusMessage = "New code for this same list. Send it to your partner."
         } catch {
             errorText = error.localizedDescription
         }
@@ -649,7 +671,13 @@ struct PairingView: View {
         session.persistLocal()
         do {
             try await CloudSync.shared.join(code: joinCode)
-            await CloudSync.shared.sync(modelContext: modelContext, allowCreate: true)
+            // Pull only — never upload this phone's other-pair items into the list
+            // we just joined.
+            await CloudSync.shared.sync(
+                modelContext: modelContext,
+                allowCreate: false,
+                coalesce: false
+            )
         } catch {
             errorText = error.localizedDescription
         }
