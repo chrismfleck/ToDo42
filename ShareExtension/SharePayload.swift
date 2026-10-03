@@ -29,7 +29,7 @@ enum ShareInbox {
         var payload = payload
         let id = UUID().uuidString
 
-        if let image, let data = jpegData(from: image) {
+        if let image, let data = ShareMedia.jpegData(from: image) {
             let fileName = "\(id).jpg"
             try data.write(to: inbox.appendingPathComponent(fileName), options: .atomic)
             payload.imageFileName = fileName
@@ -39,19 +39,38 @@ enum ShareInbox {
         try data.write(to: inbox.appendingPathComponent("\(id).json"), options: .atomic)
     }
 
-    static func jpegData(from image: UIImage) -> Data? {
-        let maxSide: CGFloat = 1600
-        let longest = max(image.size.width, image.size.height)
-        let scaled: UIImage
-        if longest > maxSide {
-            let scale = maxSide / longest
-            let size = CGSize(width: image.size.width * scale, height: image.size.height * scale)
-            let renderer = UIGraphicsImageRenderer(size: size)
-            scaled = renderer.image { _ in image.draw(in: CGRect(origin: .zero, size: size)) }
-        } else {
-            scaled = image
+    static let categoryDefaults: [(raw: String, title: String)] = [
+        ("places", "Bed 4 Two"),
+        ("fun", "Fun 4 Two"),
+        ("eats", "Table 4 Two"),
+        ("projects", "Projects 4 Two"),
+        ("recipe", "Recipe 4 Two"),
+        ("health", "Health Tips 4 Two"),
+        ("vegasTrip", "Vegas Trip 4 Two"),
+        ("londonTrip", "London Trip 4 Two"),
+        ("dcTrip", "DC Trip 4 Two"),
+    ]
+
+    static func categoryTitle(_ raw: String) -> String {
+        let key = raw == "trip" ? "projects" : raw
+        let stored = UserDefaults(suiteName: AppGroup.id)?
+            .dictionary(forKey: "todo42.categoryTitles") as? [String: String]
+        let custom = stored?[key]?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        if !custom.isEmpty { return custom }
+        return categoryDefaults.first { $0.raw == key }?.title ?? raw
+    }
+
+    static func categorySymbol(_ raw: String) -> String {
+        switch raw {
+        case "places": return "bed.double.fill"
+        case "fun": return "sailboat.fill"
+        case "eats": return "fork.knife"
+        case "projects", "trip": return "house.fill"
+        case "recipe": return "frying.pan.fill"
+        case "health": return "heart.text.square.fill"
+        case "vegasTrip", "londonTrip", "dcTrip": return "airplane"
+        default: return "square.grid.2x2"
         }
-        return scaled.jpegData(compressionQuality: 0.82)
     }
 
     static func guessedCategory(urlString: String, title: String) -> String {
@@ -59,8 +78,48 @@ enum ShareInbox {
         if haystack.contains("airbnb") || haystack.contains("vrbo") || haystack.contains("hotel") || haystack.contains("maps.apple") {
             return "places"
         }
-        if haystack.contains("allrecipes") || haystack.contains("nytimes.com/cooking") || haystack.contains("yelp") || haystack.contains("opentable") {
+        if haystack.contains("allrecipes")
+            || haystack.contains("nytimes.com/cooking")
+            || haystack.contains("recipe")
+            || haystack.contains("ingredients") {
+            return "recipe"
+        }
+        if haystack.contains("yelp")
+            || haystack.contains("opentable")
+            || haystack.contains("restaurant") {
             return "eats"
+        }
+        if haystack.contains("webmd")
+            || haystack.contains("healthline")
+            || haystack.contains("health tip")
+            || haystack.contains("wellness") {
+            return "health"
+        }
+        if haystack.contains("vegas") || haystack.contains("las vegas") {
+            return "vegasTrip"
+        }
+        if haystack.contains("london") {
+            return "londonTrip"
+        }
+        if haystack.contains("washington")
+            || haystack.contains("washington dc")
+            || haystack.contains("washington, dc")
+            || haystack.contains("/dc/")
+            || haystack.contains(" dc ") {
+            return "dcTrip"
+        }
+        if haystack.contains("tripadvisor")
+            || haystack.contains("expedia")
+            || haystack.contains("kayak.com")
+            || haystack.contains("google.com/travel") {
+            return "vegasTrip"
+        }
+        if haystack.contains("home depot")
+            || haystack.contains("lowes")
+            || haystack.contains("ikea")
+            || haystack.contains("project")
+            || haystack.contains("renovat") {
+            return "projects"
         }
         if haystack.contains("instagram")
             || haystack.contains("youtube")

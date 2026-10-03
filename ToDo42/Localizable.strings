@@ -1,0 +1,2 @@
+/* CloudKit lock-screen push. %@ is notifyText from the item record. */
+"CK_NOTIFY_BODY" = "%@";

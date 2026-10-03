@@ -1,0 +1,30 @@
+{
+  "manifest_version": 3,
+  "name": "Save 4 Two on iPhone",
+  "version": "0.1.4",
+  "description": "Send the current page to Save 4 Two on iPhone.",
+  "action": {
+    "default_title": "Save 4 Two on iPhone",
+    "default_popup": "popup.html",
+    "default_icon": {
+      "16": "icon16.png",
+      "32": "icon32.png",
+      "48": "icon48.png",
+      "128": "icon128.png"
+    }
+  },
+  "permissions": [
+    "activeTab",
+    "storage"
+  ],
+  "host_permissions": [
+    "https://api.save4two.com/*"
+  ],
+  "options_page": "options.html",
+  "icons": {
+    "16": "icon16.png",
+    "32": "icon32.png",
+    "48": "icon48.png",
+    "128": "icon128.png"
+  }
+}

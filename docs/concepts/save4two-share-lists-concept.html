@@ -1,0 +1,446 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Save4Two — Share Lists (Team Concept)</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Caveat:wght@600&family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;1,9..40,400&family=Fraunces:opsz,wght@9..144,500;9..144,600&display=swap" rel="stylesheet" />
+  <style>
+    :root {
+      --bg: #07070a;
+      --bg-2: #101018;
+      --ink: #f4f4f5;
+      --muted: #9b9ba8;
+      --blue: #7aa2ff;
+      --blue-deep: #4d78e6;
+      --line: rgba(255,255,255,.08);
+      --card: rgba(255,255,255,.035);
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    html, body {
+      background: var(--bg);
+      color: var(--ink);
+      font-family: "DM Sans", system-ui, sans-serif;
+      line-height: 1.45;
+    }
+    body {
+      min-height: 100vh;
+      background:
+        radial-gradient(900px 520px at 12% -10%, rgba(122,162,255,.22), transparent 55%),
+        radial-gradient(700px 480px at 95% 8%, rgba(77,120,230,.12), transparent 50%),
+        linear-gradient(180deg, #0a0a10 0%, #07070a 40%, #050508 100%);
+    }
+    .page {
+      width: min(920px, calc(100% - 40px));
+      margin: 0 auto;
+      padding: 28px 0 72px;
+    }
+    .top {
+      display: flex;
+      justify-content: space-between;
+      align-items: baseline;
+      gap: 16px;
+      margin-bottom: 42px;
+    }
+    .wordmark {
+      font-family: Caveat, cursive;
+      font-size: 36px;
+      color: var(--blue);
+      letter-spacing: .2px;
+      line-height: 1;
+    }
+    .badge {
+      font-size: 12px;
+      letter-spacing: .08em;
+      text-transform: uppercase;
+      color: var(--muted);
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      padding: 7px 12px;
+      background: rgba(255,255,255,.03);
+    }
+    .hero {
+      margin-bottom: 48px;
+    }
+    .eyebrow {
+      color: var(--blue);
+      font-size: 13px;
+      font-weight: 600;
+      letter-spacing: .12em;
+      text-transform: uppercase;
+      margin-bottom: 14px;
+    }
+    h1 {
+      font-family: Fraunces, Georgia, serif;
+      font-weight: 600;
+      font-size: clamp(34px, 6vw, 54px);
+      letter-spacing: -0.03em;
+      line-height: 1.08;
+      max-width: 14ch;
+      margin-bottom: 16px;
+    }
+    .lede {
+      color: var(--muted);
+      font-size: 18px;
+      max-width: 38rem;
+      line-height: 1.6;
+    }
+
+    .scenario {
+      border: 1px solid var(--line);
+      background: linear-gradient(180deg, rgba(255,255,255,.045), rgba(255,255,255,.02));
+      border-radius: 22px;
+      padding: 28px 24px 24px;
+      margin-bottom: 28px;
+      position: relative;
+      overflow: hidden;
+    }
+    .scenario::before {
+      content: "";
+      position: absolute;
+      inset: 0 auto 0 0;
+      width: 3px;
+      background: linear-gradient(180deg, var(--blue), transparent);
+    }
+    .scenario h2 {
+      font-family: Fraunces, Georgia, serif;
+      font-size: 22px;
+      font-weight: 600;
+      margin-bottom: 10px;
+    }
+    .scenario p {
+      color: var(--muted);
+      font-size: 15.5px;
+      line-height: 1.65;
+      max-width: 46rem;
+    }
+    .scenario strong { color: var(--ink); font-weight: 600; }
+
+    .flow {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 14px;
+      margin: 36px 0 28px;
+    }
+    .step {
+      background: var(--card);
+      border: 1px solid var(--line);
+      border-radius: 18px;
+      padding: 18px 16px 16px;
+      min-height: 168px;
+    }
+    .step-num {
+      font-size: 12px;
+      font-weight: 600;
+      letter-spacing: .1em;
+      text-transform: uppercase;
+      color: var(--blue);
+      margin-bottom: 10px;
+    }
+    .step h3 {
+      font-size: 17px;
+      font-weight: 600;
+      margin-bottom: 8px;
+      letter-spacing: -0.02em;
+    }
+    .step p {
+      color: var(--muted);
+      font-size: 14px;
+      line-height: 1.55;
+    }
+
+    .doors {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 14px;
+      margin-bottom: 28px;
+    }
+    .door {
+      border-radius: 18px;
+      border: 1px solid var(--line);
+      background: rgba(255,255,255,.03);
+      padding: 20px 18px;
+    }
+    .door h3 {
+      font-size: 16px;
+      margin-bottom: 8px;
+    }
+    .door .tag {
+      display: inline-block;
+      font-size: 11px;
+      font-weight: 600;
+      letter-spacing: .08em;
+      text-transform: uppercase;
+      color: var(--blue);
+      margin-bottom: 10px;
+    }
+    .door p { color: var(--muted); font-size: 14px; line-height: 1.55; }
+    .door code {
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+      font-size: 12px;
+      color: var(--blue);
+      background: rgba(122,162,255,.1);
+      padding: 2px 6px;
+      border-radius: 6px;
+    }
+
+    .example {
+      border: 1px solid var(--line);
+      border-radius: 18px;
+      overflow: hidden;
+      margin-bottom: 28px;
+      background: #0c0c12;
+    }
+    .example-bar {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 12px 14px;
+      border-bottom: 1px solid var(--line);
+      color: var(--muted);
+      font-size: 13px;
+    }
+    .dot { width: 8px; height: 8px; border-radius: 50%; background: #3a3a48; }
+    .example-body { padding: 18px 16px 16px; }
+    .list-name {
+      font-family: Fraunces, Georgia, serif;
+      font-size: 20px;
+      margin-bottom: 4px;
+    }
+    .list-meta { color: var(--muted); font-size: 13px; margin-bottom: 14px; }
+    .cards { display: grid; gap: 10px; }
+    .card-row {
+      display: grid;
+      grid-template-columns: 56px 1fr auto;
+      gap: 12px;
+      align-items: center;
+      padding: 10px;
+      border-radius: 14px;
+      background: rgba(255,255,255,.03);
+      border: 1px solid var(--line);
+    }
+    .thumb {
+      width: 56px; height: 56px;
+      border-radius: 10px;
+      background:
+        linear-gradient(135deg, rgba(122,162,255,.35), rgba(20,20,30,.2)),
+        #1a1a24;
+    }
+    .thumb.b {
+      background:
+        linear-gradient(145deg, rgba(255,170,120,.35), rgba(20,20,30,.25)),
+        #1a1a24;
+    }
+    .thumb.c {
+      background:
+        linear-gradient(160deg, rgba(120,200,160,.3), rgba(20,20,30,.25)),
+        #1a1a24;
+    }
+    .card-row h4 { font-size: 14px; font-weight: 600; margin-bottom: 2px; }
+    .card-row p { font-size: 12px; color: var(--muted); }
+    .chip {
+      font-size: 11px;
+      color: var(--blue);
+      border: 1px solid rgba(122,162,255,.25);
+      border-radius: 999px;
+      padding: 5px 8px;
+      white-space: nowrap;
+    }
+
+    .ask {
+      border-radius: 22px;
+      padding: 24px 22px;
+      background: linear-gradient(135deg, rgba(122,162,255,.16), rgba(255,255,255,.03));
+      border: 1px solid rgba(122,162,255,.28);
+      margin-bottom: 22px;
+    }
+    .ask h2 {
+      font-family: Fraunces, Georgia, serif;
+      font-size: 22px;
+      margin-bottom: 12px;
+    }
+    .ask ul {
+      list-style: none;
+      display: grid;
+      gap: 10px;
+    }
+    .ask li {
+      color: var(--muted);
+      font-size: 15px;
+      padding-left: 22px;
+      position: relative;
+      line-height: 1.5;
+    }
+    .ask li::before {
+      content: "";
+      position: absolute;
+      left: 0; top: .55em;
+      width: 8px; height: 8px;
+      border-radius: 50%;
+      background: var(--blue);
+    }
+    .ask li strong { color: var(--ink); font-weight: 600; }
+
+    .footer {
+      color: var(--muted);
+      font-size: 13px;
+      line-height: 1.6;
+      border-top: 1px solid var(--line);
+      padding-top: 18px;
+    }
+    .footer em { color: var(--ink); font-style: normal; font-weight: 500; }
+
+    @media (max-width: 720px) {
+      .flow, .doors { grid-template-columns: 1fr; }
+      h1 { max-width: none; }
+      .top { flex-direction: column; align-items: flex-start; }
+    }
+
+    @media print {
+      body { background: #fff; color: #111; }
+      .wordmark, .eyebrow, .step-num, .door .tag, .chip, .ask li::before { color: #3b6fd6 !important; }
+      .lede, .scenario p, .step p, .door p, .list-meta, .card-row p, .ask li, .footer, .badge, .example-bar {
+        color: #444 !important;
+      }
+      .scenario, .step, .door, .example, .ask, .card-row {
+        background: #fff !important;
+        border-color: #ddd !important;
+      }
+      h1, h2, h3, h4, .list-name, .ask li strong, .scenario strong, .footer em { color: #111 !important; }
+    }
+  </style>
+</head>
+<body>
+  <main class="page">
+    <div class="top">
+      <div class="wordmark">Save4Two</div>
+      <div class="badge">Team concept · for feedback</div>
+    </div>
+
+    <section class="hero">
+      <p class="eyebrow">Share Lists</p>
+      <h1>Share the list. Keep the spark.</h1>
+      <p class="lede">
+        Couples already build the perfect board in Save4Two.
+        Next: let them <strong style="color:#f4f4f5;font-weight:600">gift that list</strong> —
+        as a file in Messages, or as a link in an Instagram bio —
+        so friends can open it and save the picks into their own Save4Two.
+      </p>
+    </section>
+
+    <section class="scenario">
+      <h2>The final scenario</h2>
+      <p>
+        Chris &amp; Deena plan an <strong>Asheville weekend</strong> in Save4Two —
+        cabins, dinners, a hike. When the trip board feels right, they tap
+        <strong>Share list</strong>. Save4Two builds a portable list package
+        (titles, links, notes, categories). They can
+        <strong>attach the file</strong> in a text to friends —
+        or <strong>publish a link</strong> like
+        <strong>save4two.com/l/asheville</strong> and drop it in an Instagram bio.
+        A friend opens it, reviews the items in a familiar save screen,
+        and adds what they want to <strong>their</strong> pair list.
+        Private hearts and “done” checks stay private. Pairing stays pairing.
+        This is a snapshot to share — not a second live couple sync.
+      </p>
+    </section>
+
+    <section class="flow" aria-label="How it works">
+      <article class="step">
+        <div class="step-num">01 · Curate</div>
+        <h3>Build it in Save4Two</h3>
+        <p>Same list you already use — Find Ideas, share sheet, desktop inbox. One category or the whole board.</p>
+      </article>
+      <article class="step">
+        <div class="step-num">02 · Share</div>
+        <h3>File or link</h3>
+        <p>Export a <em style="font-style:normal;color:#f4f4f5">.s4t.json</em> for Messages/email, or publish once and copy a short Save4Two URL for bios.</p>
+      </article>
+      <article class="step">
+        <div class="step-num">03 · Import</div>
+        <h3>Save like today</h3>
+        <p>Preview items, tweak categories, tap Add. Lands in the friend’s active pair — same feeling as sharing a Reel into S4T.</p>
+      </article>
+    </section>
+
+    <section class="doors" aria-label="Two ways to deliver">
+      <article class="door">
+        <div class="tag">Door A · File</div>
+        <h3>Messages, Mail, AirDrop</h3>
+        <p>
+          Export creates <code>Asheville-weekend.s4t.json</code>.
+          Attach and send. Recipient opens in Save4Two → import preview → save.
+          Works offline. No website required.
+        </p>
+      </article>
+      <article class="door">
+        <div class="tag">Door B · URL</div>
+        <h3>Instagram bio &amp; anywhere links live</h3>
+        <p>
+          Same package, hosted at <code>save4two.com/l/…</code>.
+          Web page for browsing; app fetches the list to import.
+          One link for bios, Linktree, QR, Notes.
+        </p>
+      </article>
+    </section>
+
+    <section class="example" aria-label="Example list preview">
+      <div class="example-bar">
+        <span class="dot"></span><span class="dot"></span><span class="dot"></span>
+        <span>save4two.com/l/asheville · list preview</span>
+      </div>
+      <div class="example-body">
+        <div class="list-name">Asheville weekend</div>
+        <div class="list-meta">3 picks · shared from Chris &amp; Deena · add what you want</div>
+        <div class="cards">
+          <div class="card-row">
+            <div class="thumb" aria-hidden="true"></div>
+            <div>
+              <h4>EcoLux loft with hot tub</h4>
+              <p>airbnb.com · quiet side of town</p>
+            </div>
+            <span class="chip">Bed 4 Two</span>
+          </div>
+          <div class="card-row">
+            <div class="thumb b" aria-hidden="true"></div>
+            <div>
+              <h4>Lemon garlic pasta night</h4>
+              <p>tiktok.com · easy Friday cook</p>
+            </div>
+            <span class="chip">Recipe 4 Two</span>
+          </div>
+          <div class="card-row">
+            <div class="thumb c" aria-hidden="true"></div>
+            <div>
+              <h4>Craggy Gardens overlook</h4>
+              <p>maps · sunset hike</p>
+            </div>
+            <span class="chip">Fun 4 Two</span>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="ask">
+      <h2>What we want your input on</h2>
+      <ul>
+        <li><strong>Does the story land?</strong> Gift a trip board / mood list — clear and useful?</li>
+        <li><strong>File + link together</strong> — or ship file-only first, URL for bios right after?</li>
+        <li><strong>Photos on v1</strong> — refetch from links (small/fast) vs pack images into the file?</li>
+        <li><strong>Bio page</strong> — browseable web list with “Add to Save4Two,” or app-only import?</li>
+        <li><strong>Privacy default</strong> — unlisted links only (no public gallery) for launch?</li>
+      </ul>
+    </section>
+
+    <p class="footer">
+      <em>Not a second pairing system.</em>
+      CloudKit pairing stays how two phones share a live list.
+      Share Lists is a portable snapshot — send it, publish it, import what you love.
+      <br /><br />
+      Save4Two · Share Lists concept · internal feedback
+    </p>
+  </main>
+</body>
+</html>

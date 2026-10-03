@@ -1,0 +1,12 @@
+{
+  "images" : [
+    {
+      "filename" : "eco-lux-haven.jpg",
+      "idiom" : "universal"
+    }
+  ],
+  "info" : {
+    "author" : "xcode",
+    "version" : 1
+  }
+}
