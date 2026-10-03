@@ -394,7 +394,11 @@ final class CloudSync {
             case .limitExceeded, .partialFailure:
                 return "iCloud rejected part of the sync. Tap Force sync now."
             case .invalidArguments:
-                return "iCloud rejected a field on sync. Try Force sync now."
+                let detail = ck.localizedDescription.trimmingCharacters(in: .whitespacesAndNewlines)
+                if detail.isEmpty || detail.lowercased().contains("invalid arguments") {
+                    return "iCloud rejected a field on sync. Update to latest build, then Force sync."
+                }
+                return "iCloud field error: \(detail)"
             default:
                 return "Couldn't sync the list (iCloud \(ck.code.rawValue)). Try Force sync now."
             }
@@ -402,11 +406,61 @@ final class CloudSync {
         return "Couldn't sync the list. Try again in a moment."
     }
 
+    /// Keys known to exist on Production `TDItem` / companions. Anything else is
+    /// omitted on retry so a schema mismatch cannot block sync.
+    private static let productionItemKeys: Set<String> = [
+        "itemID", "pairID", "title", "urlString", "notes", "categoryRaw",
+        "chrisHearted", "deenaHearted", "isDone", "sortOrder",
+        "createdAt", "updatedAt", "lastEditor", "notifyKind", "image",
+    ]
+
+    private static let productionPairKeys: Set<String> = [
+        "itemIDs", "hostName", "guestName", "createdAt",
+    ]
+
     private func saveOverwriting(_ record: CKRecord) async throws {
+        // changedKeys avoids re-sending unknown server fields. On rejection,
+        // rebuild a slim record with only Production-safe keys and retry.
+        do {
+            try await performSaveOverwriting(record, policy: .changedKeys)
+            return
+        } catch let error as CKError where error.code == .invalidArguments || error.code == .partialFailure {
+            let allowed = record.recordType == "TDPair"
+                ? Self.productionPairKeys
+                : Self.productionItemKeys
+            let slim = (try? Self.systemFieldCopy(of: record))
+                ?? CKRecord(recordType: record.recordType, recordID: record.recordID)
+            for key in allowed {
+                if let value = record[key] {
+                    slim[key] = value
+                }
+            }
+            do {
+                try await performSaveOverwriting(slim, policy: .changedKeys)
+                return
+            } catch let retry as CKError where retry.code == .invalidArguments || retry.code == .partialFailure {
+                // Last resort for items: drop the image asset (sometimes rejected).
+                if record.recordType == "TDItem" {
+                    let core = (try? Self.systemFieldCopy(of: record))
+                        ?? CKRecord(recordType: record.recordType, recordID: record.recordID)
+                    for key in Self.productionItemKeys where key != "image" {
+                        if let value = record[key] {
+                            core[key] = value
+                        }
+                    }
+                    try await performSaveOverwriting(core, policy: .changedKeys)
+                    return
+                }
+                throw retry
+            }
+        }
+    }
+
+    private func performSaveOverwriting(_ record: CKRecord, policy: CKModifyRecordsOperation.RecordSavePolicy) async throws {
         let outcome = try await database.modifyRecords(
             saving: [record],
             deleting: [],
-            savePolicy: .allKeys
+            savePolicy: policy
         )
         if let result = outcome.saveResults[record.recordID] {
             switch result {
@@ -416,6 +470,19 @@ final class CloudSync {
                 throw error
             }
         }
+    }
+
+    /// Preserve CloudKit change tags so a slim retry does not 409.
+    private static func systemFieldCopy(of record: CKRecord) throws -> CKRecord {
+        let archiver = NSKeyedArchiver(requiringSecureCoding: true)
+        record.encodeSystemFields(with: archiver)
+        archiver.finishEncoding()
+        let unarchiver = try NSKeyedUnarchiver(forReadingFrom: archiver.encodedData)
+        unarchiver.requiresSecureCoding = true
+        guard let copy = CKRecord(coder: unarchiver) else {
+            throw SyncError.message("Couldn't prepare iCloud retry record.")
+        }
+        return copy
     }
 
     func createInvite() async throws -> String {
@@ -606,11 +673,18 @@ final class CloudSync {
                     try await self.registerItemIDs([item.id.uuidString], retries: 3)
                     if notifyKind == "add" {
                         PairSession.shared.statusMessage = "Saved to iCloud."
+                    } else if PairSession.shared.statusMessage.hasPrefix("iCloud field")
+                        || PairSession.shared.statusMessage.localizedCaseInsensitiveContains("rejected a field")
+                    {
+                        PairSession.shared.statusMessage = ""
                     } else {
                         PairSession.shared.statusMessage = ""
                     }
                 } catch {
-                    PairSession.shared.statusMessage = Self.friendlyMessage(error)
+                    // Item row is already on iCloud; catalog miss is recoverable.
+                    PairSession.shared.statusMessage = notifyKind == "add"
+                        ? "Saved item; catalog retry needed — tap Force sync."
+                        : Self.friendlyMessage(error)
                 }
             } catch {
                 PairSession.shared.statusMessage = Self.friendlyMessage(error)
@@ -850,7 +924,8 @@ final class CloudSync {
             record["createdAt"] = Date()
         }
         record["notifyKind"] = "delete"
-        record["notifyText"] = Self.pushBody(kind: "delete", title: record["title"] as? String ?? "")
+        // Do not write notifyText — Production CloudKit may not have that field
+        // (invalidArguments was failing Force sync on both phones).
         record["lastEditor"] = PairSession.shared.role?.rawValue ?? ""
         record["updatedAt"] = Date()
         do {
@@ -1276,8 +1351,12 @@ final class CloudSync {
                 }
                 continue
             }
-            try await saveItem(item, notifyKind: "add", allowCreate: true)
-            uploaded.append(item.id.uuidString)
+            do {
+                try await saveItem(item, notifyKind: "add", allowCreate: true)
+                uploaded.append(item.id.uuidString)
+            } catch {
+                continue
+            }
         }
         if !uploaded.isEmpty {
             try? await registerItemIDs(uploaded)
@@ -1571,9 +1650,9 @@ final class CloudSync {
         record["lastEditor"] = item.lastEditor
         // Catch-up pushes pass an empty notifyKind — do not wipe "add" on the
         // server or the partner's provisional-catalog accept can miss the row.
+        // Never write notifyText: Production schema may reject it and break sync.
         if !notifyKind.isEmpty {
             record["notifyKind"] = notifyKind
-            record["notifyText"] = Self.pushBody(kind: notifyKind, title: item.title)
         }
         if let data = item.imageData, !data.isEmpty {
             let url = FileManager.default.temporaryDirectory.appendingPathComponent("\(item.id.uuidString).jpg")
@@ -1648,17 +1727,16 @@ final class CloudSync {
         record["createdAt"] = item.createdAt
         record["updatedAt"] = item.updatedAt ?? item.createdAt
         record["lastEditor"] = item.lastEditor
-        // Never leave list fields on companion rows — pull used to promote
-        // titled extras into duplicate home-list tiles.
-        record["title"] = nil
-        record["urlString"] = nil
-        record["notes"] = nil
-        record["categoryRaw"] = nil
-        record["chrisHearted"] = nil
-        record["deenaHearted"] = nil
-        record["isDone"] = nil
-        record["notifyKind"] = nil
-        record["notifyText"] = nil
+        // Clear list fields with empty/zero values — do not nil-delete keys
+        // (nil deletes can trigger invalidArguments on Production).
+        record["title"] = ""
+        record["urlString"] = ""
+        record["notes"] = ""
+        record["categoryRaw"] = ""
+        record["chrisHearted"] = 0
+        record["deenaHearted"] = 0
+        record["isDone"] = 0
+        record["notifyKind"] = ""
         let extraURL = FileManager.default.temporaryDirectory.appendingPathComponent("\(item.id.uuidString)-\(fileSuffix).jpg")
         guard (try? extra.write(to: extraURL)) != nil else { return }
         record["image"] = CKAsset(fileURL: extraURL)
