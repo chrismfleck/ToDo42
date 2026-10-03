@@ -894,7 +894,14 @@ final class CloudSync {
         hintRecordIDs: [CKRecord.ID] = []
     ) async throws {
         guard let pairID = PairSession.shared.pairID else { return }
-        let pair = try await database.record(for: CKRecord.ID(recordName: "pair-\(pairID)"))
+        let pair: CKRecord
+        do {
+            pair = try await database.record(for: CKRecord.ID(recordName: "pair-\(pairID)"))
+        } catch let error as CKError where error.code == .unknownItem {
+            throw SyncError.message(
+                "That pair was not found in iCloud. Restore with the 6-digit invite code."
+            )
+        }
         PairSession.shared.applyRemoteNames(
             host: pair["hostName"] as? String,
             guest: pair["guestName"] as? String
@@ -1234,8 +1241,14 @@ final class CloudSync {
     }
 
     private func pushAll(_ items: [TodoItem], allowCreate: Bool) async throws {
+        // One bad row must not fail the whole sync (that left a sticky
+        // "Couldn't sync" banner on the home screen).
         for item in items {
-            try await saveItem(item, notifyKind: "", allowCreate: allowCreate)
+            do {
+                try await saveItem(item, notifyKind: "", allowCreate: allowCreate)
+            } catch {
+                continue
+            }
         }
         // Do NOT register every local ID on catch-up. That merged deleted items
         // back into pair.itemIDs whenever the partner still held a local copy,
