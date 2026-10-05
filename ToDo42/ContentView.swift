@@ -1520,20 +1520,6 @@ struct ItemDetailView: View {
 
     private var isGuest: Bool { pairSession.role == .deena }
 
-    private var myHeart: Binding<Bool> {
-        Binding(
-            get: { isGuest ? item.deenaHearted : item.chrisHearted },
-            set: { if isGuest { item.deenaHearted = $0 } else { item.chrisHearted = $0 } }
-        )
-    }
-
-    private var partnerHeart: Binding<Bool> {
-        Binding(
-            get: { isGuest ? item.chrisHearted : item.deenaHearted },
-            set: { if isGuest { item.chrisHearted = $0 } else { item.deenaHearted = $0 } }
-        )
-    }
-
     var body: some View {
         VStack(spacing: 0) {
             HStack(spacing: 12) {
@@ -1611,13 +1597,8 @@ struct ItemDetailView: View {
             }
             .padding(.horizontal, 20)
             .padding(.bottom, 8)
-            .onChange(of: item.chrisHearted) { _, _ in
-                PairSession.shared.noteLocalEdit(item, kind: "heart")
-            }
-            .onChange(of: item.deenaHearted) { _, _ in
-                PairSession.shared.noteLocalEdit(item, kind: "heart")
-            }
             .onChange(of: item.isDone) { _, _ in
+                guard !PairSession.shared.isApplyingRemote else { return }
                 PairSession.shared.noteLocalEdit(item, kind: "edit")
             }
 
@@ -1734,7 +1715,13 @@ struct ItemDetailView: View {
     private var itemActionRow: some View {
         HStack(spacing: 16) {
             HStack(spacing: 6) {
-                PartnerHeartButton(name: pairSession.myHeartLabel, isOn: myHeart, size: 18)
+                PartnerHeartButton(
+                    name: pairSession.myHeartLabel,
+                    isOn: myHeartValue,
+                    size: 18
+                ) {
+                    toggleMyHeart()
+                }
                 if pairSession.isPaired {
                     PairHeadButton(
                         label: pairSession.myHeartLabel,
@@ -1756,7 +1743,7 @@ struct ItemDetailView: View {
             HStack(spacing: 6) {
                 PartnerHeartButton(
                     name: pairSession.partnerHeartLabel,
-                    isOn: partnerHeart,
+                    isOn: partnerHeartValue,
                     interactive: false,
                     size: 18
                 )
@@ -1781,6 +1768,25 @@ struct ItemDetailView: View {
             DoneCheckButton(isDone: $item.isDone, size: 18, name: "Done")
         }
         .frame(maxWidth: .infinity)
+    }
+
+    private var myHeartValue: Bool {
+        isGuest ? item.deenaHearted : item.chrisHearted
+    }
+
+    private var partnerHeartValue: Bool {
+        isGuest ? item.chrisHearted : item.deenaHearted
+    }
+
+    private func toggleMyHeart() {
+        if isGuest {
+            item.deenaHearted.toggle()
+        } else {
+            item.chrisHearted.toggle()
+        }
+        item.updatedAt = Date()
+        try? modelContext.save()
+        PairSession.shared.noteLocalEdit(item, kind: "heart")
     }
 
     @ViewBuilder
@@ -2107,16 +2113,17 @@ struct DoneCheckButton: View {
 
 struct PartnerHeartButton: View {
     let name: String
-    @Binding var isOn: Bool
+    var isOn: Bool
     var interactive: Bool = true
     var size: CGFloat = 34
+    var onTap: (() -> Void)? = nil
 
     var body: some View {
         Group {
             if interactive {
                 Button {
                     withAnimation(.spring(duration: 0.28)) {
-                        isOn.toggle()
+                        onTap?()
                     }
                 } label: {
                     heartMark

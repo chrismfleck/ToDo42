@@ -734,6 +734,13 @@ final class CloudSync {
         guard PairSession.shared.isPaired else { return }
         await enqueue {
             do {
+                if notifyKind == "heart" {
+                    // Heart-only: skip photo companions so partner taps stay snappy
+                    // and cannot fail behind a large image upload.
+                    try await self.saveHeart(item)
+                    PairSession.shared.statusMessage = ""
+                    return
+                }
                 // Save the TDItem row FIRST. Registering the catalog id before
                 // save left orphan catalog entries when Production rejected the
                 // row (Chris saw catalog N↑ but fetch 3/5 — no item to download).
@@ -752,6 +759,69 @@ final class CloudSync {
                 PairSession.shared.statusMessage = Self.friendlyMessage(error)
             }
         }
+    }
+
+    /// Writes only this phone's heart flag + notify metadata.
+    private func saveHeart(_ item: TodoItem) async throws {
+        let pairID: String
+        if !item.pairID.isEmpty {
+            pairID = item.pairID
+        } else if let active = PairSession.shared.pairID {
+            pairID = active
+            item.pairID = active
+        } else {
+            throw SyncError.message("Pair first, then heart items.")
+        }
+        if let active = PairSession.shared.pairID, pairID != active {
+            // Retag onto the open list so partner hearts still land after a
+            // messy multi-pair restore (silent return made hearts feel dead).
+            item.pairID = active
+        }
+        let effectivePair = PairSession.shared.pairID ?? pairID
+        let recordID = CKRecord.ID(recordName: "item-\(item.id.uuidString)")
+        if DeletedItemLedger.contains(pairID: effectivePair, id: item.id.uuidString) {
+            return
+        }
+        let record: CKRecord
+        if let existing = try? await database.record(for: recordID) {
+            if RemoteItemApply.shouldSkipSaveOverTombstone(existingNotifyKind: existing["notifyKind"] as? String) {
+                return
+            }
+            let remotePair = (existing["pairID"] as? String ?? "")
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            if !remotePair.isEmpty, remotePair != effectivePair {
+                throw SyncError.message("That item belongs to another list. Open the matching pair, then heart.")
+            }
+            record = existing
+        } else {
+            record = CKRecord(recordType: "TDItem", recordID: recordID)
+            record["itemID"] = item.id.uuidString
+            record["pairID"] = effectivePair
+            record["title"] = item.title
+            record["urlString"] = item.urlString ?? ""
+            record["notes"] = item.notes
+            record["categoryRaw"] = item.categoryRaw
+            record["chrisHearted"] = item.chrisHearted ? 1 : 0
+            record["deenaHearted"] = item.deenaHearted ? 1 : 0
+            record["isDone"] = item.isDone ? 1 : 0
+            record["sortOrder"] = item.sortOrder
+            record["createdAt"] = item.createdAt
+        }
+        record["pairID"] = effectivePair
+        switch PairSession.shared.role {
+        case .chris:
+            record["chrisHearted"] = item.chrisHearted ? 1 : 0
+        case .deena:
+            record["deenaHearted"] = item.deenaHearted ? 1 : 0
+        case nil:
+            record["chrisHearted"] = item.chrisHearted ? 1 : 0
+            record["deenaHearted"] = item.deenaHearted ? 1 : 0
+        }
+        record["updatedAt"] = item.updatedAt ?? Date()
+        record["lastEditor"] = item.lastEditor
+        record["notifyKind"] = "heart"
+        try await saveOverwriting(record)
+        try? await registerItemIDs([item.id.uuidString], retries: 3)
     }
 
     /// Short report so both phones can confirm they share the same CloudKit pair.
