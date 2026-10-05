@@ -1288,6 +1288,13 @@ final class CloudSync {
                     // back". Resolve it authoritatively with a strongly-consistent
                     // per-record fetch (CloudKit record fetches are consistent;
                     // the catalog string and queries are not).
+                    //
+                    // Already pulled live this pass (partner add notification but
+                    // catalog register still racing) — never delete; heal instead.
+                    if remoteIDs.contains(idString) {
+                        idsToHeal.append(idString)
+                        continue
+                    }
                     let recordID = CKRecord.ID(recordName: "item-\(idString)")
                     if let row = try? await database.record(for: recordID) {
                         if RemoteItemApply.isTombstone(notifyKind: row["notifyKind"] as? String) {
@@ -1299,14 +1306,22 @@ final class CloudSync {
                         idsToHeal.append(idString)
                         continue
                     }
-                    // No row on the server at all.
+                    // No row on the server at all (or a transient fetch miss).
                     if RemoteItemApply.isOwnEdit(lastEditor: local.lastEditor, myRole: session.role?.rawValue) {
                         // Our own add whose first upload never landed — keep it
                         // (do not delete a brand-new item that just hasn't synced).
                         idsToHeal.append(idString)
                         continue
                     }
-                    // Partner-authored and gone from both catalog and server.
+                    // Partner add: a failed record fetch used to wipe the row we
+                    // just inserted from the same pull (banner fired, list empty).
+                    let recentPartner = Date().timeIntervalSince(local.createdAt) < 48 * 3600
+                        || Date().timeIntervalSince(local.updatedAt ?? local.createdAt) < 48 * 3600
+                    if recentPartner {
+                        idsToHeal.append(idString)
+                        continue
+                    }
+                    // Older partner-authored and gone from both catalog and server.
                     modelContext.delete(local)
                     continue
                 }
