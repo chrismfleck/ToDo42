@@ -1,5 +1,5 @@
 #!/bin/bash
-# Find every ToDo42 checkout, sync THIS one to Build 175, close Xcode, open the right project.
+# Find every ToDo42 checkout, sync THIS one to Build 176, close Xcode, open the right project.
 set -euo pipefail
 
 echo "=============================================="
@@ -38,7 +38,7 @@ fi
 echo
 
 BRANCH="cursor/multi-pair-isolation-ac25"
-echo "3) GIT SYNC → origin/${BRANCH} (Build 175 multi-pair fix)"
+echo "3) GIT SYNC → origin/${BRANCH} (Build 176 multi-pair fix)"
 git fetch origin "$BRANCH"
 git checkout "$BRANCH"
 git reset --hard "origin/${BRANCH}"
@@ -46,8 +46,8 @@ bash scripts/confirm_build.sh
 echo "   AppBuild.swift now:"
 grep -n 'static let number' ToDo42/AppBuild.swift
 STAMP=$(sed -n 's/.*static let number = "\([0-9]*\)".*/\1/p' ToDo42/AppBuild.swift | head -1)
-if [[ "$STAMP" != "175" ]]; then
-  echo "ERROR: expected Build 175 after sync, got ${STAMP:-?}."
+if [[ "$STAMP" != "176" ]]; then
+  echo "ERROR: expected Build 176 after sync, got ${STAMP:-?}."
   echo "Wrong folder or fetch failed. Path must be this checkout: $ROOT"
   exit 1
 fi
@@ -93,9 +93,9 @@ echo "  • Destination = Deena’s iPhone (not Chris, not a Simulator)"
 echo "  • Product → Clean Build Folder"
 echo "  • Product → Run"
 echo
-echo "PROOF YOU GOT 175:"
-echo "  1. In-app bottom label:   Build 175"
-echo "  2. Xcode console:         >>> Save4Two AppBuild 175 SRC <<<"
+echo "PROOF YOU GOT 176:"
+echo "  1. In-app bottom label:   Build 176"
+echo "  2. Xcode console:         >>> Save4Two AppBuild 176 SRC <<<"
 echo
 echo "If Help/bottom still says Build 130/135, Xcode opened a different folder."
 echo "Do NOT delete the app (that wipes items). Restore via Pair → iCloud."

@@ -665,7 +665,10 @@ final class CloudSync {
                 try await self.ensureiCloud()
                 let shouldRefreshSubs = self.lastSubscribeAt.map { Date().timeIntervalSince($0) > 600 } ?? true
                 if shouldRefreshSubs {
-                    try? await self.subscribe()
+                    // Subscription refresh must not block Force sync forever.
+                    _ = try? await self.withTimeout(seconds: 10) {
+                        try await self.subscribe()
+                    }
                     try? await self.requestNotifications()
                     self.lastSubscribeAt = Date()
                 }
@@ -752,6 +755,7 @@ final class CloudSync {
     }
 
     /// Short report so both phones can confirm they share the same CloudKit pair.
+    /// Avoids unbounded CloudKit queries — those hung Force sync on “Syncing…”.
     func syncDiagnostics() async -> String {
         guard let pairID = PairSession.shared.pairID else {
             return "Not paired — Restore with the 6-digit code first."
@@ -761,17 +765,14 @@ final class CloudSync {
         let short = String(pairID.suffix(8))
         do {
             try await ensureiCloud()
-            let pair = try await database.record(for: CKRecord.ID(recordName: "pair-\(pairID)"))
+            let pair = try await withTimeout(seconds: 12) {
+                try await self.database.record(for: CKRecord.ID(recordName: "pair-\(pairID)"))
+            }
             let live = CloudKitValues.liveItemIDs(in: pair["itemIDs"] as? String)
             let sample = Array(live.suffix(5))
             let fetched = await fetchNamedRecords(sample.map { "item-\($0)" })
-            let query = CKQuery(
-                recordType: "TDItem",
-                predicate: NSPredicate(format: "pairID == %@", pairID)
-            )
-            let queried = (try? await queryAll(query))?.filter { recordKind($0) == .listItem }.count ?? -1
             let queryMode = lastPairQuerySucceeded ? "query ok" : "query fallback"
-            return "Pair …\(short) · \(role) · code \(code) · catalog \(live.count) · fetch \(fetched.count)/\(sample.count) · items \(queried) · \(queryMode)"
+            return "Pair …\(short) · \(role) · code \(code) · catalog \(live.count) · fetch \(fetched.count)/\(sample.count) · \(queryMode)"
         } catch {
             return "Pair …\(short) · \(role) · code \(code) · \(Self.friendlyMessage(error))"
         }
@@ -1437,12 +1438,19 @@ final class CloudSync {
             predicate: NSPredicate(format: "pairID == %@", pairID)
         )
         var pairQueryOK = false
-        if let queried = try? await queryAll(pairQuery) {
+        // Cap the pairID query — Production public DB can hang forever, which
+        // left Force sync stuck on “Syncing with iCloud…”.
+        do {
+            let queried = try await withTimeout(seconds: 12) {
+                try await self.queryAll(pairQuery)
+            }
             pairQueryOK = true
             catalogComplete = true
             for record in queried {
                 found[record.recordID.recordName] = record
             }
+        } catch {
+            pairQueryOK = false
         }
 
         // Do NOT fall back to querying every TDItem in the public DB — that can
@@ -1600,6 +1608,7 @@ final class CloudSync {
     private func queryAll(_ query: CKQuery) async throws -> [CKRecord] {
         var records: [CKRecord] = []
         var cursor: CKQueryOperation.Cursor?
+        var pages = 0
         repeat {
             let matchResults: [(CKRecord.ID, Result<CKRecord, Error>)]
             let next: CKQueryOperation.Cursor?
@@ -1614,8 +1623,33 @@ final class CloudSync {
                 }
             }
             cursor = next
+            pages += 1
+            // Safety: never page forever on a stuck public-DB cursor.
+            if pages >= 20 { break }
         } while cursor != nil
         return records
+    }
+
+    /// Race an iCloud call against a deadline so Force sync cannot spin forever.
+    private func withTimeout<T>(
+        seconds: TimeInterval,
+        _ operation: @escaping () async throws -> T
+    ) async throws -> T {
+        try await withThrowingTaskGroup(of: T.self) { group in
+            group.addTask { @MainActor in
+                try await operation()
+            }
+            group.addTask {
+                let ns = UInt64(max(1, seconds) * 1_000_000_000)
+                try await Task.sleep(nanoseconds: ns)
+                throw SyncError.message("iCloud timed out. Tap Force sync again.")
+            }
+            guard let value = try await group.next() else {
+                throw SyncError.message("iCloud timed out. Tap Force sync again.")
+            }
+            group.cancelAll()
+            return value
+        }
     }
 
     private func fetchNamedRecords(_ names: [String]) async -> [CKRecord] {

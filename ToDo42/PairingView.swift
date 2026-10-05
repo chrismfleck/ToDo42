@@ -688,15 +688,31 @@ struct PairingView: View {
         session.isBusy = true
         session.statusMessage = "Syncing with iCloud…"
         defer { session.isBusy = false }
-        await CloudSync.shared.sync(
-            modelContext: modelContext,
-            allowCreate: false,
-            coalesce: false
-        )
+        // Hard ceiling so the Force sync button cannot stick on Syncing…
+        // when CloudKit's public DB hangs (seen after App Store 1.0.3).
+        await withTaskGroup(of: Void.self) { group in
+            group.addTask { @MainActor in
+                await CloudSync.shared.sync(
+                    modelContext: modelContext,
+                    allowCreate: false,
+                    coalesce: false
+                )
+            }
+            group.addTask {
+                try? await Task.sleep(nanoseconds: 45_000_000_000)
+            }
+            await group.next()
+            group.cancelAll()
+        }
         let report = await CloudSync.shared.syncDiagnostics()
         if report.contains("Not paired") {
             session.statusMessage = report
             errorText = report
+            return
+        }
+        if report.contains("timed out") {
+            session.statusMessage = report
+            errorText = "iCloud timed out. Tap Force sync again — or Restore with code \(session.inviteCode ?? "from Messages")."
             return
         }
         session.statusMessage = report + "\nBoth phones must show the same Pair …id and code above."
