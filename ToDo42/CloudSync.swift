@@ -771,8 +771,13 @@ final class CloudSync {
             let fetched = await fetchNamedRecords(sample.map { "item-\($0)" })
             let queryMode = lastPairQuerySucceeded ? "query ok" : (lastUsedCatalogFetch ? "catalog fetch" : "query fallback")
             var line = "Pair …\(short) · \(role) · code \(code) · catalog \(live.count) · fetch \(fetched.count)/\(sample.count) · \(queryMode)"
+            if lastPullCatalogCount > 0 {
+                line += " · pulled \(lastPullFetchedCount)/\(lastPullCatalogCount)"
+            }
             if !sample.isEmpty, fetched.count < sample.count {
                 line += "\nSome catalog ids have no item row — partner should Force sync to re-upload."
+            } else if lastPullCatalogCount > 0, lastPullFetchedCount + 5 < lastPullCatalogCount {
+                line += "\nPartial catalog download — Force sync again on both phones."
             }
             return line
         } catch {
@@ -1422,13 +1427,19 @@ final class CloudSync {
             if DeletedItemLedger.contains(pairID: item.pairID, id: item.id.uuidString) { continue }
             if DeletedItemLedger.containsURL(pairID: item.pairID, urlString: item.urlString) { continue }
             let mine = item.lastEditor.isEmpty || item.lastEditor == role
-            let recent = now.timeIntervalSince(item.createdAt) < 48 * 3600
+            // Wider window so Force sync can repair “some items miss” after a
+            // failed photo upload from earlier in the day / weekend.
+            let recent = now.timeIntervalSince(item.createdAt) < 7 * 24 * 3600
             guard mine, recent else { continue }
             let recordID = CKRecord.ID(recordName: "item-\(item.id.uuidString)")
             if let existing = try? await database.record(for: recordID) {
                 if RemoteItemApply.isTombstone(notifyKind: existing["notifyKind"] as? String) {
                     // Partner (or we) already deleted this — drop the local leftover.
                     continue
+                }
+                // Row exists but may be missing its photo — best-effort attach.
+                if item.hasAnyPhotos || (item.imageData?.isEmpty == false) {
+                    try? await saveItem(item, notifyKind: "", allowCreate: false)
                 }
                 continue
             }
@@ -1536,6 +1547,9 @@ final class CloudSync {
         }
         lastPairQuerySucceeded = pairQueryOK
         lastUsedCatalogFetch = preferCatalogFetch
+        let listItems = found.values.filter { recordKind($0) == .listItem }.count
+        lastPullCatalogCount = listedIDs.count
+        lastPullFetchedCount = listItems
         return (Array(found.values), catalogComplete || !listedIDs.isEmpty)
     }
 
@@ -1543,6 +1557,8 @@ final class CloudSync {
     private(set) var lastPairQuerySucceeded = true
     /// True when the last pull skipped the pairID query and used catalog ids.
     private(set) var lastUsedCatalogFetch = false
+    private(set) var lastPullCatalogCount = 0
+    private(set) var lastPullFetchedCount = 0
 
     private func fetchRecoverableItemRecords(oldCode: String) async -> (records: [CKRecord], emptyMessage: String) {
         var found: [String: CKRecord] = [:]
@@ -1686,15 +1702,34 @@ final class CloudSync {
 
     private func fetchNamedRecords(_ names: [String]) async -> [CKRecord] {
         var records: [CKRecord] = []
+        var got = Set<String>()
         let ids = names.map { CKRecord.ID(recordName: $0) }
         var start = 0
+        // Smaller batches + per-id retry: public DB often drops part of a 100-id
+        // batch, which looked like “some items sync, others miss”.
         while start < ids.count {
-            let end = min(start + 100, ids.count)
+            let end = min(start + 40, ids.count)
             let batch = Array(ids[start..<end])
-            if let result = try? await database.records(for: batch) {
-                for id in batch {
-                    if let record = try? result[id]?.get() {
-                        records.append(record)
+            for attempt in 0..<2 {
+                if let result = try? await database.records(for: batch) {
+                    for id in batch {
+                        if let record = try? result[id]?.get() {
+                            if got.insert(id.recordName).inserted {
+                                records.append(record)
+                            }
+                        }
+                    }
+                }
+                let miss = batch.filter { !got.contains($0.recordName) }
+                if miss.isEmpty { break }
+                if attempt == 0 {
+                    try? await Task.sleep(nanoseconds: 250_000_000)
+                } else {
+                    for id in miss {
+                        if let record = try? await database.record(for: id),
+                           got.insert(id.recordName).inserted {
+                            records.append(record)
+                        }
                     }
                 }
             }
@@ -1808,12 +1843,22 @@ final class CloudSync {
         if !notifyKind.isEmpty {
             record["notifyKind"] = notifyKind
         }
-        if let data = item.imageData, !data.isEmpty {
-            let url = FileManager.default.temporaryDirectory.appendingPathComponent("\(item.id.uuidString).jpg")
-            try data.write(to: url)
-            record["image"] = CKAsset(fileURL: url)
-        }
+        // Always land the text row first. Attaching a large photo in the same
+        // save used to fail the whole upload — partner saw “some items sync,
+        // others miss”. Photo is best-effort afterward.
+        let photoData = item.imageData
         try await saveOverwriting(record)
+        if let data = photoData, !data.isEmpty {
+            do {
+                let url = FileManager.default.temporaryDirectory
+                    .appendingPathComponent("\(item.id.uuidString).jpg")
+                try data.write(to: url)
+                record["image"] = CKAsset(fileURL: url)
+                try await saveOverwriting(record)
+            } catch {
+                // Item row is already shared; photo can retry on next Force sync.
+            }
+        }
         // Bottom photos use a companion record with the existing `image` asset field.
         // Writing a second `image2` field on the item used to happen in a follow-up
         // save that failed silently on Production CloudKit, so partners never saw it.
