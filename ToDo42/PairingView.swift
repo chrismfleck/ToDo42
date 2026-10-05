@@ -335,6 +335,30 @@ struct PairingView: View {
                 Text("This phone is \(session.myHeartLabel) (\(session.role?.seatLabel ?? "?")). Hearts and new items sync to \(session.partnerHeartLabel).")
                     .font(.caption)
                     .foregroundStyle(.secondary)
+            // Wrong seat after Restore: Deena’s phone said “Chris (primary)”.
+            if session.role == .chris {
+                Text("If this is \(session.partnerHeartLabel)’s phone, the seat is wrong — fix it below.")
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(.red)
+                Button {
+                    session.becomePartner(swapIdentity: true)
+                } label: {
+                    Text("Switch to partner (\(session.partnerHeartLabel))")
+                        .font(.subheadline.weight(.bold))
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 12)
+                        .foregroundStyle(.white)
+                        .background(Color.red.opacity(0.9), in: Capsule())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Switch this phone to partner")
+            } else if session.role == .deena {
+                Button("Wrong seat? Switch this phone to primary (\(session.partnerHeartLabel))") {
+                    session.becomePrimary(swapIdentity: true)
+                }
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.secondary)
+            }
             Text(pairIdentityLine)
                 .font(.caption.weight(.semibold))
                 .foregroundStyle(.primary)
@@ -342,30 +366,6 @@ struct PairingView: View {
             Text("Both phones must show the same Pair …id and code. If they differ, Restore with the same 6-digit code on both.")
                 .font(.caption2)
                 .foregroundStyle(.secondary)
-            // Deena’s phone often landed on primary after Restore — tappable heart
-            // was labeled Chris and her own heart did nothing.
-            if session.role == .chris {
-                Button {
-                    session.becomePartner(swapIdentity: true)
-                } label: {
-                    Text("I joined with a code — switch this phone to partner")
-                        .font(.subheadline.weight(.semibold))
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 10)
-                        .foregroundStyle(.white)
-                        .background(Palette.brandBlue(colorScheme), in: Capsule())
-                }
-                .buttonStyle(.plain)
-                Text("Use this if your tappable heart shows your partner’s name.")
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
-            } else if session.role == .deena {
-                Button("This phone sent the invite — switch to primary") {
-                    session.becomePrimary(swapIdentity: true)
-                }
-                .font(.caption.weight(.semibold))
-                .foregroundStyle(.secondary)
-            }
             if let code = session.inviteCode {
                 Text("Invite code: \(code)")
                     .font(.subheadline.weight(.semibold))

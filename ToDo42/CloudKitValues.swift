@@ -165,9 +165,11 @@ enum PartnerHeartMerge {
         localDeena: Bool,
         remoteDeena: Bool
     ) -> Bool {
-        // Partner owns deenaHearted. If the partner phone is stuck on primary,
-        // saveHeart still uploads both flags so remoteDeena carries their tap.
-        myRole == .deena ? localDeena : remoteDeena
+        if myRole == .deena { return localDeena }
+        // Partner phone stuck on primary: keep a local partner-heart until
+        // CloudKit catches up (role-gated merge used to wipe her tap on pull).
+        if localDeena { return true }
+        return remoteDeena
     }
 }
 

@@ -1090,31 +1090,46 @@ final class CloudSync {
         session.pairID = pairID
         session.inviteCode = code
 
-        var role: PairRole = priorRole ?? .chris
+        // Default Restore to partner. Empty-name Restore used to assume primary
+        // and fill "Your name" with the host (Deena’s phone became “Chris”).
+        var role: PairRole = priorRole ?? (session.joinedAsGuest ? .deena : .deena)
         if let pair = try? await database.record(for: CKRecord.ID(recordName: "pair-\(pairID)")) {
             let host = (pair["hostName"] as? String ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
             let guest = (pair["guestName"] as? String ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
             let me = session.trimmedMyName
             let partner = session.trimmedPartnerName
             if priorRole == nil {
-                if !me.isEmpty, me.caseInsensitiveCompare(guest) == .orderedSame {
+                if session.joinedAsGuest {
                     role = .deena
-                } else if !me.isEmpty, me.caseInsensitiveCompare(host) == .orderedSame {
+                } else if !me.isEmpty, me.caseInsensitiveCompare(host) == .orderedSame,
+                          guest.isEmpty || me.caseInsensitiveCompare(guest) != .orderedSame {
+                    // Only claim primary when this phone already knows it is the host.
                     role = .chris
+                } else if !me.isEmpty, me.caseInsensitiveCompare(guest) == .orderedSame {
+                    role = .deena
                 } else if !partner.isEmpty, partner.caseInsensitiveCompare(host) == .orderedSame {
                     role = .deena
-                } else if !partner.isEmpty, partner.caseInsensitiveCompare(guest) == .orderedSame {
+                } else if !partner.isEmpty, partner.caseInsensitiveCompare(guest) == .orderedSame,
+                          !me.isEmpty, me.caseInsensitiveCompare(host) == .orderedSame {
                     role = .chris
                 } else {
-                    role = .chris
+                    role = .deena
                 }
             }
             if role == .chris {
                 if session.trimmedMyName.isEmpty, !host.isEmpty { session.myName = host }
                 if session.trimmedPartnerName.isEmpty, !guest.isEmpty { session.partnerName = guest }
+                session.markJoinedAsGuest(false)
             } else {
                 if session.trimmedMyName.isEmpty, !guest.isEmpty { session.myName = guest }
                 if session.trimmedPartnerName.isEmpty, !host.isEmpty { session.partnerName = host }
+                // If Restore left us as partner but names still say host/guest swapped
+                // (myName == Chris, partner == Deena), flip labels to match the seat.
+                if !host.isEmpty, session.trimmedMyName.caseInsensitiveCompare(host) == .orderedSame {
+                    session.myName = guest.isEmpty ? session.partnerName : guest
+                    session.partnerName = host
+                }
+                session.markJoinedAsGuest(true)
             }
             CategoryNames.shared.applyRemoteJSON(pair[CategoryNames.cloudField] as? String)
         }
