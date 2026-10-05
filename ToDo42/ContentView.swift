@@ -1366,6 +1366,9 @@ private struct LockedText: UIViewRepresentable {
         label.numberOfLines = lines
         label.lineBreakMode = .byTruncatingTail
         label.adjustsFontForContentSizeCategory = false
+        // UILabels participate in UIKit hit-testing and can steal taps from the
+        // neighboring LazyVGrid card when the title sits near the column gap.
+        label.isUserInteractionEnabled = false
         label.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         label.setContentHuggingPriority(.defaultLow, for: .horizontal)
         return label
