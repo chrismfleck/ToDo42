@@ -156,6 +156,7 @@ enum PartnerHeartMerge {
         localChris: Bool,
         remoteChris: Bool
     ) -> Bool {
+        // Primary owns chrisHearted; everyone else takes the cloud value.
         myRole == .chris ? localChris : remoteChris
     }
 
@@ -164,6 +165,8 @@ enum PartnerHeartMerge {
         localDeena: Bool,
         remoteDeena: Bool
     ) -> Bool {
+        // Partner owns deenaHearted. If the partner phone is stuck on primary,
+        // saveHeart still uploads both flags so remoteDeena carries their tap.
         myRole == .deena ? localDeena : remoteDeena
     }
 }

@@ -59,6 +59,8 @@ final class PairSession {
     var isComposingNewPair = false
     /// Bumps when a local head photo changes so SwiftUI refreshes initials/photos.
     var headPhotoRevision = 0
+    /// Which seat heart the user just tapped (so saveHeart writes that flag only).
+    var pendingHeartSeat: PairRole?
 
     private let defaults = UserDefaults.standard
     private let appGroupDefaults = UserDefaults(suiteName: AppGroup.id)
@@ -437,7 +439,7 @@ final class PairSession {
         return editor.capitalized
     }
 
-    func noteLocalEdit(_ item: TodoItem, kind: String) {
+    func noteLocalEdit(_ item: TodoItem, kind: String, heartSeat: PairRole? = nil) {
         // Always stamp locally first. Skipping the stamp while a pull runs let
         // catalog cleanup treat a just-added bottom photo as "missing remotely"
         // and delete it before the companion upload landed.
@@ -447,6 +449,9 @@ final class PairSession {
         if kind == "add" {
             let pair = item.pairID.isEmpty ? pairID : item.pairID
             DeletedItemLedger.allowAgain(pairID: pair, urlString: item.urlString, id: item.id)
+        }
+        if kind == "heart" {
+            pendingHeartSeat = heartSeat
         }
         item.updatedAt = Date()
         item.lastEditor = role?.rawValue ?? ""
@@ -630,6 +635,7 @@ final class CloudSync {
         session.pairID = pairID
         session.role = .chris
         session.inviteCode = code
+        session.markJoinedAsGuest(false)
         session.markComposeFinished()
         session.persistLocal()
         try await subscribe()
@@ -693,6 +699,7 @@ final class CloudSync {
         session.pairID = pairID
         session.role = .deena
         session.inviteCode = trimmed
+        session.markJoinedAsGuest(true)
         session.markComposeFinished()
         if !host.isEmpty {
             session.partnerName = host
@@ -904,7 +911,13 @@ final class CloudSync {
             record["createdAt"] = item.createdAt
         }
         record["pairID"] = effectivePair
-        switch PairSession.shared.role {
+        // Write the seat the user tapped. Falls back to this phone's role.
+        // Writing only one flag avoids wiping the partner's heart when local
+        // state is stale; writing by tap (not role) lets a wrong-seat phone
+        // sync the heart next to their headshot.
+        let seat = PairSession.shared.pendingHeartSeat ?? PairSession.shared.role
+        PairSession.shared.pendingHeartSeat = nil
+        switch seat {
         case .chris:
             record["chrisHearted"] = item.chrisHearted ? 1 : 0
         case .deena:

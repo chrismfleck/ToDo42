@@ -1713,91 +1713,97 @@ struct ItemDetailView: View {
 
     @ViewBuilder
     private var itemActionRow: some View {
-        // Own heart always on the left (tappable). Partner heart on the right
-        // (display only). Labels come from pair names after seat reconcile.
+        // Hearts are bound to seats (primary field / partner field), not to
+        // "left = this phone". Deena’s phone often still thinks it is primary,
+        // so a me/partner layout put her headshot on a dead control.
         HStack(spacing: 16) {
-            HStack(spacing: 6) {
-                PartnerHeartButton(
-                    name: pairSession.myHeartLabel,
-                    isOn: myHeartValue,
-                    size: 18
-                ) {
-                    toggleMyHeart()
-                }
-                if pairSession.isPaired {
-                    PairHeadButton(
-                        label: pairSession.myHeartLabel,
-                        tint: Color(red: 0.20, green: 0.48, blue: 0.98),
-                        size: 52,
-                        imageData: pairSession.headImageData(slot: .me)
-                    ) {
-                        if pairSession.hasMultiplePairs {
-                            pairSession.switchToNextPair()
-                        }
-                    }
-                    .accessibilityLabel(
-                        pairSession.hasMultiplePairs
-                            ? "Switch list. You are \(pairSession.myHeartLabel)"
-                            : "You, \(pairSession.myHeartLabel)"
-                    )
-                }
+            seatHeartCluster(
+                name: hostHeartLabel,
+                isOn: item.chrisHearted,
+                tint: Color(red: 0.20, green: 0.48, blue: 0.98),
+                imageData: hostHeadData,
+                accessibilityName: hostHeartLabel
+            ) {
+                toggleSeatHeart(isPrimarySeat: true)
             }
-            HStack(spacing: 6) {
-                PartnerHeartButton(
-                    name: pairSession.partnerHeartLabel,
-                    isOn: partnerHeartValue,
-                    interactive: false,
-                    size: 18
-                )
-                if pairSession.isPaired {
-                    PairHeadButton(
-                        label: pairSession.partnerHeartLabel,
-                        tint: Color(red: 0.22, green: 0.78, blue: 0.55),
-                        size: 52,
-                        imageData: pairSession.headImageData(slot: .partner)
-                    ) {
-                        if pairSession.hasMultiplePairs {
-                            pairSession.switchToNextPair()
-                        }
-                    }
-                    .accessibilityLabel(
-                        pairSession.hasMultiplePairs
-                            ? "Switch list. Current partner \(pairSession.partnerHeartLabel)"
-                            : "Partner \(pairSession.partnerHeartLabel)"
-                    )
-                }
+            seatHeartCluster(
+                name: guestHeartLabel,
+                isOn: item.deenaHearted,
+                tint: Color(red: 0.22, green: 0.78, blue: 0.55),
+                imageData: guestHeadData,
+                accessibilityName: guestHeartLabel
+            ) {
+                toggleSeatHeart(isPrimarySeat: false)
             }
             DoneCheckButton(isDone: $item.isDone, size: 18, name: "Done")
         }
         .frame(maxWidth: .infinity)
     }
 
-    private var myHeartValue: Bool {
-        // Always bind the tappable heart to this phone's CloudKit seat — not to
-        // whatever string is in the name field (names were swapped on Deena).
-        switch pairSession.role {
-        case .deena: return item.deenaHearted
-        case .chris, nil: return item.chrisHearted
+    private var hostHeartLabel: String {
+        let name = pairSession.hostName
+        return name.isEmpty ? "Primary" : name
+    }
+
+    private var guestHeartLabel: String {
+        let name = pairSession.guestName
+        return name.isEmpty ? "Partner" : name
+    }
+
+    private var hostHeadData: Data? {
+        pairSession.role == .deena
+            ? pairSession.headImageData(slot: .partner)
+            : pairSession.headImageData(slot: .me)
+    }
+
+    private var guestHeadData: Data? {
+        pairSession.role == .deena
+            ? pairSession.headImageData(slot: .me)
+            : pairSession.headImageData(slot: .partner)
+    }
+
+    @ViewBuilder
+    private func seatHeartCluster(
+        name: String,
+        isOn: Bool,
+        tint: Color,
+        imageData: Data?,
+        accessibilityName: String,
+        onToggle: @escaping () -> Void
+    ) -> some View {
+        HStack(spacing: 6) {
+            PartnerHeartButton(name: name, isOn: isOn, size: 18, onTap: onToggle)
+            if pairSession.isPaired {
+                PairHeadButton(
+                    label: name,
+                    tint: tint,
+                    size: 52,
+                    imageData: imageData
+                ) {
+                    if pairSession.hasMultiplePairs {
+                        pairSession.switchToNextPair()
+                    } else {
+                        onToggle()
+                    }
+                }
+                .accessibilityLabel("\(accessibilityName). Tap to heart")
+            }
         }
     }
 
-    private var partnerHeartValue: Bool {
-        switch pairSession.role {
-        case .deena: return item.chrisHearted
-        case .chris, nil: return item.deenaHearted
-        }
-    }
-
-    private func toggleMyHeart() {
-        switch pairSession.role {
-        case .deena:
-            item.deenaHearted.toggle()
-        case .chris, nil:
+    private func toggleSeatHeart(isPrimarySeat: Bool) {
+        if isPrimarySeat {
             item.chrisHearted.toggle()
+        } else {
+            item.deenaHearted.toggle()
         }
         item.updatedAt = Date()
         try? modelContext.save()
-        PairSession.shared.noteLocalEdit(item, kind: "heart")
+        PairSession.shared.noteLocalEdit(
+            item,
+            kind: "heart",
+            heartSeat: isPrimarySeat ? .chris : .deena
+        )
     }
 
     @ViewBuilder
