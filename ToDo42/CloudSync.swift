@@ -723,27 +723,16 @@ final class CloudSync {
         guard PairSession.shared.isPaired else { return }
         await enqueue {
             do {
-                // List the id in the shared catalog BEFORE writing the TDItem row.
-                // Subscriptions fire only on TDItem, so a partner pull triggered by
-                // saveItem used to race ahead of registerItemIDs and skip the new
-                // row as a "catalog orphan" (Build 153+ catalogReady gate).
-                if notifyKind == "add" {
-                    do {
-                        try await self.registerItemIDs([item.id.uuidString], retries: 5)
-                    } catch {
-                        // Still save the item — partner pull can accept provisional
-                        // adds / push-hint fetches. Surface the catalog error.
-                        PairSession.shared.statusMessage = Self.friendlyMessage(error)
-                    }
-                }
+                // Save the TDItem row FIRST. Registering the catalog id before
+                // save left orphan catalog entries when Production rejected the
+                // row (Chris saw catalog N↑ but fetch 3/5 — no item to download).
+                // Partner pull still accepts provisional / push-hinted adds while
+                // the post-save catalog register catches up.
                 try await self.saveItem(item, notifyKind: notifyKind)
-                // Catalog must land even if the first register raced. Retries cover
-                // brief pair-record conflicts without failing the whole upload.
                 do {
                     try await self.registerItemIDs([item.id.uuidString], retries: 5)
                     PairSession.shared.statusMessage = ""
                 } catch {
-                    // Item row is already on iCloud; catalog miss is recoverable.
                     PairSession.shared.statusMessage = notifyKind == "add"
                         ? "Saved item; catalog retry needed — tap Force sync."
                         : Self.friendlyMessage(error)
