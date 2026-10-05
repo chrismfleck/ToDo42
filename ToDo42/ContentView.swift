@@ -836,10 +836,20 @@ struct ContentView: View {
                                         selectedItem = item
                                     } label: {
                                         ItemRowView(item: item)
+                                            // Keep taps inside this card — without a shape,
+                                            // the right column often stole the left card’s
+                                            // right edge (especially over LockedText/UILabel).
+                                            .contentShape(
+                                                RoundedRectangle(cornerRadius: 18, style: .continuous)
+                                            )
                                     }
                                     .buttonStyle(.plain)
+                                    .clipShape(
+                                        RoundedRectangle(cornerRadius: 18, style: .continuous)
+                                    )
                                 }
                             }
+                            .clipped()
                             .offset(y: reorderOffset(for: item))
                             .zIndex(reorderDrag?.id == item.id ? 1 : 0)
                             .scaleEffect(reorderDrag?.id == item.id ? 1.02 : 1)
