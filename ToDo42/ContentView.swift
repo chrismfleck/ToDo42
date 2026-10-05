@@ -1774,19 +1774,15 @@ struct ItemDetailView: View {
         HStack(spacing: 6) {
             PartnerHeartButton(name: name, isOn: isOn, size: 18, onTap: onToggle)
             if pairSession.isPaired {
-                PairHeadButton(
+                // Display only — pair switching stays on the home header heads.
+                PairHeadAvatar(
                     label: name,
                     tint: tint,
                     size: 52,
                     imageData: imageData
-                ) {
-                    if pairSession.hasMultiplePairs {
-                        pairSession.switchToNextPair()
-                    } else {
-                        onToggle()
-                    }
-                }
-                .accessibilityLabel("\(accessibilityName). Tap to heart")
+                )
+                .accessibilityLabel(accessibilityName)
+                .accessibilityAddTraits(.isImage)
             }
         }
     }
