@@ -1713,6 +1713,8 @@ struct ItemDetailView: View {
 
     @ViewBuilder
     private var itemActionRow: some View {
+        // Own heart always on the left (tappable). Partner heart on the right
+        // (display only). Labels come from pair names after seat reconcile.
         HStack(spacing: 16) {
             HStack(spacing: 6) {
                 PartnerHeartButton(
@@ -1771,17 +1773,26 @@ struct ItemDetailView: View {
     }
 
     private var myHeartValue: Bool {
-        isGuest ? item.deenaHearted : item.chrisHearted
+        // Always bind the tappable heart to this phone's CloudKit seat — not to
+        // whatever string is in the name field (names were swapped on Deena).
+        switch pairSession.role {
+        case .deena: return item.deenaHearted
+        case .chris, nil: return item.chrisHearted
+        }
     }
 
     private var partnerHeartValue: Bool {
-        isGuest ? item.chrisHearted : item.deenaHearted
+        switch pairSession.role {
+        case .deena: return item.chrisHearted
+        case .chris, nil: return item.deenaHearted
+        }
     }
 
     private func toggleMyHeart() {
-        if isGuest {
+        switch pairSession.role {
+        case .deena:
             item.deenaHearted.toggle()
-        } else {
+        case .chris, nil:
             item.chrisHearted.toggle()
         }
         item.updatedAt = Date()

@@ -326,9 +326,59 @@ final class PairSession {
                 changed = true
             }
         }
+        if reconcileSeat(host: hostName, guest: guestName) {
+            changed = true
+        }
         if changed {
             persistLocal()
         }
+    }
+
+    /// Fix inverted names / wrong seat after Restore (Deena’s phone showed
+    /// “Chris” on the tappable heart and her own heart did nothing).
+    @discardableResult
+    func reconcileSeat(host: String, guest: String) -> Bool {
+        let me = trimmedMyName
+        let partner = trimmedPartnerName
+        guard !me.isEmpty else { return false }
+        var changed = false
+
+        // This phone has the primary seat but its name is the CloudKit guest —
+        // it is the partner device (common after Restore).
+        if role == .chris || role == nil,
+           !guest.isEmpty,
+           me.caseInsensitiveCompare(guest) == .orderedSame {
+            role = .deena
+            if !host.isEmpty { partnerName = host }
+            myName = guest
+            changed = true
+        }
+
+        // Partner seat but local names are swapped (myName is host).
+        if role == .deena,
+           !host.isEmpty,
+           me.caseInsensitiveCompare(host) == .orderedSame {
+            myName = guest.isEmpty ? partner : guest
+            partnerName = host
+            changed = true
+        }
+
+        // Partner seat: partner label should be the host, not ourselves.
+        if role == .deena,
+           !host.isEmpty,
+           (partner.isEmpty
+            || partner.caseInsensitiveCompare(me) == .orderedSame
+            || (!guest.isEmpty && partner.caseInsensitiveCompare(guest) == .orderedSame
+                && me.caseInsensitiveCompare(guest) != .orderedSame)) {
+            // If partner name equals guest but I'm not the guest name, leave it;
+            // if partner name equals my name, replace with host.
+            if partner.caseInsensitiveCompare(me) == .orderedSame || partner.isEmpty {
+                partnerName = host
+                changed = true
+            }
+        }
+
+        return changed
     }
 
     func displayName(forEditor editor: String) -> String {
