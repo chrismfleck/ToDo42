@@ -664,9 +664,11 @@ final class CloudSync {
             defer { self.isBusySyncing = false }
             do {
                 try await self.ensureiCloud()
-                let shouldRefreshSubs = self.lastSubscribeAt.map { Date().timeIntervalSince($0) > 600 } ?? true
+                // Refresh push subscriptions every Force sync / first sync so
+                // v6 partner-only alerts replace older “notify both phones” subs.
+                let shouldRefreshSubs = preferCatalogFetch
+                    || self.lastSubscribeAt.map { Date().timeIntervalSince($0) > 600 } ?? true
                 if shouldRefreshSubs {
-                    // Subscription refresh must not block Force sync forever.
                     _ = try? await self.withTimeout(seconds: 10) {
                         try await self.subscribe()
                     }
@@ -1521,25 +1523,31 @@ final class CloudSync {
         // Second pass for catalog ids still missing (CloudKit eventually
         // consistent after a partner save — one miss used to drop new items).
         let stillMissing = listedIDs.filter { found["item-\($0)"] == nil }
-        if !stillMissing.isEmpty {
-            try? await Task.sleep(nanoseconds: 400_000_000)
+        if !stillMissing.isEmpty, stillMissing.count <= 80 {
+            try? await Task.sleep(nanoseconds: 300_000_000)
             for record in await fetchNamedRecords(stillMissing.map { "item-\($0)" }) {
                 found[record.recordID.recordName] = record
             }
         }
-        let missingExtras = listedIDs.filter { found["extra-\($0)"] == nil }
+        // Extra photos only for list items we actually downloaded — fetching
+        // extras for every catalog id made Force sync crawl for minutes.
+        let fetchedListIDs = found.values.compactMap { record -> String? in
+            guard recordKind(record) == .listItem else { return nil }
+            return record["itemID"] as? String
+        }
+        let missingExtras = fetchedListIDs.filter { found["extra-\($0)"] == nil }
         if !missingExtras.isEmpty {
             for record in await fetchNamedRecords(missingExtras.map { "extra-\($0)" }) {
                 found[record.recordID.recordName] = record
             }
         }
-        let missingExtra2 = listedIDs.filter { found["extra2-\($0)"] == nil }
+        let missingExtra2 = fetchedListIDs.filter { found["extra2-\($0)"] == nil }
         if !missingExtra2.isEmpty {
             for record in await fetchNamedRecords(missingExtra2.map { "extra2-\($0)" }) {
                 found[record.recordID.recordName] = record
             }
         }
-        let missingExtra3 = listedIDs.filter { found["extra3-\($0)"] == nil }
+        let missingExtra3 = fetchedListIDs.filter { found["extra3-\($0)"] == nil }
         if !missingExtra3.isEmpty {
             for record in await fetchNamedRecords(missingExtra3.map { "extra3-\($0)" }) {
                 found[record.recordID.recordName] = record
@@ -1705,28 +1713,23 @@ final class CloudSync {
         var got = Set<String>()
         let ids = names.map { CKRecord.ID(recordName: $0) }
         var start = 0
-        // Smaller batches + per-id retry: public DB often drops part of a 100-id
-        // batch, which looked like “some items sync, others miss”.
         while start < ids.count {
-            let end = min(start + 40, ids.count)
+            let end = min(start + 50, ids.count)
             let batch = Array(ids[start..<end])
-            for attempt in 0..<2 {
-                if let result = try? await database.records(for: batch) {
-                    for id in batch {
-                        if let record = try? result[id]?.get() {
-                            if got.insert(id.recordName).inserted {
-                                records.append(record)
-                            }
-                        }
+            if let result = try? await database.records(for: batch) {
+                for id in batch {
+                    if let record = try? result[id]?.get(),
+                       got.insert(id.recordName).inserted {
+                        records.append(record)
                     }
                 }
-                let miss = batch.filter { !got.contains($0.recordName) }
-                if miss.isEmpty { break }
-                if attempt == 0 {
-                    try? await Task.sleep(nanoseconds: 250_000_000)
-                } else {
+            }
+            let miss = batch.filter { !got.contains($0.recordName) }
+            if !miss.isEmpty {
+                try? await Task.sleep(nanoseconds: 200_000_000)
+                if let result = try? await database.records(for: miss) {
                     for id in miss {
-                        if let record = try? await database.record(for: id),
+                        if let record = try? result[id]?.get(),
                            got.insert(id.recordName).inserted {
                             records.append(record)
                         }
@@ -2125,10 +2128,12 @@ final class CloudSync {
               let myRole = PairSession.shared.role else { return }
         let partnerRole = myRole == .chris ? PairRole.deena.rawValue : PairRole.chris.rawValue
         let prefix = pairID.prefix(8)
-        let alertID = "todo42-alert-v5-\(prefix)-\(myRole.rawValue)"
-        let silentID = "todo42-silent-v5-\(prefix)-\(myRole.rawValue)"
+        // v6: alert only for partner edits — v5's last-resort pairID predicate
+        // made BOTH phones banner on every local save.
+        let alertID = "todo42-alert-v6-\(prefix)-\(myRole.rawValue)"
+        let silentID = "todo42-silent-v6-\(prefix)-\(myRole.rawValue)"
 
-        let migrateKey = "todo42.pushSub.v5.\(prefix)"
+        let migrateKey = "todo42.pushSub.v6.\(prefix)"
         if !UserDefaults.standard.bool(forKey: migrateKey) {
             for oldID in [
                 "todo42-tditem-\(prefix)",
@@ -2136,6 +2141,8 @@ final class CloudSync {
                 "todo42-alert-\(prefix)-\(myRole.rawValue)",
                 "todo42-alert-v4-\(prefix)-\(myRole.rawValue)",
                 "todo42-silent-v4-\(prefix)-\(myRole.rawValue)",
+                "todo42-alert-v5-\(prefix)-\(myRole.rawValue)",
+                "todo42-silent-v5-\(prefix)-\(myRole.rawValue)",
             ] {
                 try? await database.deleteSubscription(withID: oldID)
             }
@@ -2145,8 +2152,7 @@ final class CloudSync {
         let silentInfo = CKSubscription.NotificationInfo()
         silentInfo.shouldSendContentAvailable = true
         silentInfo.shouldBadge = false
-        // Prefer the broad pairID predicate. Role-filtered alert subs below can
-        // miss updates when Restore assigned both phones the same role.
+        // Silent wake on any pair change (for pull). No lock-screen banner.
         let silent = CKQuerySubscription(
             recordType: "TDItem",
             predicate: NSPredicate(format: "pairID == %@", pairID),
@@ -2157,17 +2163,16 @@ final class CloudSync {
         do {
             _ = try await database.save(silent)
         } catch {
-            // Already exists with same id — force replace once.
             try? await database.deleteSubscription(withID: silentID)
             try? await database.save(silent)
         }
 
+        // Visible banners: partner edits only. Never fall back to pairID-only —
+        // that notified the sender too.
         let notifyKinds = ["add", "heart", "edit", "reorder", "delete"]
         let predicates = [
             NSPredicate(format: "pairID == %@ AND lastEditor == %@ AND notifyKind IN %@", pairID, partnerRole, notifyKinds),
             NSPredicate(format: "pairID == %@ AND lastEditor == %@", pairID, partnerRole),
-            // Last resort when Restore assigned both phones the same role.
-            NSPredicate(format: "pairID == %@", pairID),
         ]
         for predicate in predicates {
             let subscription = CKQuerySubscription(
