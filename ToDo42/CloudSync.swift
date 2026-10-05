@@ -649,7 +649,8 @@ final class CloudSync {
         modelContext: ModelContext,
         allowCreate: Bool = false,
         hintRecordIDs: [CKRecord.ID] = [],
-        coalesce: Bool = true
+        coalesce: Bool = true,
+        preferCatalogFetch: Bool = false
     ) async {
         guard PairSession.shared.isPaired else { return }
         // Background polls coalesce onto the in-flight sync instead of queueing
@@ -688,9 +689,17 @@ final class CloudSync {
                     try await self.pushAll(pairItems, allowCreate: true)
                     // Restore may create rows that were never catalogued — list them once.
                     try? await self.registerItemIDs(pairItems.map(\.id.uuidString))
-                    try await self.pull(modelContext: modelContext, hintRecordIDs: hintRecordIDs)
+                    try await self.pull(
+                        modelContext: modelContext,
+                        hintRecordIDs: hintRecordIDs,
+                        preferCatalogFetch: preferCatalogFetch
+                    )
                 } else {
-                    try await self.pull(modelContext: modelContext, hintRecordIDs: hintRecordIDs)
+                    try await self.pull(
+                        modelContext: modelContext,
+                        hintRecordIDs: hintRecordIDs,
+                        preferCatalogFetch: preferCatalogFetch
+                    )
                     let afterPull = ItemStore.items(
                         forPair: PairSession.shared.pairID,
                         in: modelContext,
@@ -760,8 +769,12 @@ final class CloudSync {
             let live = CloudKitValues.liveItemIDs(in: pair["itemIDs"] as? String)
             let sample = Array(live.suffix(5))
             let fetched = await fetchNamedRecords(sample.map { "item-\($0)" })
-            let queryMode = lastPairQuerySucceeded ? "query ok" : "query fallback"
-            return "Pair …\(short) · \(role) · code \(code) · catalog \(live.count) · fetch \(fetched.count)/\(sample.count) · \(queryMode)"
+            let queryMode = lastPairQuerySucceeded ? "query ok" : (lastUsedCatalogFetch ? "catalog fetch" : "query fallback")
+            var line = "Pair …\(short) · \(role) · code \(code) · catalog \(live.count) · fetch \(fetched.count)/\(sample.count) · \(queryMode)"
+            if !sample.isEmpty, fetched.count < sample.count {
+                line += "\nSome catalog ids have no item row — partner should Force sync to re-upload."
+            }
+            return line
         } catch {
             return "Pair …\(short) · \(role) · code \(code) · \(Self.friendlyMessage(error))"
         }
@@ -1017,7 +1030,8 @@ final class CloudSync {
 
     private func pull(
         modelContext: ModelContext,
-        hintRecordIDs: [CKRecord.ID] = []
+        hintRecordIDs: [CKRecord.ID] = [],
+        preferCatalogFetch: Bool = false
     ) async throws {
         guard let pairID = PairSession.shared.pairID else { return }
         let pair: CKRecord
@@ -1050,7 +1064,8 @@ final class CloudSync {
         let fetched = await fetchRemoteItemRecords(
             pairID: pairID,
             listedIDs: listedIDs,
-            hintRecordIDs: hintRecordIDs
+            hintRecordIDs: hintRecordIDs,
+            preferCatalogFetch: preferCatalogFetch
         )
         let remote = fetched.records.filter { recordKind($0) == .listItem }
         let extraRecords = fetched.records.filter { recordKind($0) == .extraPhoto }
@@ -1432,7 +1447,8 @@ final class CloudSync {
     private func fetchRemoteItemRecords(
         pairID: String,
         listedIDs: [String],
-        hintRecordIDs: [CKRecord.ID] = []
+        hintRecordIDs: [CKRecord.ID] = [],
+        preferCatalogFetch: Bool = false
     ) async -> (records: [CKRecord], catalogComplete: Bool) {
         var found: [String: CKRecord] = [:]
         var catalogComplete = false
@@ -1442,19 +1458,21 @@ final class CloudSync {
             predicate: NSPredicate(format: "pairID == %@", pairID)
         )
         var pairQueryOK = false
-        // Cap the pairID query — Production public DB can hang forever, which
-        // left Force sync stuck on “Syncing with iCloud…”.
-        do {
-            let queried = try await withTimeout(seconds: 12) {
-                try await self.queryAll(pairQuery)
+        // Force sync skips the pairID query — it often hangs/times out on
+        // Production and burned the whole sync before catalog downloads finished.
+        if !preferCatalogFetch {
+            do {
+                let queried = try await withTimeout(seconds: 8) {
+                    try await self.queryAll(pairQuery)
+                }
+                pairQueryOK = true
+                catalogComplete = true
+                for record in queried {
+                    found[record.recordID.recordName] = record
+                }
+            } catch {
+                pairQueryOK = false
             }
-            pairQueryOK = true
-            catalogComplete = true
-            for record in queried {
-                found[record.recordID.recordName] = record
-            }
-        } catch {
-            pairQueryOK = false
         }
 
         // Do NOT fall back to querying every TDItem in the public DB — that can
@@ -1474,20 +1492,27 @@ final class CloudSync {
         }
 
         // Named-fetch catalog ids the query missed. When the pairID query fails
-        // (common on Production public DB), fetch the whole catalog by id so
-        // new adds still sync — the old "last 30 only" tail missed fresh rows
-        // that never made it into a successful query.
+        // (or Force sync asks for catalog-first), fetch the shared catalog by id.
         let missing = listedIDs.filter { found["item-\($0)"] == nil }
         let refreshNames: [String]
         if pairQueryOK {
             refreshNames = Array(Set(missing + Array(listedIDs.suffix(30))))
-        } else if listedIDs.count <= 250 {
+        } else if listedIDs.count <= 400 {
             refreshNames = Array(Set(missing + listedIDs))
         } else {
-            refreshNames = Array(Set(missing + Array(listedIDs.suffix(60))))
+            refreshNames = Array(Set(missing + Array(listedIDs.suffix(80))))
         }
         if !refreshNames.isEmpty {
             for record in await fetchNamedRecords(refreshNames.map { "item-\($0)" }) {
+                found[record.recordID.recordName] = record
+            }
+        }
+        // Second pass for catalog ids still missing (CloudKit eventually
+        // consistent after a partner save — one miss used to drop new items).
+        let stillMissing = listedIDs.filter { found["item-\($0)"] == nil }
+        if !stillMissing.isEmpty {
+            try? await Task.sleep(nanoseconds: 400_000_000)
+            for record in await fetchNamedRecords(stillMissing.map { "item-\($0)" }) {
                 found[record.recordID.recordName] = record
             }
         }
@@ -1510,11 +1535,14 @@ final class CloudSync {
             }
         }
         lastPairQuerySucceeded = pairQueryOK
+        lastUsedCatalogFetch = preferCatalogFetch
         return (Array(found.values), catalogComplete || !listedIDs.isEmpty)
     }
 
     /// For Force sync diagnostics — false when Production pairID query failed.
     private(set) var lastPairQuerySucceeded = true
+    /// True when the last pull skipped the pairID query and used catalog ids.
+    private(set) var lastUsedCatalogFetch = false
 
     private func fetchRecoverableItemRecords(oldCode: String) async -> (records: [CKRecord], emptyMessage: String) {
         var found: [String: CKRecord] = [:]

@@ -688,22 +688,15 @@ struct PairingView: View {
         session.isBusy = true
         session.statusMessage = "Syncing with iCloud…"
         defer { session.isBusy = false }
-        // Hard ceiling so the Force sync button cannot stick on Syncing…
-        // when CloudKit's public DB hangs (seen after App Store 1.0.3).
-        await withTaskGroup(of: Void.self) { group in
-            group.addTask { @MainActor in
-                await CloudSync.shared.sync(
-                    modelContext: modelContext,
-                    allowCreate: false,
-                    coalesce: false
-                )
-            }
-            group.addTask {
-                try? await Task.sleep(nanoseconds: 45_000_000_000)
-            }
-            await group.next()
-            group.cancelAll()
-        }
+        // Always wait for sync to finish. A 45s cancel used to abort catalog
+        // downloads on query-fallback (Chris saw catalog 149 / fetch 3/5 and
+        // never received Deena’s new rows).
+        await CloudSync.shared.sync(
+            modelContext: modelContext,
+            allowCreate: false,
+            coalesce: false,
+            preferCatalogFetch: true
+        )
         let report = await CloudSync.shared.syncDiagnostics()
         if report.contains("Not paired") {
             session.statusMessage = report
@@ -716,8 +709,8 @@ struct PairingView: View {
             return
         }
         session.statusMessage = report + "\nBoth phones must show the same Pair …id and code above."
-        if report.contains("query fallback") {
-            session.statusMessage += "\nIf new items still don’t appear, Restore with the same 6-digit code on both phones."
+        if report.contains("query fallback") || report.contains("catalog fetch") {
+            session.statusMessage += "\nIf new items still don’t appear, have your partner Force sync, then try again."
         }
     }
 }
