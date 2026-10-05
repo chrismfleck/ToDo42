@@ -402,7 +402,7 @@ struct PairingView: View {
             }
             return String(id.suffix(8))
         }()
-        let role = session.role?.rawValue ?? "?"
+        let role = session.role?.seatLabel ?? "?"
         let code = session.inviteCode ?? "no-code"
         return "Pair …\(short) · \(role) · code \(code)"
     }

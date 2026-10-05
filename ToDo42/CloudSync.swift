@@ -8,6 +8,14 @@ import UserNotifications
 enum PairRole: String, Codable {
     case chris
     case deena
+
+    /// User-facing seat label. CloudKit still stores `chris` / `deena`.
+    var seatLabel: String {
+        switch self {
+        case .chris: return "primary"
+        case .deena: return "partner"
+        }
+    }
 }
 
 struct PairProfile: Codable, Identifiable, Hashable {
@@ -748,7 +756,7 @@ final class CloudSync {
         guard let pairID = PairSession.shared.pairID else {
             return "Not paired — Restore with the 6-digit code first."
         }
-        let role = PairSession.shared.role?.rawValue ?? "?"
+        let role = PairSession.shared.role?.seatLabel ?? "?"
         let code = PairSession.shared.inviteCode ?? "no-code"
         let short = String(pairID.suffix(8))
         do {
