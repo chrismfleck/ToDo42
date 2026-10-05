@@ -694,7 +694,15 @@ struct PairingView: View {
             coalesce: false
         )
         let report = await CloudSync.shared.syncDiagnostics()
-        session.statusMessage = report
+        if report.contains("Not paired") {
+            session.statusMessage = report
+            errorText = report
+            return
+        }
+        session.statusMessage = report + "\nBoth phones must show the same Pair …id and code above."
+        if report.contains("query fallback") {
+            session.statusMessage += "\nIf new items still don’t appear, Restore with the same 6-digit code on both phones."
+        }
     }
 }
 

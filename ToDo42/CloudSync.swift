@@ -726,7 +726,7 @@ final class CloudSync {
                 // row as a "catalog orphan" (Build 153+ catalogReady gate).
                 if notifyKind == "add" {
                     do {
-                        try await self.registerItemIDs([item.id.uuidString], retries: 3)
+                        try await self.registerItemIDs([item.id.uuidString], retries: 5)
                     } catch {
                         // Still save the item — partner pull can accept provisional
                         // adds / push-hint fetches. Surface the catalog error.
@@ -737,7 +737,7 @@ final class CloudSync {
                 // Catalog must land even if the first register raced. Retries cover
                 // brief pair-record conflicts without failing the whole upload.
                 do {
-                    try await self.registerItemIDs([item.id.uuidString], retries: 3)
+                    try await self.registerItemIDs([item.id.uuidString], retries: 5)
                     PairSession.shared.statusMessage = ""
                 } catch {
                     // Item row is already on iCloud; catalog miss is recoverable.
@@ -770,7 +770,8 @@ final class CloudSync {
                 predicate: NSPredicate(format: "pairID == %@", pairID)
             )
             let queried = (try? await queryAll(query))?.filter { recordKind($0) == .listItem }.count ?? -1
-            return "Pair …\(short) · \(role) · code \(code) · catalog \(live.count) · fetch \(fetched.count)/\(sample.count) · query \(queried)"
+            let queryMode = lastPairQuerySucceeded ? "query ok" : "query fallback"
+            return "Pair …\(short) · \(role) · code \(code) · catalog \(live.count) · fetch \(fetched.count)/\(sample.count) · items \(queried) · \(queryMode)"
         } catch {
             return "Pair …\(short) · \(role) · code \(code) · \(Self.friendlyMessage(error))"
         }
@@ -1435,7 +1436,9 @@ final class CloudSync {
             recordType: "TDItem",
             predicate: NSPredicate(format: "pairID == %@", pairID)
         )
+        var pairQueryOK = false
         if let queried = try? await queryAll(pairQuery) {
+            pairQueryOK = true
             catalogComplete = true
             for record in queried {
                 found[record.recordID.recordName] = record
@@ -1458,10 +1461,19 @@ final class CloudSync {
             }
         }
 
-        // Named-fetch catalog ids the query missed, plus the newest catalog
-        // tail (query lag). Avoid re-fetching the entire catalog every poll.
+        // Named-fetch catalog ids the query missed. When the pairID query fails
+        // (common on Production public DB), fetch the whole catalog by id so
+        // new adds still sync — the old "last 30 only" tail missed fresh rows
+        // that never made it into a successful query.
         let missing = listedIDs.filter { found["item-\($0)"] == nil }
-        let refreshNames = Array(Set(missing + Array(listedIDs.suffix(30))))
+        let refreshNames: [String]
+        if pairQueryOK {
+            refreshNames = Array(Set(missing + Array(listedIDs.suffix(30))))
+        } else if listedIDs.count <= 250 {
+            refreshNames = Array(Set(missing + listedIDs))
+        } else {
+            refreshNames = Array(Set(missing + Array(listedIDs.suffix(60))))
+        }
         if !refreshNames.isEmpty {
             for record in await fetchNamedRecords(refreshNames.map { "item-\($0)" }) {
                 found[record.recordID.recordName] = record
@@ -1485,8 +1497,12 @@ final class CloudSync {
                 found[record.recordID.recordName] = record
             }
         }
+        lastPairQuerySucceeded = pairQueryOK
         return (Array(found.values), catalogComplete || !listedIDs.isEmpty)
     }
+
+    /// For Force sync diagnostics — false when Production pairID query failed.
+    private(set) var lastPairQuerySucceeded = true
 
     private func fetchRecoverableItemRecords(oldCode: String) async -> (records: [CKRecord], emptyMessage: String) {
         var found: [String: CKRecord] = [:]
