@@ -69,6 +69,7 @@ final class PairSession {
     private let partnerNameKey = "todo42.partnerName"
     private let pairHistoryKey = "todo42.pairIDHistory"
     private let savedPairsKey = "todo42.savedPairs"
+    private let joinedAsGuestKey = "todo42.joinedAsGuest"
     private let activePairAppGroupKey = "todo42.activePairID"
 
     var isPaired: Bool { pairID != nil && role != nil }
@@ -121,6 +122,11 @@ final class PairSession {
             ]
         } else {
             syncActiveFromSavedPairsIfNeeded()
+        }
+        // Joiner phones must stay on the partner seat — Restore often flipped
+        // Deena to primary so her tappable heart was labeled Chris.
+        if defaults.bool(forKey: joinedAsGuestKey), role != .deena, pairID != nil {
+            becomePartner(swapIdentity: role == .chris || role == nil)
         }
         mirrorActivePairToAppGroup()
     }
@@ -192,6 +198,46 @@ final class PairSession {
         if isPaired {
             Task { await CloudSync.shared.uploadPairNames() }
         }
+    }
+
+    /// Mark this phone as the joiner / partner seat. Use when Restore left the
+    /// partner on primary so the heart next to their name did nothing.
+    func becomePartner(swapIdentity: Bool = true) {
+        defaults.set(true, forKey: joinedAsGuestKey)
+        let wasPrimary = role == .chris || role == nil
+        role = .deena
+        if swapIdentity, wasPrimary {
+            let oldMine = myName
+            myName = partnerName
+            partnerName = oldMine
+            let key = headPairKey()
+            PairHeadPhotos.swapMeAndPartner(pairKey: key)
+            headPhotoRevision += 1
+        }
+        statusMessage = "This phone is the partner. Heart next to \(myHeartLabel)."
+        persist()
+    }
+
+    func becomePrimary(swapIdentity: Bool = true) {
+        defaults.set(false, forKey: joinedAsGuestKey)
+        let wasGuest = role == .deena
+        role = .chris
+        if swapIdentity, wasGuest {
+            let oldMine = myName
+            myName = partnerName
+            partnerName = oldMine
+            let key = headPairKey()
+            PairHeadPhotos.swapMeAndPartner(pairKey: key)
+            headPhotoRevision += 1
+        }
+        statusMessage = "This phone is primary. Heart next to \(myHeartLabel)."
+        persist()
+    }
+
+    var joinedAsGuest: Bool { defaults.bool(forKey: joinedAsGuestKey) }
+
+    func markJoinedAsGuest(_ value: Bool) {
+        defaults.set(value, forKey: joinedAsGuestKey)
     }
 
     func persistLocal() {
