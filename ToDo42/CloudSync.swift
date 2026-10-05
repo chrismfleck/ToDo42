@@ -1092,7 +1092,7 @@ final class CloudSync {
 
         // Default Restore to partner. Empty-name Restore used to assume primary
         // and fill "Your name" with the host (Deena’s phone became “Chris”).
-        var role: PairRole = priorRole ?? (session.joinedAsGuest ? .deena : .deena)
+        var role: PairRole = priorRole ?? .deena
         if let pair = try? await database.record(for: CKRecord.ID(recordName: "pair-\(pairID)")) {
             let host = (pair["hostName"] as? String ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
             let guest = (pair["guestName"] as? String ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
