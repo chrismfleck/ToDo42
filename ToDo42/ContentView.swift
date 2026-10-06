@@ -887,7 +887,7 @@ struct ContentView: View {
             // Edit-mode hamburger drags must not compete with category swipes.
             .simultaneousGesture(
                 categoryPageSwipeGesture,
-                including: (isListEditing || reorderDrag != nil) ? .subviews : .all
+                including: (isListEditing || reorderDrag != nil) ? .none : .all
             )
         }
     }
