@@ -881,8 +881,11 @@ struct ContentView: View {
                     .contentShape(Rectangle())
                     .onPreferenceChange(RowHeightPreferenceKey.self) { rowHeights = $0 }
                 }
-                .refreshable { await refreshFromCloud() }
-                .scrollDisabled(reorderDrag != nil)
+                .modifier(EditModeScrollPolicy(
+                    isEditing: isListEditing,
+                    isReordering: reorderDrag != nil,
+                    onRefresh: { await refreshFromCloud() }
+                ))
             }
             // Edit-mode hamburger drags must not compete with category swipes.
             .simultaneousGesture(
@@ -1200,6 +1203,25 @@ private struct OptionalSwipeGesture<G: Gesture>: ViewModifier {
     }
 }
 
+/// Browse mode: pull-to-refresh. Edit mode: no refresh, and lock scroll once a
+/// tile reorder starts so the hamburger drag moves the card instead of the list.
+private struct EditModeScrollPolicy: ViewModifier {
+    var isEditing: Bool
+    var isReordering: Bool
+    var onRefresh: () async -> Void
+
+    @ViewBuilder
+    func body(content: Content) -> some View {
+        if isEditing {
+            content.scrollDisabled(isReordering)
+        } else {
+            content
+                .refreshable { await onRefresh() }
+                .scrollDisabled(false)
+        }
+    }
+}
+
 private let deleteRevealWidth: CGFloat = 88
 
 struct SwipeToDeleteRow<Content: View>: View {
@@ -1338,18 +1360,31 @@ struct ItemRowView: View {
                     Image(systemName: "line.3.horizontal")
                         .font(.body.weight(.semibold))
                         .foregroundStyle(.secondary)
-                        .frame(width: 44, height: 44)
+                        .frame(width: 48, height: 48)
                         .contentShape(Rectangle())
-                        .highPriorityGesture(
-                            DragGesture(minimumDistance: 2)
+                        // Long-press briefly, then drag — stops ScrollView / pull-to-refresh
+                        // from stealing the first vertical movement.
+                        .gesture(
+                            LongPressGesture(minimumDuration: 0.12)
+                                .sequenced(before: DragGesture(minimumDistance: 0))
                                 .onChanged { value in
-                                    onHandleDragChanged?(value.translation.height)
+                                    switch value {
+                                    case .first(true):
+                                        onHandleDragChanged?(0)
+                                    case .second(true, let drag):
+                                        onHandleDragChanged?(drag?.translation.height ?? 0)
+                                    default:
+                                        break
+                                    }
                                 }
-                                .onEnded { _ in
-                                    onHandleDragEnded?()
+                                .onEnded { value in
+                                    if case .second = value {
+                                        onHandleDragEnded?()
+                                    }
                                 }
                         )
                         .accessibilityLabel("Reorder")
+                        .accessibilityHint("Hold then drag to move")
                 }
             }
         }
