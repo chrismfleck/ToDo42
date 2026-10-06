@@ -820,6 +820,7 @@ struct ContentView: View {
                         ForEach(rows, id: \.persistentModelID) { item in
                             Group {
                                 if isListEditing {
+                                    // No clip here — it blocked the hamburger reorder drag.
                                     ItemRowView(
                                         item: item,
                                         showsDragHandle: true,
@@ -847,9 +848,9 @@ struct ContentView: View {
                                     .clipShape(
                                         RoundedRectangle(cornerRadius: 18, style: .continuous)
                                     )
+                                    .clipped()
                                 }
                             }
-                            .clipped()
                             .offset(y: reorderOffset(for: item))
                             .zIndex(reorderDrag?.id == item.id ? 1 : 0)
                             .scaleEffect(reorderDrag?.id == item.id ? 1.02 : 1)
@@ -883,7 +884,11 @@ struct ContentView: View {
                 .refreshable { await refreshFromCloud() }
                 .scrollDisabled(reorderDrag != nil)
             }
-            .simultaneousGesture(categoryPageSwipeGesture)
+            // Edit-mode hamburger drags must not compete with category swipes.
+            .simultaneousGesture(
+                categoryPageSwipeGesture,
+                including: (isListEditing || reorderDrag != nil) ? .subviews : .all
+            )
         }
     }
 
@@ -1333,10 +1338,10 @@ struct ItemRowView: View {
                     Image(systemName: "line.3.horizontal")
                         .font(.body.weight(.semibold))
                         .foregroundStyle(.secondary)
-                        .frame(width: 24, height: 28)
+                        .frame(width: 44, height: 44)
                         .contentShape(Rectangle())
                         .highPriorityGesture(
-                            DragGesture(minimumDistance: 4)
+                            DragGesture(minimumDistance: 2)
                                 .onChanged { value in
                                     onHandleDragChanged?(value.translation.height)
                                 }
