@@ -2,6 +2,7 @@
   "name": "Tasks",
   "short_name": "Tasks",
   "start_url": "./",
+  "scope": "./",
   "display": "standalone",
   "background_color": "#e8eef8",
   "theme_color": "#e8eef8",
