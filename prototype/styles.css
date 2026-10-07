@@ -50,9 +50,11 @@ button {
 
 .top {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
   gap: 8px;
+  min-width: 0;
   padding: 2px 2px 8px;
 }
 
@@ -136,10 +138,11 @@ h1 {
 }
 
 .task {
-  display: grid;
-  grid-template-columns: 32px minmax(0, 1fr) auto;
-  gap: 8px;
+  display: flex;
+  flex-wrap: wrap;
   align-items: center;
+  gap: 4px 8px;
+  min-width: 0;
   background: var(--card);
   border-radius: 14px;
   padding: 7px 8px 7px 7px;
@@ -149,6 +152,7 @@ h1 {
 .check {
   width: 28px;
   height: 28px;
+  flex: 0 0 28px;
   align-self: center;
   border-radius: 50%;
   border: 2px solid #9aa8bd;
@@ -180,7 +184,10 @@ h1 {
   opacity: 0.55;
 }
 
-.task-body { min-width: 0; }
+.task-body {
+  flex: 1 1 160px;
+  min-width: 0;
+}
 
 .task-main {
   display: block;
@@ -221,11 +228,13 @@ h1 {
 
 .badge {
   display: inline-block;
+  max-width: 100%;
   margin-top: 3px;
   border-radius: 999px;
   padding: 1px 7px;
   font-size: 12px;
   font-weight: 750;
+  overflow-wrap: anywhere;
 }
 
 .badge.wait { background: var(--amber-bg); color: var(--amber); }
@@ -235,13 +244,15 @@ h1 {
 .confirm {
   border: 0;
   border-radius: 10px;
+  margin-left: auto;
   padding: 6px 8px;
   font-size: 13px;
   font-weight: 750;
   cursor: pointer;
   white-space: normal;
   text-align: center;
-  max-width: 8.5em;
+  min-width: 0;
+  max-width: 100%;
 }
 
 .email {
@@ -374,12 +385,10 @@ h1 {
   }
 
   .app {
-    width: 50%;
-    max-width: 50%;
-    min-width: 220px;
+    width: 100%;
+    max-width: 100%;
+    min-width: 0;
     padding-top: 12px;
-    resize: horizontal;
-    overflow: hidden;
   }
 
   .backdrop { align-items: center; }
