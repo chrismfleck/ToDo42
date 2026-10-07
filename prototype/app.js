@@ -110,7 +110,7 @@ function renderTask(task) {
     confirm.type = "button";
     confirm.className = "confirm";
     confirm.dataset.action = "confirm";
-    confirm.textContent = "Mark confirmed";
+    confirm.textContent = "Marc confirmed";
     body.append(confirm);
   } else if (task.status === "done" && task.waitingOn) {
     const badge = document.createElement("span");
