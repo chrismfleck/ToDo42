@@ -27,6 +27,12 @@
     return new Date(y, m - 1, d);
   }
 
+  const LISTS = ["A", "B", "C", "D"];
+
+  function normalizeList(value) {
+    return LISTS.includes(value) ? value : "A";
+  }
+
   function createId() {
     if (globalThis.crypto && typeof crypto.randomUUID === "function") {
       return crypto.randomUUID();
@@ -34,7 +40,7 @@
     return `task-${Date.now()}-${Math.random().toString(16).slice(2)}`;
   }
 
-  function createTask(title, due, now) {
+  function createTask(title, due, now, list) {
     const trimmed = title.trim();
     if (!trimmed) return null;
     return {
@@ -43,8 +49,18 @@
       due: due || null,
       status: "open",
       waitingOn: null,
+      list: normalizeList(list),
       createdAt: (now || new Date()).toISOString(),
     };
+  }
+
+  function assignList(task) {
+    return { ...task, list: normalizeList(task.list) };
+  }
+
+  function tasksForList(tasks, list) {
+    const name = normalizeList(list);
+    return tasks.filter((task) => normalizeList(task.list) === name);
   }
 
   function dueTime(task) {
@@ -135,6 +151,7 @@
         due: toISODate(addDays(today, 2)),
         status: "open",
         waitingOn: null,
+        list: "A",
         createdAt: stamp,
       },
       {
@@ -143,6 +160,7 @@
         due: toISODate(today),
         status: "waiting",
         waitingOn: "Pat",
+        list: "A",
         createdAt: stamp,
       },
       {
@@ -151,6 +169,7 @@
         due: toISODate(addDays(today, -1)),
         status: "done",
         waitingOn: "Pat",
+        list: "A",
         createdAt: stamp,
       },
     ]);
@@ -164,7 +183,11 @@
     addDays,
     toISODate,
     parseISODate,
+    LISTS,
+    normalizeList,
     createTask,
+    assignList,
+    tasksForList,
     sortTasks,
     openCount,
     toggleDone,

@@ -1,4 +1,5 @@
 const STORAGE_KEY = "tasks.phase1.v1";
+const LIST_KEY = "tasks.phase1.list";
 const logic = window.TaskLogic;
 
 const listEl = document.querySelector("#list");
@@ -6,8 +7,18 @@ const countEl = document.querySelector("#count");
 const backdrop = document.querySelector("#backdrop");
 const sheet = document.querySelector("#sheet");
 const addButton = document.querySelector("#add");
+const tabs = [...document.querySelectorAll(".tab")];
 
 let tasks = loadTasks();
+let currentList = logic.normalizeList(localStorage.getItem(LIST_KEY));
+
+tabs.forEach((tab) => {
+  tab.addEventListener("click", () => {
+    currentList = logic.normalizeList(tab.dataset.list);
+    localStorage.setItem(LIST_KEY, currentList);
+    render();
+  });
+});
 
 addButton.addEventListener("click", () => openAdd());
 backdrop.addEventListener("click", (event) => {
@@ -38,7 +49,10 @@ function loadTasks() {
   }
   try {
     const parsed = JSON.parse(raw);
-    return Array.isArray(parsed) ? logic.sortTasks(parsed) : [];
+    if (!Array.isArray(parsed)) return [];
+    const normalized = logic.sortTasks(parsed.map((task) => logic.assignList(task)));
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(normalized));
+    return normalized;
   } catch {
     return [];
   }
@@ -49,17 +63,23 @@ function save() {
 }
 
 function render() {
-  const open = logic.openCount(tasks);
+  const visible = logic.tasksForList(tasks, currentList);
+  const open = logic.openCount(visible);
   countEl.textContent = open === 1 ? "1 still open" : `${open} still open`;
+  tabs.forEach((tab) => {
+    const selected = tab.dataset.list === currentList;
+    tab.classList.toggle("on", selected);
+    tab.setAttribute("aria-pressed", selected ? "true" : "false");
+  });
   listEl.replaceChildren();
-  if (tasks.length === 0) {
+  if (visible.length === 0) {
     const empty = document.createElement("p");
     empty.className = "empty";
-    empty.textContent = "No tasks yet. Tap + to add one with a date.";
+    empty.textContent = `No tasks in ${currentList} yet. Tap + to add one with a date.`;
     listEl.append(empty);
     return;
   }
-  for (const task of tasks) listEl.append(renderTask(task));
+  for (const task of visible) listEl.append(renderTask(task));
 }
 
 function renderTask(task) {
@@ -163,7 +183,7 @@ function openAdd() {
     ],
     submit: "Save",
     onSubmit(data) {
-      const created = logic.createTask(data.title, data.due, new Date());
+      const created = logic.createTask(data.title, data.due, new Date(), currentList);
       if (!created) return false;
       tasks = logic.sortTasks([...tasks, created]);
       save();

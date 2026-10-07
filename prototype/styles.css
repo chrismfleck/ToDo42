@@ -81,6 +81,31 @@ h1 {
   cursor: pointer;
 }
 
+.tabs {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  background: white;
+  border-radius: 14px;
+  padding: 4px;
+  margin: 0 0 16px;
+}
+
+.tab {
+  border: 0;
+  background: transparent;
+  border-radius: 11px;
+  padding: 10px 0;
+  color: #3d4c63;
+  font-size: 18px;
+  font-weight: 750;
+  cursor: pointer;
+}
+
+.tab.on {
+  background: var(--blue);
+  color: white;
+}
+
 .list {
   display: flex;
   flex-direction: column;

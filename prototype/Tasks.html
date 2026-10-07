@@ -92,6 +92,31 @@ h1 {
   cursor: pointer;
 }
 
+.tabs {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  background: white;
+  border-radius: 14px;
+  padding: 4px;
+  margin: 0 0 16px;
+}
+
+.tab {
+  border: 0;
+  background: transparent;
+  border-radius: 11px;
+  padding: 10px 0;
+  color: #3d4c63;
+  font-size: 18px;
+  font-weight: 750;
+  cursor: pointer;
+}
+
+.tab.on {
+  background: var(--blue);
+  color: white;
+}
+
 .list {
   display: flex;
   flex-direction: column;
@@ -358,6 +383,12 @@ h1 {
       </div>
       <button id="add" class="plus" type="button" aria-label="Add task">+</button>
     </header>
+    <nav class="tabs" aria-label="Lists">
+      <button type="button" class="tab" data-list="A">A</button>
+      <button type="button" class="tab" data-list="B">B</button>
+      <button type="button" class="tab" data-list="C">C</button>
+      <button type="button" class="tab" data-list="D">D</button>
+    </nav>
     <main id="list" class="list" aria-live="polite"></main>
     <p class="footnote">Saved on this phone. A task you email stays open until you mark it confirmed.</p>
   </div>
@@ -396,6 +427,12 @@ h1 {
     return new Date(y, m - 1, d);
   }
 
+  const LISTS = ["A", "B", "C", "D"];
+
+  function normalizeList(value) {
+    return LISTS.includes(value) ? value : "A";
+  }
+
   function createId() {
     if (globalThis.crypto && typeof crypto.randomUUID === "function") {
       return crypto.randomUUID();
@@ -403,7 +440,7 @@ h1 {
     return `task-${Date.now()}-${Math.random().toString(16).slice(2)}`;
   }
 
-  function createTask(title, due, now) {
+  function createTask(title, due, now, list) {
     const trimmed = title.trim();
     if (!trimmed) return null;
     return {
@@ -412,8 +449,18 @@ h1 {
       due: due || null,
       status: "open",
       waitingOn: null,
+      list: normalizeList(list),
       createdAt: (now || new Date()).toISOString(),
     };
+  }
+
+  function assignList(task) {
+    return { ...task, list: normalizeList(task.list) };
+  }
+
+  function tasksForList(tasks, list) {
+    const name = normalizeList(list);
+    return tasks.filter((task) => normalizeList(task.list) === name);
   }
 
   function dueTime(task) {
@@ -504,6 +551,7 @@ h1 {
         due: toISODate(addDays(today, 2)),
         status: "open",
         waitingOn: null,
+        list: "A",
         createdAt: stamp,
       },
       {
@@ -512,6 +560,7 @@ h1 {
         due: toISODate(today),
         status: "waiting",
         waitingOn: "Pat",
+        list: "A",
         createdAt: stamp,
       },
       {
@@ -520,6 +569,7 @@ h1 {
         due: toISODate(addDays(today, -1)),
         status: "done",
         waitingOn: "Pat",
+        list: "A",
         createdAt: stamp,
       },
     ]);
@@ -533,7 +583,11 @@ h1 {
     addDays,
     toISODate,
     parseISODate,
+    LISTS,
+    normalizeList,
     createTask,
+    assignList,
+    tasksForList,
     sortTasks,
     openCount,
     toggleDone,
@@ -551,6 +605,7 @@ h1 {
   </script>
   <script>
 const STORAGE_KEY = "tasks.phase1.v1";
+const LIST_KEY = "tasks.phase1.list";
 const logic = window.TaskLogic;
 
 const listEl = document.querySelector("#list");
@@ -558,8 +613,18 @@ const countEl = document.querySelector("#count");
 const backdrop = document.querySelector("#backdrop");
 const sheet = document.querySelector("#sheet");
 const addButton = document.querySelector("#add");
+const tabs = [...document.querySelectorAll(".tab")];
 
 let tasks = loadTasks();
+let currentList = logic.normalizeList(localStorage.getItem(LIST_KEY));
+
+tabs.forEach((tab) => {
+  tab.addEventListener("click", () => {
+    currentList = logic.normalizeList(tab.dataset.list);
+    localStorage.setItem(LIST_KEY, currentList);
+    render();
+  });
+});
 
 addButton.addEventListener("click", () => openAdd());
 backdrop.addEventListener("click", (event) => {
@@ -590,7 +655,10 @@ function loadTasks() {
   }
   try {
     const parsed = JSON.parse(raw);
-    return Array.isArray(parsed) ? logic.sortTasks(parsed) : [];
+    if (!Array.isArray(parsed)) return [];
+    const normalized = logic.sortTasks(parsed.map((task) => logic.assignList(task)));
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(normalized));
+    return normalized;
   } catch {
     return [];
   }
@@ -601,17 +669,23 @@ function save() {
 }
 
 function render() {
-  const open = logic.openCount(tasks);
+  const visible = logic.tasksForList(tasks, currentList);
+  const open = logic.openCount(visible);
   countEl.textContent = open === 1 ? "1 still open" : `${open} still open`;
+  tabs.forEach((tab) => {
+    const selected = tab.dataset.list === currentList;
+    tab.classList.toggle("on", selected);
+    tab.setAttribute("aria-pressed", selected ? "true" : "false");
+  });
   listEl.replaceChildren();
-  if (tasks.length === 0) {
+  if (visible.length === 0) {
     const empty = document.createElement("p");
     empty.className = "empty";
-    empty.textContent = "No tasks yet. Tap + to add one with a date.";
+    empty.textContent = `No tasks in ${currentList} yet. Tap + to add one with a date.`;
     listEl.append(empty);
     return;
   }
-  for (const task of tasks) listEl.append(renderTask(task));
+  for (const task of visible) listEl.append(renderTask(task));
 }
 
 function renderTask(task) {
@@ -715,7 +789,7 @@ function openAdd() {
     ],
     submit: "Save",
     onSubmit(data) {
-      const created = logic.createTask(data.title, data.due, new Date());
+      const created = logic.createTask(data.title, data.due, new Date(), currentList);
       if (!created) return false;
       tasks = logic.sortTasks([...tasks, created]);
       save();

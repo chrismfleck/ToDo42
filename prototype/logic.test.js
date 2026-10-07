@@ -2,6 +2,9 @@ const test = require("node:test");
 const assert = require("node:assert/strict");
 const {
   createTask,
+  assignList,
+  tasksForList,
+  normalizeList,
   sortTasks,
   openCount,
   toggleDone,
@@ -76,6 +79,22 @@ test("only unfinished tasks with a past date are overdue", () => {
   assert.equal(isOverdue(open, today), true);
   assert.equal(isOverdue(done, today), false);
   assert.equal(isOverdue(later, today), false);
+});
+
+test("each list keeps its own tasks, and older tasks land in A", () => {
+  const seeded = seedTasks(today);
+  assert.ok(seeded.every((task) => task.list === "A"));
+  assert.equal(tasksForList(seeded, "B").length, 0);
+  const inB = createTask("Call the plumber", "2026-10-08", today, "B");
+  assert.equal(inB.list, "B");
+  const saved = [...seeded, inB, assignList({ title: "Old task", list: "nope" })];
+  assert.equal(tasksForList(saved, "A").length, 4);
+  assert.deepEqual(
+    tasksForList(saved, "B").map((task) => task.title),
+    ["Call the plumber"]
+  );
+  assert.equal(normalizeList("C"), "C");
+  assert.equal(normalizeList(""), "A");
 });
 
 test("edit keeps the title and date, and mail uses an address when one is given", () => {
