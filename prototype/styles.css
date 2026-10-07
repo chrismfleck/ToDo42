@@ -101,6 +101,8 @@ h1 {
 .check {
   width: 40px;
   height: 40px;
+  margin-top: 2px;
+  align-self: start;
   border-radius: 50%;
   border: 2.5px solid #9aa8bd;
   background: transparent;
