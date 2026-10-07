@@ -7,8 +7,7 @@ directory = "./prototype"
 binding = "ASSETS"
 run_worker_first = true
 
-# Paste the UUID from: npx wrangler d1 info tasks
 [[d1_databases]]
 binding = "DB"
 database_name = "tasks"
-database_id = "PUT_DATABASE_ID_HERE"
+database_id = "961be54d-150c-41cc-bd9f-21899ccc12db"
