@@ -391,7 +391,7 @@ h1 {
       <button type="button" class="tab" data-list="B">B</button>
     </nav>
     <main id="list" class="list" aria-live="polite"></main>
-    <p class="footnote">Saved on this phone. A task you email stays open until you mark it confirmed.</p>
+    <p id="save-note" class="footnote">Saved on this phone.</p>
   </div>
 
   <div id="backdrop" class="backdrop" hidden>
@@ -447,6 +447,7 @@ h1 {
   function createTask(title, due, now, list) {
     const trimmed = title.trim();
     if (!trimmed) return null;
+    const createdAt = (now || new Date()).toISOString();
     return {
       id: createId(),
       title: trimmed,
@@ -454,17 +455,28 @@ h1 {
       status: "open",
       waitingOn: null,
       list: normalizeList(list),
-      createdAt: (now || new Date()).toISOString(),
+      deleted: false,
+      createdAt,
+      updatedAt: createdAt,
     };
   }
 
   function assignList(task) {
-    return { ...task, list: normalizeList(task.list) };
+    return {
+      ...task,
+      list: normalizeList(task.list),
+      deleted: Boolean(task.deleted),
+      updatedAt: task.updatedAt || task.createdAt || "1970-01-01T00:00:00.000Z",
+    };
   }
 
   function tasksForList(tasks, list) {
     const name = normalizeList(list);
-    return tasks.filter((task) => normalizeList(task.list) === name);
+    return tasks.filter((task) => !task.deleted && normalizeList(task.list) === name);
+  }
+
+  function touch(task, now) {
+    return { ...task, updatedAt: (now || new Date()).toISOString() };
   }
 
   function dueTime(task) {
@@ -483,32 +495,54 @@ h1 {
   }
 
   function openCount(tasks) {
-    return tasks.filter((task) => task.status !== "done").length;
+    return tasks.filter((task) => !task.deleted && task.status !== "done").length;
   }
 
-  function toggleDone(task) {
+  function toggleDone(task, now) {
     if (task.status === "waiting") return task;
     if (task.status === "done") {
-      return { ...task, status: "open", waitingOn: null };
+      return touch({ ...task, status: "open", waitingOn: null }, now);
     }
-    return { ...task, status: "done", waitingOn: null };
+    return touch({ ...task, status: "done", waitingOn: null }, now);
   }
 
-  function markWaiting(task, name) {
+  function markWaiting(task, name, now) {
     const who = name.trim();
     if (!who || task.status === "done") return task;
-    return { ...task, status: "waiting", waitingOn: who };
+    return touch({ ...task, status: "waiting", waitingOn: who }, now);
   }
 
-  function markConfirmed(task) {
+  function markConfirmed(task, now) {
     if (task.status !== "waiting") return task;
-    return { ...task, status: "done" };
+    return touch({ ...task, status: "done" }, now);
   }
 
-  function updateTask(task, title, due) {
+  function updateTask(task, title, due, now) {
     const trimmed = title.trim();
     if (!trimmed) return task;
-    return { ...task, title: trimmed, due: due || null };
+    return touch({ ...task, title: trimmed, due: due || null }, now);
+  }
+
+  function deleteTask(task, now) {
+    return touch({ ...task, deleted: true }, now);
+  }
+
+  function mergeTasks(local, remote) {
+    const byId = new Map();
+    for (const task of [...local, ...remote]) {
+      const next = assignList(task);
+      const prev = byId.get(next.id);
+      if (!prev || String(next.updatedAt) > String(prev.updatedAt)) byId.set(next.id, next);
+    }
+    return sortTasks([...byId.values()]);
+  }
+
+  function pendingPush(local, remote) {
+    const remoteById = new Map(remote.map((task) => [task.id, task]));
+    return local.filter((task) => {
+      const other = remoteById.get(task.id);
+      return !other || String(task.updatedAt) > String(other.updatedAt);
+    });
   }
 
   function formatDue(iso, today) {
@@ -556,7 +590,9 @@ h1 {
         status: "open",
         waitingOn: null,
         list: "P",
+        deleted: false,
         createdAt: stamp,
+        updatedAt: stamp,
       },
       {
         id: "seed-quote",
@@ -565,7 +601,9 @@ h1 {
         status: "waiting",
         waitingOn: "Pat",
         list: "P",
+        deleted: false,
         createdAt: stamp,
+        updatedAt: stamp,
       },
       {
         id: "seed-key",
@@ -574,7 +612,9 @@ h1 {
         status: "done",
         waitingOn: "Pat",
         list: "P",
+        deleted: false,
         createdAt: stamp,
+        updatedAt: stamp,
       },
     ]);
   }
@@ -598,6 +638,9 @@ h1 {
     markWaiting,
     markConfirmed,
     updateTask,
+    deleteTask,
+    mergeTasks,
+    pendingPush,
     formatDue,
     isOverdue,
     mailHref,
@@ -668,8 +711,13 @@ function loadTasks() {
   }
 }
 
-function save() {
+function saveLocal() {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(tasks));
+}
+
+function save() {
+  saveLocal();
+  scheduleSync();
 }
 
 function render() {
@@ -817,9 +865,7 @@ function openEdit(task) {
       return true;
     },
     onDelete() {
-      tasks = tasks.filter((item) => item.id !== task.id);
-      save();
-      render();
+      change(logic.deleteTask(task));
     },
   });
 }
@@ -921,6 +967,66 @@ function closeSheet() {
   document.body.classList.remove("sheet-open");
   sheet.onsubmit = null;
 }
+
+const note = document.querySelector("#save-note");
+let syncTimer = 0;
+let syncing = false;
+let syncAgain = false;
+
+function scheduleSync() {
+  clearTimeout(syncTimer);
+  syncTimer = setTimeout(() => {
+    syncNow();
+  }, 300);
+}
+
+function setNote(message) {
+  if (note) note.textContent = message;
+}
+
+async function requestTasks(method, body) {
+  const response = await fetch("/api/tasks", {
+    method,
+    headers: { "content-type": "application/json" },
+    body: body ? JSON.stringify(body) : undefined,
+  });
+  if (!response.ok) throw new Error("save failed");
+  const payload = await response.json();
+  return Array.isArray(payload.tasks) ? payload.tasks : [];
+}
+
+async function syncNow() {
+  if (syncing) {
+    syncAgain = true;
+    return;
+  }
+  if (!navigator.onLine) {
+    setNote("Saved on this phone. Cloudflare could not be reached just now.");
+    return;
+  }
+  syncing = true;
+  try {
+    const remote = await requestTasks("GET");
+    const outgoing = logic.pendingPush(tasks, remote);
+    const confirmed = outgoing.length ? await requestTasks("PUT", { tasks: outgoing }) : remote;
+    tasks = logic.mergeTasks(tasks, confirmed);
+    saveLocal();
+    render();
+    setNote("Saved on this phone and in Cloudflare.");
+  } catch {
+    setNote("Saved on this phone. Cloudflare could not be reached just now.");
+  } finally {
+    syncing = false;
+    if (syncAgain) {
+      syncAgain = false;
+      syncNow();
+    }
+  }
+}
+
+localStorage.removeItem("tasks.phase1.password");
+window.addEventListener("online", () => syncNow());
+syncNow();
 
   </script>
 </body>

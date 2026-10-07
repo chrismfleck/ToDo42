@@ -11,6 +11,9 @@ const {
   markWaiting,
   markConfirmed,
   updateTask,
+  deleteTask,
+  mergeTasks,
+  pendingPush,
   formatDue,
   isOverdue,
   mailHref,
@@ -106,6 +109,29 @@ test("each list keeps its own tasks, and older tasks land in P", () => {
   assert.equal(normalizeList("AX"), "AX");
   assert.equal(normalizeList("Personal"), "P");
   assert.equal(normalizeList(""), "P");
+});
+
+test("the newer copy wins, and a delete stays deleted", () => {
+  const older = {
+    id: "1",
+    title: "Call",
+    status: "open",
+    list: "P",
+    deleted: false,
+    createdAt: "2026-10-07T00:00:00.000Z",
+    updatedAt: "2026-10-07T00:00:00.000Z",
+  };
+  const newer = { ...older, title: "Call back", updatedAt: "2026-10-07T02:00:00.000Z" };
+  const merged = mergeTasks([older], [newer]);
+  assert.equal(merged.find((task) => task.id === "1").title, "Call back");
+  const removed = deleteTask(newer, new Date("2026-10-07T03:00:00.000Z"));
+  const afterDelete = mergeTasks([newer], [removed]);
+  assert.equal(tasksForList(afterDelete, "P").length, 0);
+  assert.deepEqual(
+    pendingPush([removed], [newer]).map((task) => task.id),
+    ["1"]
+  );
+  assert.equal(pendingPush([older], [newer]).length, 0);
 });
 
 test("edit keeps the title and date, and mail uses an address when one is given", () => {

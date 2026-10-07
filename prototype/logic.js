@@ -46,6 +46,7 @@
   function createTask(title, due, now, list) {
     const trimmed = title.trim();
     if (!trimmed) return null;
+    const createdAt = (now || new Date()).toISOString();
     return {
       id: createId(),
       title: trimmed,
@@ -53,17 +54,28 @@
       status: "open",
       waitingOn: null,
       list: normalizeList(list),
-      createdAt: (now || new Date()).toISOString(),
+      deleted: false,
+      createdAt,
+      updatedAt: createdAt,
     };
   }
 
   function assignList(task) {
-    return { ...task, list: normalizeList(task.list) };
+    return {
+      ...task,
+      list: normalizeList(task.list),
+      deleted: Boolean(task.deleted),
+      updatedAt: task.updatedAt || task.createdAt || "1970-01-01T00:00:00.000Z",
+    };
   }
 
   function tasksForList(tasks, list) {
     const name = normalizeList(list);
-    return tasks.filter((task) => normalizeList(task.list) === name);
+    return tasks.filter((task) => !task.deleted && normalizeList(task.list) === name);
+  }
+
+  function touch(task, now) {
+    return { ...task, updatedAt: (now || new Date()).toISOString() };
   }
 
   function dueTime(task) {
@@ -82,32 +94,54 @@
   }
 
   function openCount(tasks) {
-    return tasks.filter((task) => task.status !== "done").length;
+    return tasks.filter((task) => !task.deleted && task.status !== "done").length;
   }
 
-  function toggleDone(task) {
+  function toggleDone(task, now) {
     if (task.status === "waiting") return task;
     if (task.status === "done") {
-      return { ...task, status: "open", waitingOn: null };
+      return touch({ ...task, status: "open", waitingOn: null }, now);
     }
-    return { ...task, status: "done", waitingOn: null };
+    return touch({ ...task, status: "done", waitingOn: null }, now);
   }
 
-  function markWaiting(task, name) {
+  function markWaiting(task, name, now) {
     const who = name.trim();
     if (!who || task.status === "done") return task;
-    return { ...task, status: "waiting", waitingOn: who };
+    return touch({ ...task, status: "waiting", waitingOn: who }, now);
   }
 
-  function markConfirmed(task) {
+  function markConfirmed(task, now) {
     if (task.status !== "waiting") return task;
-    return { ...task, status: "done" };
+    return touch({ ...task, status: "done" }, now);
   }
 
-  function updateTask(task, title, due) {
+  function updateTask(task, title, due, now) {
     const trimmed = title.trim();
     if (!trimmed) return task;
-    return { ...task, title: trimmed, due: due || null };
+    return touch({ ...task, title: trimmed, due: due || null }, now);
+  }
+
+  function deleteTask(task, now) {
+    return touch({ ...task, deleted: true }, now);
+  }
+
+  function mergeTasks(local, remote) {
+    const byId = new Map();
+    for (const task of [...local, ...remote]) {
+      const next = assignList(task);
+      const prev = byId.get(next.id);
+      if (!prev || String(next.updatedAt) > String(prev.updatedAt)) byId.set(next.id, next);
+    }
+    return sortTasks([...byId.values()]);
+  }
+
+  function pendingPush(local, remote) {
+    const remoteById = new Map(remote.map((task) => [task.id, task]));
+    return local.filter((task) => {
+      const other = remoteById.get(task.id);
+      return !other || String(task.updatedAt) > String(other.updatedAt);
+    });
   }
 
   function formatDue(iso, today) {
@@ -155,7 +189,9 @@
         status: "open",
         waitingOn: null,
         list: "P",
+        deleted: false,
         createdAt: stamp,
+        updatedAt: stamp,
       },
       {
         id: "seed-quote",
@@ -164,7 +200,9 @@
         status: "waiting",
         waitingOn: "Pat",
         list: "P",
+        deleted: false,
         createdAt: stamp,
+        updatedAt: stamp,
       },
       {
         id: "seed-key",
@@ -173,7 +211,9 @@
         status: "done",
         waitingOn: "Pat",
         list: "P",
+        deleted: false,
         createdAt: stamp,
+        updatedAt: stamp,
       },
     ]);
   }
@@ -197,6 +237,9 @@
     markWaiting,
     markConfirmed,
     updateTask,
+    deleteTask,
+    mergeTasks,
+    pendingPush,
     formatDue,
     isOverdue,
     mailHref,

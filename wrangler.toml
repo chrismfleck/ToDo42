@@ -1,0 +1,14 @@
+name = "tasks-app"
+main = "worker/index.js"
+compatibility_date = "2026-10-07"
+
+[assets]
+directory = "./prototype"
+binding = "ASSETS"
+run_worker_first = true
+
+# Paste the UUID from: npx wrangler d1 info tasks
+[[d1_databases]]
+binding = "DB"
+database_name = "tasks"
+database_id = "PUT_DATABASE_ID_HERE"

@@ -58,8 +58,13 @@ function loadTasks() {
   }
 }
 
-function save() {
+function saveLocal() {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(tasks));
+}
+
+function save() {
+  saveLocal();
+  scheduleSync();
 }
 
 function render() {
@@ -207,9 +212,7 @@ function openEdit(task) {
       return true;
     },
     onDelete() {
-      tasks = tasks.filter((item) => item.id !== task.id);
-      save();
-      render();
+      change(logic.deleteTask(task));
     },
   });
 }
@@ -311,3 +314,63 @@ function closeSheet() {
   document.body.classList.remove("sheet-open");
   sheet.onsubmit = null;
 }
+
+const note = document.querySelector("#save-note");
+let syncTimer = 0;
+let syncing = false;
+let syncAgain = false;
+
+function scheduleSync() {
+  clearTimeout(syncTimer);
+  syncTimer = setTimeout(() => {
+    syncNow();
+  }, 300);
+}
+
+function setNote(message) {
+  if (note) note.textContent = message;
+}
+
+async function requestTasks(method, body) {
+  const response = await fetch("/api/tasks", {
+    method,
+    headers: { "content-type": "application/json" },
+    body: body ? JSON.stringify(body) : undefined,
+  });
+  if (!response.ok) throw new Error("save failed");
+  const payload = await response.json();
+  return Array.isArray(payload.tasks) ? payload.tasks : [];
+}
+
+async function syncNow() {
+  if (syncing) {
+    syncAgain = true;
+    return;
+  }
+  if (!navigator.onLine) {
+    setNote("Saved on this phone. Cloudflare could not be reached just now.");
+    return;
+  }
+  syncing = true;
+  try {
+    const remote = await requestTasks("GET");
+    const outgoing = logic.pendingPush(tasks, remote);
+    const confirmed = outgoing.length ? await requestTasks("PUT", { tasks: outgoing }) : remote;
+    tasks = logic.mergeTasks(tasks, confirmed);
+    saveLocal();
+    render();
+    setNote("Saved on this phone and in Cloudflare.");
+  } catch {
+    setNote("Saved on this phone. Cloudflare could not be reached just now.");
+  } finally {
+    syncing = false;
+    if (syncAgain) {
+      syncAgain = false;
+      syncNow();
+    }
+  }
+}
+
+localStorage.removeItem("tasks.phase1.password");
+window.addEventListener("online", () => syncNow());
+syncNow();
