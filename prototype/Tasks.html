@@ -1,0 +1,1079 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+  <meta name="apple-mobile-web-app-title" content="Tasks" />
+  <meta name="theme-color" content="#e8eef8" />
+  <title>Tasks</title>
+  <style>
+:root {
+  --blue: #2457d6;
+  --ink: #172033;
+  --muted: #5d6b82;
+  --bg: #e8eef8;
+  --card: #ffffff;
+  --line: #e6ecf4;
+  --amber: #9a6700;
+  --amber-bg: #fff4e0;
+  --green: #0f7a45;
+  --green-bg: #e7f6ee;
+  --danger: #b42318;
+  --vv-offset: 0px;
+  color-scheme: light;
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  min-width: 0;
+  min-height: 100%;
+  background: var(--bg);
+  color: var(--ink);
+  font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+}
+
+body {
+  min-height: 100dvh;
+}
+
+button, input {
+  font: inherit;
+  color: inherit;
+}
+
+button {
+  -webkit-tap-highlight-color: transparent;
+}
+
+.app {
+  width: 100%;
+  max-width: 100%;
+  margin: 0;
+  padding:
+    calc(8px + env(safe-area-inset-top))
+    10px
+    calc(12px + env(safe-area-inset-bottom));
+}
+
+.top {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-width: 0;
+  padding: 2px 2px 8px;
+}
+
+h1 {
+  margin: 0;
+  font-size: 26px;
+  line-height: 1;
+  letter-spacing: -0.04em;
+}
+
+#count {
+  margin: 2px 0 0;
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 650;
+}
+
+.actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 0 0 auto;
+}
+
+.refresh {
+  height: 36px;
+  border: 0;
+  border-radius: 999px;
+  background: white;
+  color: var(--blue);
+  font-size: 14px;
+  font-weight: 750;
+  padding: 0 12px;
+  cursor: pointer;
+  box-shadow: inset 0 0 0 1px #d5e0f2;
+}
+
+.plus {
+  width: 36px;
+  height: 36px;
+  border: 0;
+  border-radius: 50%;
+  background: var(--blue);
+  color: white;
+  font-size: 26px;
+  font-weight: 500;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.tabs {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  background: white;
+  border-radius: 12px;
+  padding: 3px;
+  margin: 0 0 8px;
+}
+
+.tab {
+  border: 0;
+  background: transparent;
+  border-radius: 9px;
+  padding: 6px 0;
+  color: #3d4c63;
+  font-size: 15px;
+  white-space: nowrap;
+  font-weight: 750;
+  cursor: pointer;
+}
+
+.tab.on {
+  background: var(--blue);
+  color: white;
+}
+
+.list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.task {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 8px;
+  min-width: 0;
+  background: var(--card);
+  border-radius: 14px;
+  padding: 7px 8px 7px 7px;
+  box-shadow: 0 1px 0 rgba(23, 32, 51, 0.03);
+}
+
+.check {
+  width: 28px;
+  height: 28px;
+  flex: 0 0 28px;
+  align-self: center;
+  border-radius: 50%;
+  border: 2px solid #9aa8bd;
+  background: transparent;
+  padding: 0;
+  position: relative;
+  cursor: pointer;
+}
+
+.check.on {
+  background: var(--blue);
+  border-color: var(--blue);
+}
+
+.check.on::after {
+  content: "";
+  position: absolute;
+  left: 9px;
+  top: 4px;
+  width: 6px;
+  height: 11px;
+  border: solid white;
+  border-width: 0 2px 2px 0;
+  transform: rotate(40deg);
+}
+
+.check:disabled {
+  cursor: default;
+  opacity: 0.55;
+}
+
+.task-body {
+  flex: 1 1 160px;
+  min-width: 0;
+}
+
+.task-main {
+  display: block;
+  width: 100%;
+  border: 0;
+  background: transparent;
+  padding: 2px 0;
+  text-align: left;
+  min-width: 0;
+  cursor: pointer;
+}
+
+.title {
+  display: block;
+  font-size: 15px;
+  font-weight: 720;
+  letter-spacing: -0.02em;
+  line-height: 1.2;
+  overflow-wrap: anywhere;
+}
+
+.task.done .title {
+  color: #8b97a8;
+  text-decoration: line-through;
+}
+
+.meta {
+  display: block;
+  margin-top: 1px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.meta.overdue {
+  color: var(--danger);
+}
+
+.badge {
+  display: inline-block;
+  max-width: 100%;
+  margin-top: 3px;
+  border-radius: 999px;
+  padding: 1px 7px;
+  font-size: 12px;
+  font-weight: 750;
+  overflow-wrap: anywhere;
+}
+
+.badge.wait { background: var(--amber-bg); color: var(--amber); }
+.badge.done { background: var(--green-bg); color: var(--green); }
+
+.email,
+.confirm {
+  border: 0;
+  border-radius: 10px;
+  margin-left: auto;
+  padding: 6px 8px;
+  font-size: 13px;
+  font-weight: 750;
+  cursor: pointer;
+  white-space: normal;
+  text-align: center;
+  min-width: 0;
+  max-width: 100%;
+}
+
+.email {
+  background: #e7efff;
+  color: var(--blue);
+}
+
+.confirm {
+  background: var(--blue);
+  color: white;
+}
+
+.empty {
+  background: var(--card);
+  border-radius: 14px;
+  padding: 16px 12px;
+  text-align: center;
+  color: var(--muted);
+  font-size: 14px;
+  font-weight: 650;
+  line-height: 1.35;
+}
+
+.footnote {
+  margin: 10px 2px 0;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.35;
+}
+
+.backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(23, 32, 51, 0.38);
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  z-index: 2;
+}
+
+.backdrop[hidden] { display: none; }
+
+.sheet {
+  width: min(100%, 440px);
+  margin-bottom: var(--vv-offset);
+  background: #f7f9fc;
+  border-radius: 28px 28px 0 0;
+  padding: 22px 18px calc(18px + env(safe-area-inset-bottom));
+  box-shadow: 0 -12px 40px rgba(17, 24, 39, 0.16);
+}
+
+.sheet h2 {
+  margin: 0 0 16px;
+  font-size: 28px;
+  letter-spacing: -0.03em;
+}
+
+.field {
+  display: block;
+  margin-bottom: 12px;
+}
+
+.field span {
+  display: block;
+  margin-bottom: 6px;
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 750;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.field input {
+  width: 100%;
+  border: 0;
+  border-radius: 14px;
+  background: white;
+  padding: 14px 12px;
+  font-size: 17px;
+  box-shadow: inset 0 0 0 1px var(--line);
+}
+
+.sheet-actions {
+  display: flex;
+  gap: 10px;
+  margin-top: 8px;
+}
+
+.sheet-actions button,
+.delete {
+  border: 0;
+  border-radius: 14px;
+  padding: 14px 16px;
+  font-size: 17px;
+  font-weight: 750;
+  cursor: pointer;
+}
+
+.primary {
+  flex: 1;
+  background: var(--blue);
+  color: white;
+}
+
+.secondary {
+  background: white;
+  color: var(--ink);
+  box-shadow: inset 0 0 0 1px var(--line);
+}
+
+.delete {
+  width: 100%;
+  margin-top: 10px;
+  background: transparent;
+  color: var(--danger);
+}
+
+.hint {
+  margin: 0 0 14px;
+  color: var(--muted);
+  font-size: 16px;
+  line-height: 1.35;
+}
+
+@media (min-width: 720px) {
+  body {
+    background:
+      radial-gradient(900px 420px at 50% -10%, #ffffff 0%, rgba(255, 255, 255, 0) 60%),
+      var(--bg);
+  }
+
+  .app {
+    width: 100%;
+    max-width: 100%;
+    min-width: 0;
+    padding-top: 12px;
+  }
+
+  .backdrop { align-items: center; }
+
+  .sheet {
+    border-radius: 28px;
+    margin-bottom: 0;
+    padding-bottom: 22px;
+  }
+}
+
+  </style>
+</head>
+<body>
+  <div class="app">
+    <header class="top">
+      <div>
+        <h1>Tasks</h1>
+        <p id="count">0 still open</p>
+      </div>
+      <div class="actions">
+        <button id="refresh" class="refresh" type="button">Refresh</button>
+        <button id="add" class="plus" type="button" aria-label="Add task">+</button>
+      </div>
+    </header>
+    <nav class="tabs" aria-label="Lists">
+      <button type="button" class="tab" data-list="P">P</button>
+      <button type="button" class="tab" data-list="AX">AX</button>
+      <button type="button" class="tab" data-list="TG">TG</button>
+      <button type="button" class="tab" data-list="B">B</button>
+    </nav>
+    <main id="list" class="list" aria-live="polite"></main>
+    <p id="save-note" class="footnote">Saved on this phone.</p>
+  </div>
+
+  <div id="backdrop" class="backdrop" hidden>
+    <form id="sheet" class="sheet" novalidate></form>
+  </div>
+
+  <script>
+(function (root, factory) {
+  if (typeof module === "object" && module.exports) {
+    module.exports = factory();
+  } else {
+    root.TaskLogic = factory();
+  }
+})(typeof globalThis !== "undefined" ? globalThis : this, function () {
+  function startOfDay(date) {
+    return new Date(date.getFullYear(), date.getMonth(), date.getDate());
+  }
+
+  function addDays(date, days) {
+    const next = startOfDay(date);
+    next.setDate(next.getDate() + days);
+    return next;
+  }
+
+  function toISODate(date) {
+    const y = date.getFullYear();
+    const m = String(date.getMonth() + 1).padStart(2, "0");
+    const d = String(date.getDate()).padStart(2, "0");
+    return `${y}-${m}-${d}`;
+  }
+
+  function parseISODate(iso) {
+    const [y, m, d] = iso.split("-").map(Number);
+    return new Date(y, m - 1, d);
+  }
+
+  const LISTS = ["P", "AX", "TG", "B"];
+  const LEGACY_LISTS = { Personal: "P", A: "P", C: "TG", D: "P" };
+
+  function normalizeList(value) {
+    if (LISTS.includes(value)) return value;
+    if (LEGACY_LISTS[value]) return LEGACY_LISTS[value];
+    return "P";
+  }
+
+  function createId() {
+    if (globalThis.crypto && typeof crypto.randomUUID === "function") {
+      return crypto.randomUUID();
+    }
+    return `task-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+  }
+
+  function createTask(title, due, now, list) {
+    const trimmed = title.trim();
+    if (!trimmed) return null;
+    const createdAt = (now || new Date()).toISOString();
+    return {
+      id: createId(),
+      title: trimmed,
+      due: due || null,
+      status: "open",
+      waitingOn: null,
+      list: normalizeList(list),
+      deleted: false,
+      createdAt,
+      updatedAt: createdAt,
+    };
+  }
+
+  function assignList(task) {
+    return {
+      ...task,
+      list: normalizeList(task.list),
+      deleted: Boolean(task.deleted),
+      updatedAt: task.updatedAt || task.createdAt || "1970-01-01T00:00:00.000Z",
+    };
+  }
+
+  function tasksForList(tasks, list) {
+    const name = normalizeList(list);
+    return tasks.filter((task) => !task.deleted && normalizeList(task.list) === name);
+  }
+
+  function touch(task, now) {
+    return { ...task, updatedAt: (now || new Date()).toISOString() };
+  }
+
+  function dueTime(task) {
+    return task.due ? parseISODate(task.due).getTime() : Number.POSITIVE_INFINITY;
+  }
+
+  function sortTasks(tasks) {
+    return tasks.slice().sort((a, b) => {
+      const aDone = a.status === "done" ? 1 : 0;
+      const bDone = b.status === "done" ? 1 : 0;
+      if (aDone !== bDone) return aDone - bDone;
+      const byDue = dueTime(a) - dueTime(b);
+      if (byDue !== 0) return byDue;
+      return a.createdAt < b.createdAt ? -1 : a.createdAt > b.createdAt ? 1 : 0;
+    });
+  }
+
+  function openCount(tasks) {
+    return tasks.filter((task) => !task.deleted && task.status !== "done").length;
+  }
+
+  function toggleDone(task, now) {
+    if (task.status === "waiting") return task;
+    if (task.status === "done") {
+      return touch({ ...task, status: "open", waitingOn: null }, now);
+    }
+    return touch({ ...task, status: "done", waitingOn: null }, now);
+  }
+
+  function markWaiting(task, name, now) {
+    const who = name.trim();
+    if (!who || task.status === "done") return task;
+    return touch({ ...task, status: "waiting", waitingOn: who }, now);
+  }
+
+  function markConfirmed(task, now) {
+    if (task.status !== "waiting") return task;
+    return touch({ ...task, status: "done" }, now);
+  }
+
+  function updateTask(task, title, due, now) {
+    const trimmed = title.trim();
+    if (!trimmed) return task;
+    return touch({ ...task, title: trimmed, due: due || null }, now);
+  }
+
+  function deleteTask(task, now) {
+    return touch({ ...task, deleted: true }, now);
+  }
+
+  function mergeTasks(local, remote) {
+    const byId = new Map();
+    for (const task of [...local, ...remote]) {
+      const next = assignList(task);
+      const prev = byId.get(next.id);
+      if (!prev || String(next.updatedAt) > String(prev.updatedAt)) byId.set(next.id, next);
+    }
+    return sortTasks([...byId.values()]);
+  }
+
+  function pendingPush(local, remote) {
+    const remoteById = new Map(remote.map((task) => [task.id, task]));
+    return local.filter((task) => {
+      const other = remoteById.get(task.id);
+      return !other || String(task.updatedAt) > String(other.updatedAt);
+    });
+  }
+
+  function formatDue(iso, today) {
+    if (!iso) return "No date";
+    const date = parseISODate(iso);
+    const start = startOfDay(today);
+    const diff = Math.round((date.getTime() - start.getTime()) / 86400000);
+    if (diff === 0) return "Due today";
+    if (diff === 1) return "Due tomorrow";
+    if (diff === -1) return "Due yesterday";
+    const pretty = date.toLocaleDateString("en-US", {
+      weekday: "short",
+      month: "short",
+      day: "numeric",
+    });
+    return `Due ${pretty}`;
+  }
+
+  function isOverdue(task, today) {
+    if (!task.due || task.status === "done") return false;
+    return parseISODate(task.due).getTime() < startOfDay(today).getTime();
+  }
+
+  function mailHref(task, name, today) {
+    const who = name.trim();
+    const to = who.includes("@") ? who : "";
+    const subject = `Can you finish this? ${task.title}`;
+    const due = formatDue(task.due, today);
+    const body = [
+      task.title,
+      due,
+      "",
+      "This stays open until it is marked confirmed.",
+    ].join("\n");
+    return `mailto:${encodeURIComponent(to)}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+  }
+
+  function seedTasks(today) {
+    const stamp = startOfDay(today).toISOString();
+    return sortTasks([
+      {
+        id: "seed-garage",
+        title: "Replace the garage sensor",
+        due: toISODate(addDays(today, 2)),
+        status: "open",
+        waitingOn: null,
+        list: "P",
+        deleted: false,
+        createdAt: stamp,
+        updatedAt: stamp,
+      },
+      {
+        id: "seed-quote",
+        title: "Email the quote",
+        due: toISODate(today),
+        status: "waiting",
+        waitingOn: "Pat",
+        list: "P",
+        deleted: false,
+        createdAt: stamp,
+        updatedAt: stamp,
+      },
+      {
+        id: "seed-key",
+        title: "Pick up the spare key",
+        due: toISODate(addDays(today, -1)),
+        status: "done",
+        waitingOn: "Pat",
+        list: "P",
+        deleted: false,
+        createdAt: stamp,
+        updatedAt: stamp,
+      },
+    ]);
+  }
+
+  function replaceTask(tasks, next) {
+    return sortTasks(tasks.map((task) => (task.id === next.id ? next : task)));
+  }
+
+  return {
+    addDays,
+    toISODate,
+    parseISODate,
+    LISTS,
+    normalizeList,
+    createTask,
+    assignList,
+    tasksForList,
+    sortTasks,
+    openCount,
+    toggleDone,
+    markWaiting,
+    markConfirmed,
+    updateTask,
+    deleteTask,
+    mergeTasks,
+    pendingPush,
+    formatDue,
+    isOverdue,
+    mailHref,
+    seedTasks,
+    replaceTask,
+  };
+});
+
+  </script>
+  <script>
+const STORAGE_KEY = "tasks.phase1.v1";
+const LIST_KEY = "tasks.phase1.list";
+const logic = window.TaskLogic;
+
+const listEl = document.querySelector("#list");
+const countEl = document.querySelector("#count");
+const backdrop = document.querySelector("#backdrop");
+const sheet = document.querySelector("#sheet");
+const addButton = document.querySelector("#add");
+const tabs = [...document.querySelectorAll(".tab")];
+
+let tasks = loadTasks();
+let currentList = logic.normalizeList(localStorage.getItem(LIST_KEY));
+
+tabs.forEach((tab) => {
+  tab.addEventListener("click", () => {
+    currentList = logic.normalizeList(tab.dataset.list);
+    localStorage.setItem(LIST_KEY, currentList);
+    render();
+  });
+});
+
+addButton.addEventListener("click", () => openAdd());
+backdrop.addEventListener("click", (event) => {
+  if (event.target === backdrop) closeSheet();
+});
+document.addEventListener("keydown", (event) => {
+  if (event.key === "Escape") closeSheet();
+});
+listEl.addEventListener("click", onListClick);
+
+if (window.visualViewport) {
+  const syncViewport = () => {
+    const offset = Math.max(0, window.innerHeight - visualViewport.height - visualViewport.offsetTop);
+    document.documentElement.style.setProperty("--vv-offset", `${offset}px`);
+  };
+  visualViewport.addEventListener("resize", syncViewport);
+  visualViewport.addEventListener("scroll", syncViewport);
+}
+
+render();
+
+function loadTasks() {
+  const raw = localStorage.getItem(STORAGE_KEY);
+  if (raw == null) {
+    const seeded = logic.seedTasks(new Date());
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(seeded));
+    return seeded;
+  }
+  try {
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [];
+    const normalized = logic.sortTasks(parsed.map((task) => logic.assignList(task)));
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(normalized));
+    return normalized;
+  } catch {
+    return [];
+  }
+}
+
+function saveLocal() {
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(tasks));
+}
+
+function save() {
+  saveLocal();
+  scheduleSync();
+}
+
+function render() {
+  const visible = logic.tasksForList(tasks, currentList);
+  const open = logic.openCount(visible);
+  countEl.textContent = open === 1 ? "1 still open" : `${open} still open`;
+  tabs.forEach((tab) => {
+    const selected = tab.dataset.list === currentList;
+    tab.classList.toggle("on", selected);
+    tab.setAttribute("aria-pressed", selected ? "true" : "false");
+  });
+  listEl.replaceChildren();
+  if (visible.length === 0) {
+    const empty = document.createElement("p");
+    empty.className = "empty";
+    empty.textContent = `No tasks in ${currentList} yet. Tap + to add one with a date.`;
+    listEl.append(empty);
+    return;
+  }
+  for (const task of visible) listEl.append(renderTask(task));
+}
+
+function renderTask(task) {
+  const today = new Date();
+  const article = document.createElement("article");
+  article.className = task.status === "done" ? "task done" : "task";
+  article.dataset.id = task.id;
+
+  const check = document.createElement("button");
+  check.type = "button";
+  check.className = task.status === "done" ? "check on" : "check";
+  check.dataset.action = "toggle";
+  check.setAttribute("aria-pressed", task.status === "done" ? "true" : "false");
+  if (task.status === "waiting") {
+    check.disabled = true;
+    check.setAttribute("aria-label", `Waiting on ${task.waitingOn}. Still open.`);
+  } else if (task.status === "done") {
+    check.setAttribute("aria-label", `Mark ${task.title} not done`);
+  } else {
+    check.setAttribute("aria-label", `Mark ${task.title} done`);
+  }
+
+  const main = document.createElement("button");
+  main.type = "button";
+  main.className = "task-main";
+  main.dataset.action = "edit";
+
+  const title = document.createElement("span");
+  title.className = "title";
+  title.textContent = task.title;
+
+  const meta = document.createElement("span");
+  meta.className = logic.isOverdue(task, today) ? "meta overdue" : "meta";
+  meta.textContent = logic.formatDue(task.due, today);
+
+  main.append(title, meta);
+
+  const body = document.createElement("div");
+  body.className = "task-body";
+  body.append(main);
+
+  let confirm = null;
+  if (task.status === "waiting" && task.waitingOn) {
+    const badge = document.createElement("span");
+    badge.className = "badge wait";
+    badge.textContent = `Waiting on ${task.waitingOn}`;
+    main.append(badge);
+    confirm = document.createElement("button");
+    confirm.type = "button";
+    confirm.className = "confirm";
+    confirm.dataset.action = "confirm";
+    confirm.textContent = "Marc confirmed";
+  } else if (task.status === "done" && task.waitingOn) {
+    const badge = document.createElement("span");
+    badge.className = "badge done";
+    badge.textContent = "Confirmed";
+    main.append(badge);
+  }
+
+  article.append(check, body);
+  if (confirm) article.append(confirm);
+
+  if (task.status === "open") {
+    const email = document.createElement("button");
+    email.type = "button";
+    email.className = "email";
+    email.dataset.action = "email";
+    email.textContent = "Email team";
+    article.append(email);
+  }
+
+  return article;
+}
+
+function onListClick(event) {
+  const actionEl = event.target.closest("[data-action]");
+  if (!actionEl) return;
+  const article = actionEl.closest(".task");
+  const task = tasks.find((item) => item.id === article.dataset.id);
+  if (!task) return;
+  const action = actionEl.dataset.action;
+  if (action === "toggle") change(logic.toggleDone(task));
+  if (action === "confirm") change(logic.markConfirmed(task));
+  if (action === "edit") openEdit(task);
+  if (action === "email") openEmail(task);
+}
+
+function change(next) {
+  if (next === tasks.find((task) => task.id === next.id)) return;
+  tasks = logic.replaceTask(tasks, next);
+  save();
+  render();
+}
+
+function openAdd() {
+  const today = logic.toISODate(new Date());
+  openSheet({
+    title: "Add task",
+    fields: [
+      field("Title", "text", "title", "", "What needs doing?"),
+      field("Due date", "date", "due", today),
+    ],
+    submit: "Save",
+    onSubmit(data) {
+      const created = logic.createTask(data.title, data.due, new Date(), currentList);
+      if (!created) return false;
+      tasks = logic.sortTasks([...tasks, created]);
+      save();
+      render();
+      return true;
+    },
+  });
+}
+
+function openEdit(task) {
+  openSheet({
+    title: "Edit task",
+    fields: [
+      field("Title", "text", "title", task.title),
+      field("Due date", "date", "due", task.due || ""),
+    ],
+    submit: "Save",
+    deleteLabel: "Delete task",
+    onSubmit(data) {
+      change(logic.updateTask(task, data.title, data.due));
+      return true;
+    },
+    onDelete() {
+      change(logic.deleteTask(task));
+    },
+  });
+}
+
+function openEmail(task) {
+  openSheet({
+    title: "Email team",
+    hint: `${task.title} stays open until you mark it confirmed.`,
+    fields: [field("Name or email", "text", "who", "", "Pat")],
+    submit: "Keep open and email",
+    onSubmit(data) {
+      const who = data.who.trim();
+      if (!who) return false;
+      const waiting = logic.markWaiting(task, who);
+      tasks = logic.replaceTask(tasks, waiting);
+      save();
+      render();
+      const link = document.createElement("a");
+      link.href = logic.mailHref(waiting, who, new Date());
+      link.click();
+      return true;
+    },
+  });
+}
+
+function field(label, type, name, value, placeholder) {
+  return { label, type, name, value, placeholder: placeholder || "" };
+}
+
+function openSheet(options) {
+  sheet.replaceChildren();
+  const heading = document.createElement("h2");
+  heading.textContent = options.title;
+  sheet.append(heading);
+
+  if (options.hint) {
+    const hint = document.createElement("p");
+    hint.className = "hint";
+    hint.textContent = options.hint;
+    sheet.append(hint);
+  }
+
+  for (const item of options.fields) {
+    const label = document.createElement("label");
+    label.className = "field";
+    const span = document.createElement("span");
+    span.textContent = item.label;
+    const input = document.createElement("input");
+    input.type = item.type;
+    input.name = item.name;
+    input.value = item.value;
+    input.placeholder = item.placeholder;
+    input.required = true;
+    input.autocomplete = "off";
+    label.append(span, input);
+    sheet.append(label);
+  }
+
+  const actions = document.createElement("div");
+  actions.className = "sheet-actions";
+  const cancel = document.createElement("button");
+  cancel.type = "button";
+  cancel.className = "secondary";
+  cancel.textContent = "Cancel";
+  cancel.addEventListener("click", closeSheet);
+  const submit = document.createElement("button");
+  submit.type = "submit";
+  submit.className = "primary";
+  submit.textContent = options.submit;
+  actions.append(cancel, submit);
+  sheet.append(actions);
+
+  if (options.deleteLabel) {
+    const remove = document.createElement("button");
+    remove.type = "button";
+    remove.className = "delete";
+    remove.textContent = options.deleteLabel;
+    remove.addEventListener("click", () => {
+      options.onDelete();
+      closeSheet();
+    });
+    sheet.append(remove);
+  }
+
+  sheet.onsubmit = (event) => {
+    event.preventDefault();
+    const data = Object.fromEntries(new FormData(sheet));
+    if (options.onSubmit(data) !== false) closeSheet();
+  };
+
+  backdrop.hidden = false;
+  document.body.classList.add("sheet-open");
+  const first = sheet.querySelector("input");
+  if (first) first.focus();
+}
+
+function closeSheet() {
+  backdrop.hidden = true;
+  document.body.classList.remove("sheet-open");
+  sheet.onsubmit = null;
+}
+
+const note = document.querySelector("#save-note");
+let syncTimer = 0;
+let syncing = false;
+let syncAgain = false;
+
+function scheduleSync() {
+  clearTimeout(syncTimer);
+  syncTimer = setTimeout(() => {
+    syncNow();
+  }, 300);
+}
+
+function setNote(message) {
+  if (note) note.textContent = message;
+}
+
+async function requestTasks(method, body) {
+  const response = await fetch("/api/tasks", {
+    method,
+    headers: { "content-type": "application/json" },
+    body: body ? JSON.stringify(body) : undefined,
+  });
+  if (!response.ok) throw new Error("save failed");
+  const payload = await response.json();
+  return Array.isArray(payload.tasks) ? payload.tasks : [];
+}
+
+async function syncNow() {
+  if (syncing) {
+    syncAgain = true;
+    return;
+  }
+  if (!navigator.onLine) {
+    setNote("Saved on this phone. Cloudflare could not be reached just now.");
+    return;
+  }
+  syncing = true;
+  try {
+    const remote = await requestTasks("GET");
+    const outgoing = logic.pendingPush(tasks, remote);
+    const confirmed = outgoing.length ? await requestTasks("PUT", { tasks: outgoing }) : remote;
+    tasks = logic.mergeTasks(tasks, confirmed);
+    saveLocal();
+    render();
+    setNote("Saved on this phone and in Cloudflare.");
+  } catch {
+    setNote("Saved on this phone. Cloudflare could not be reached just now.");
+  } finally {
+    syncing = false;
+    if (syncAgain) {
+      syncAgain = false;
+      syncNow();
+    }
+  }
+}
+
+localStorage.removeItem("tasks.phase1.password");
+document.querySelector("#refresh").addEventListener("click", () => {
+  setNote("Refreshing…");
+  syncNow();
+});
+window.addEventListener("online", () => syncNow());
+syncNow();
+
+  </script>
+</body>
+</html>

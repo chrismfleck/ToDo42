@@ -24,6 +24,9 @@ xcuserdata/
 # CocoaPods
 Pods/
 
+# Cloudflare
+.wrangler/
+
 # macOS
 .DS_Store
 .AppleDouble
