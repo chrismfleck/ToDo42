@@ -81,20 +81,31 @@ test("only unfinished tasks with a past date are overdue", () => {
   assert.equal(isOverdue(later, today), false);
 });
 
-test("each list keeps its own tasks, and older tasks land in A", () => {
+test("each list keeps its own tasks, and older tasks land in Personal", () => {
   const seeded = seedTasks(today);
-  assert.ok(seeded.every((task) => task.list === "A"));
-  assert.equal(tasksForList(seeded, "B").length, 0);
-  const inB = createTask("Call the plumber", "2026-10-08", today, "B");
-  assert.equal(inB.list, "B");
-  const saved = [...seeded, inB, assignList({ title: "Old task", list: "nope" })];
-  assert.equal(tasksForList(saved, "A").length, 4);
+  assert.ok(seeded.every((task) => task.list === "Personal"));
+  assert.equal(tasksForList(seeded, "AX").length, 0);
+  const inAx = createTask("Call the plumber", "2026-10-08", today, "AX");
+  assert.equal(inAx.list, "AX");
+  const saved = [
+    ...seeded,
+    inAx,
+    assignList({ title: "From A", list: "A" }),
+    assignList({ title: "From C", list: "C" }),
+    assignList({ title: "Old task", list: "nope" }),
+  ];
+  assert.equal(tasksForList(saved, "Personal").length, 5);
   assert.deepEqual(
-    tasksForList(saved, "B").map((task) => task.title),
+    tasksForList(saved, "AX").map((task) => task.title),
     ["Call the plumber"]
   );
-  assert.equal(normalizeList("C"), "C");
-  assert.equal(normalizeList(""), "A");
+  assert.deepEqual(
+    tasksForList(saved, "TG").map((task) => task.title),
+    ["From C"]
+  );
+  assert.equal(normalizeList("TG"), "TG");
+  assert.equal(normalizeList(""), "Personal");
+  assert.equal(normalizeList("D"), "Personal");
 });
 
 test("edit keeps the title and date, and mail uses an address when one is given", () => {

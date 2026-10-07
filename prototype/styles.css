@@ -83,7 +83,7 @@ h1 {
 
 .tabs {
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
+  grid-template-columns: repeat(3, 1fr);
   background: white;
   border-radius: 14px;
   padding: 4px;
@@ -94,9 +94,10 @@ h1 {
   border: 0;
   background: transparent;
   border-radius: 11px;
-  padding: 10px 0;
+  padding: 10px 4px;
   color: #3d4c63;
-  font-size: 18px;
+  font-size: 16px;
+  white-space: nowrap;
   font-weight: 750;
   cursor: pointer;
 }
