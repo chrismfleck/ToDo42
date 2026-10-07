@@ -27,7 +27,10 @@ ${css}
         <h1>Tasks</h1>
         <p id="count">0 still open</p>
       </div>
-      <button id="add" class="plus" type="button" aria-label="Add task">+</button>
+      <div class="actions">
+        <button id="refresh" class="refresh" type="button">Refresh</button>
+        <button id="add" class="plus" type="button" aria-label="Add task">+</button>
+      </div>
     </header>
     <nav class="tabs" aria-label="Lists">
       <button type="button" class="tab" data-list="P">P</button>

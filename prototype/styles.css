@@ -38,44 +38,65 @@ button {
 }
 
 .app {
-  width: min(100%, 520px);
-  margin: 0 auto;
+  width: 100%;
+  max-width: 100%;
+  margin: 0;
   padding:
-    calc(18px + env(safe-area-inset-top))
-    16px
-    calc(28px + env(safe-area-inset-bottom));
+    calc(8px + env(safe-area-inset-top))
+    10px
+    calc(12px + env(safe-area-inset-bottom));
 }
 
 .top {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 16px;
-  padding: 8px 4px 18px;
+  gap: 8px;
+  padding: 2px 2px 8px;
 }
 
 h1 {
   margin: 0;
-  font-size: 40px;
+  font-size: 26px;
   line-height: 1;
   letter-spacing: -0.04em;
 }
 
 #count {
-  margin: 6px 0 0;
+  margin: 2px 0 0;
   color: var(--muted);
-  font-size: 17px;
+  font-size: 13px;
   font-weight: 650;
 }
 
+.actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 0 0 auto;
+}
+
+.refresh {
+  height: 36px;
+  border: 0;
+  border-radius: 999px;
+  background: white;
+  color: var(--blue);
+  font-size: 14px;
+  font-weight: 750;
+  padding: 0 12px;
+  cursor: pointer;
+  box-shadow: inset 0 0 0 1px #d5e0f2;
+}
+
 .plus {
-  width: 56px;
-  height: 56px;
+  width: 36px;
+  height: 36px;
   border: 0;
   border-radius: 50%;
   background: var(--blue);
   color: white;
-  font-size: 40px;
+  font-size: 26px;
   font-weight: 500;
   line-height: 1;
   cursor: pointer;
@@ -85,18 +106,18 @@ h1 {
   display: grid;
   grid-template-columns: repeat(4, 1fr);
   background: white;
-  border-radius: 14px;
-  padding: 4px;
-  margin: 0 0 16px;
+  border-radius: 12px;
+  padding: 3px;
+  margin: 0 0 8px;
 }
 
 .tab {
   border: 0;
   background: transparent;
-  border-radius: 11px;
-  padding: 10px 0;
+  border-radius: 9px;
+  padding: 6px 0;
   color: #3d4c63;
-  font-size: 18px;
+  font-size: 15px;
   white-space: nowrap;
   font-weight: 750;
   cursor: pointer;
@@ -110,27 +131,26 @@ h1 {
 .list {
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 6px;
 }
 
 .task {
   display: grid;
-  grid-template-columns: 44px minmax(0, 1fr) auto;
-  gap: 10px;
+  grid-template-columns: 32px minmax(0, 1fr) auto;
+  gap: 8px;
   align-items: center;
   background: var(--card);
-  border-radius: 22px;
-  padding: 14px 14px 14px 12px;
+  border-radius: 14px;
+  padding: 7px 8px 7px 7px;
   box-shadow: 0 1px 0 rgba(23, 32, 51, 0.03);
 }
 
 .check {
-  width: 40px;
-  height: 40px;
-  margin-top: 2px;
-  align-self: start;
+  width: 28px;
+  height: 28px;
+  align-self: center;
   border-radius: 50%;
-  border: 2.5px solid #9aa8bd;
+  border: 2px solid #9aa8bd;
   background: transparent;
   padding: 0;
   position: relative;
@@ -145,12 +165,12 @@ h1 {
 .check.on::after {
   content: "";
   position: absolute;
-  left: 13px;
-  top: 7px;
-  width: 8px;
-  height: 15px;
+  left: 9px;
+  top: 4px;
+  width: 6px;
+  height: 11px;
   border: solid white;
-  border-width: 0 3px 3px 0;
+  border-width: 0 2px 2px 0;
   transform: rotate(40deg);
 }
 
@@ -174,10 +194,10 @@ h1 {
 
 .title {
   display: block;
-  font-size: 18px;
+  font-size: 15px;
   font-weight: 720;
   letter-spacing: -0.02em;
-  line-height: 1.25;
+  line-height: 1.2;
 }
 
 .task.done .title {
@@ -187,9 +207,9 @@ h1 {
 
 .meta {
   display: block;
-  margin-top: 4px;
+  margin-top: 1px;
   color: var(--muted);
-  font-size: 15px;
+  font-size: 12px;
   font-weight: 650;
 }
 
@@ -199,10 +219,10 @@ h1 {
 
 .badge {
   display: inline-block;
-  margin-top: 8px;
+  margin-top: 3px;
   border-radius: 999px;
-  padding: 4px 10px;
-  font-size: 14px;
+  padding: 1px 7px;
+  font-size: 12px;
   font-weight: 750;
 }
 
@@ -212,9 +232,9 @@ h1 {
 .email,
 .confirm {
   border: 0;
-  border-radius: 14px;
-  padding: 10px 12px;
-  font-size: 15px;
+  border-radius: 10px;
+  padding: 6px 8px;
+  font-size: 13px;
   font-weight: 750;
   cursor: pointer;
   white-space: nowrap;
@@ -226,28 +246,26 @@ h1 {
 }
 
 .confirm {
-  display: block;
-  margin-top: 10px;
   background: var(--blue);
   color: white;
 }
 
 .empty {
   background: var(--card);
-  border-radius: 22px;
-  padding: 28px 20px;
+  border-radius: 14px;
+  padding: 16px 12px;
   text-align: center;
   color: var(--muted);
-  font-size: 17px;
+  font-size: 14px;
   font-weight: 650;
-  line-height: 1.4;
+  line-height: 1.35;
 }
 
 .footnote {
-  margin: 22px 8px 0;
+  margin: 10px 2px 0;
   color: var(--muted);
-  font-size: 14px;
-  line-height: 1.4;
+  font-size: 12px;
+  line-height: 1.35;
 }
 
 .backdrop {
@@ -263,7 +281,7 @@ h1 {
 .backdrop[hidden] { display: none; }
 
 .sheet {
-  width: min(100%, 520px);
+  width: min(100%, 440px);
   margin-bottom: var(--vv-offset);
   background: #f7f9fc;
   border-radius: 28px 28px 0 0;
@@ -351,7 +369,7 @@ h1 {
       var(--bg);
   }
 
-  .app { padding-top: 48px; }
+  .app { padding-top: 12px; }
 
   .backdrop { align-items: center; }
 

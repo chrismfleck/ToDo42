@@ -126,17 +126,17 @@ function renderTask(task) {
   body.className = "task-body";
   body.append(main);
 
+  let confirm = null;
   if (task.status === "waiting" && task.waitingOn) {
     const badge = document.createElement("span");
     badge.className = "badge wait";
     badge.textContent = `Waiting on ${task.waitingOn}`;
     main.append(badge);
-    const confirm = document.createElement("button");
+    confirm = document.createElement("button");
     confirm.type = "button";
     confirm.className = "confirm";
     confirm.dataset.action = "confirm";
     confirm.textContent = "Marc confirmed";
-    body.append(confirm);
   } else if (task.status === "done" && task.waitingOn) {
     const badge = document.createElement("span");
     badge.className = "badge done";
@@ -145,6 +145,7 @@ function renderTask(task) {
   }
 
   article.append(check, body);
+  if (confirm) article.append(confirm);
 
   if (task.status === "open") {
     const email = document.createElement("button");
@@ -372,5 +373,9 @@ async function syncNow() {
 }
 
 localStorage.removeItem("tasks.phase1.password");
+document.querySelector("#refresh").addEventListener("click", () => {
+  setNote("Refreshing…");
+  syncNow();
+});
 window.addEventListener("online", () => syncNow());
 syncNow();
