@@ -94,7 +94,7 @@ h1 {
 
 .tabs {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: repeat(4, 1fr);
   background: white;
   border-radius: 14px;
   padding: 4px;
@@ -105,9 +105,9 @@ h1 {
   border: 0;
   background: transparent;
   border-radius: 11px;
-  padding: 10px 4px;
+  padding: 10px 0;
   color: #3d4c63;
-  font-size: 16px;
+  font-size: 18px;
   white-space: nowrap;
   font-weight: 750;
   cursor: pointer;
@@ -385,9 +385,10 @@ h1 {
       <button id="add" class="plus" type="button" aria-label="Add task">+</button>
     </header>
     <nav class="tabs" aria-label="Lists">
-      <button type="button" class="tab" data-list="Personal">Personal</button>
+      <button type="button" class="tab" data-list="P">P</button>
       <button type="button" class="tab" data-list="AX">AX</button>
       <button type="button" class="tab" data-list="TG">TG</button>
+      <button type="button" class="tab" data-list="B">B</button>
     </nav>
     <main id="list" class="list" aria-live="polite"></main>
     <p class="footnote">Saved on this phone. A task you email stays open until you mark it confirmed.</p>
@@ -427,13 +428,13 @@ h1 {
     return new Date(y, m - 1, d);
   }
 
-  const LISTS = ["Personal", "AX", "TG"];
-  const LEGACY_LISTS = { A: "Personal", B: "AX", C: "TG", D: "Personal" };
+  const LISTS = ["P", "AX", "TG", "B"];
+  const LEGACY_LISTS = { Personal: "P", A: "P", C: "TG", D: "P" };
 
   function normalizeList(value) {
     if (LISTS.includes(value)) return value;
     if (LEGACY_LISTS[value]) return LEGACY_LISTS[value];
-    return "Personal";
+    return "P";
   }
 
   function createId() {
@@ -554,7 +555,7 @@ h1 {
         due: toISODate(addDays(today, 2)),
         status: "open",
         waitingOn: null,
-        list: "Personal",
+        list: "P",
         createdAt: stamp,
       },
       {
@@ -563,7 +564,7 @@ h1 {
         due: toISODate(today),
         status: "waiting",
         waitingOn: "Pat",
-        list: "Personal",
+        list: "P",
         createdAt: stamp,
       },
       {
@@ -572,7 +573,7 @@ h1 {
         due: toISODate(addDays(today, -1)),
         status: "done",
         waitingOn: "Pat",
-        list: "Personal",
+        list: "P",
         createdAt: stamp,
       },
     ]);

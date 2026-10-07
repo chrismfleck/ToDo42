@@ -30,9 +30,10 @@ ${css}
       <button id="add" class="plus" type="button" aria-label="Add task">+</button>
     </header>
     <nav class="tabs" aria-label="Lists">
-      <button type="button" class="tab" data-list="Personal">Personal</button>
+      <button type="button" class="tab" data-list="P">P</button>
       <button type="button" class="tab" data-list="AX">AX</button>
       <button type="button" class="tab" data-list="TG">TG</button>
+      <button type="button" class="tab" data-list="B">B</button>
     </nav>
     <main id="list" class="list" aria-live="polite"></main>
     <p class="footnote">Saved on this phone. A task you email stays open until you mark it confirmed.</p>

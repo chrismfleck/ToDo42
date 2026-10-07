@@ -27,13 +27,13 @@
     return new Date(y, m - 1, d);
   }
 
-  const LISTS = ["Personal", "AX", "TG"];
-  const LEGACY_LISTS = { A: "Personal", B: "AX", C: "TG", D: "Personal" };
+  const LISTS = ["P", "AX", "TG", "B"];
+  const LEGACY_LISTS = { Personal: "P", A: "P", C: "TG", D: "P" };
 
   function normalizeList(value) {
     if (LISTS.includes(value)) return value;
     if (LEGACY_LISTS[value]) return LEGACY_LISTS[value];
-    return "Personal";
+    return "P";
   }
 
   function createId() {
@@ -154,7 +154,7 @@
         due: toISODate(addDays(today, 2)),
         status: "open",
         waitingOn: null,
-        list: "Personal",
+        list: "P",
         createdAt: stamp,
       },
       {
@@ -163,7 +163,7 @@
         due: toISODate(today),
         status: "waiting",
         waitingOn: "Pat",
-        list: "Personal",
+        list: "P",
         createdAt: stamp,
       },
       {
@@ -172,7 +172,7 @@
         due: toISODate(addDays(today, -1)),
         status: "done",
         waitingOn: "Pat",
-        list: "Personal",
+        list: "P",
         createdAt: stamp,
       },
     ]);
