@@ -55,8 +55,8 @@ test("checking an open task finishes it, and checking again reopens it", () => {
   assert.equal(toggleDone(done).status, "open");
 });
 
-test("a waiting task stays open until it is confirmed", () => {
-  const open = createTask("Email the quote", "2026-10-07", today);
+test("a waiting task on AX, TG, or B stays open until it is confirmed", () => {
+  const open = createTask("Email the quote", "2026-10-07", today, "AX");
   const waiting = markWaiting(open, " Pat ");
   assert.equal(waiting.status, "waiting");
   assert.equal(waiting.waitingOn, "Pat");
@@ -65,6 +65,14 @@ test("a waiting task stays open until it is confirmed", () => {
   assert.equal(confirmed.status, "done");
   assert.equal(confirmed.waitingOn, "Pat");
   assert.equal(markConfirmed(open).status, "open");
+});
+
+test("a waiting task on P is finished with the check", () => {
+  const open = createTask("Email the quote", "2026-10-07", today, "P");
+  const waiting = markWaiting(open, "Pat");
+  const done = toggleDone(waiting);
+  assert.equal(done.status, "done");
+  assert.equal(done.waitingOn, null);
 });
 
 test("dates read as today, tomorrow, yesterday, or a weekday", () => {

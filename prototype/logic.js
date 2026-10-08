@@ -97,8 +97,15 @@
     return tasks.filter((task) => !task.deleted && task.status !== "done").length;
   }
 
+  function usesMarcConfirm(task) {
+    return normalizeList(task.list) !== "P";
+  }
+
   function toggleDone(task, now) {
-    if (task.status === "waiting") return task;
+    if (task.status === "waiting") {
+      if (usesMarcConfirm(task)) return task;
+      return touch({ ...task, status: "done", waitingOn: null }, now);
+    }
     if (task.status === "done") {
       return touch({ ...task, status: "open", waitingOn: null }, now);
     }
@@ -233,6 +240,7 @@
     tasksForList,
     sortTasks,
     openCount,
+    usesMarcConfirm,
     toggleDone,
     markWaiting,
     markConfirmed,
