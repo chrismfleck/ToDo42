@@ -1,4 +1,4 @@
-const CACHE = "tasks-offline-v10";
+const CACHE = "tasks-offline-v11";
 const FILES = [
   "./",
   "./index.html",
