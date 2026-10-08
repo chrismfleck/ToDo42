@@ -382,7 +382,8 @@ h1 {
     width: 248px;
     max-width: 248px;
     min-width: 0;
-    margin: 0;
+    margin-left: auto;
+    margin-right: 0;
   }
 }
 
@@ -397,7 +398,8 @@ h1 {
     width: 248px;
     max-width: 248px;
     min-width: 0;
-    margin: 0;
+    margin-left: auto;
+    margin-right: 0;
     padding-top: 12px;
   }
 
