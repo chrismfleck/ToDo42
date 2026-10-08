@@ -138,10 +138,10 @@ h1 {
 }
 
 .task {
-  display: flex;
-  flex-wrap: wrap;
+  display: grid;
+  grid-template-columns: 28px minmax(0, 1fr) auto;
   align-items: center;
-  gap: 4px 8px;
+  column-gap: 8px;
   min-width: 0;
   background: var(--card);
   border-radius: 14px;
@@ -185,7 +185,7 @@ h1 {
 }
 
 .task-body {
-  flex: 1 1 160px;
+  grid-column: 2;
   min-width: 0;
 }
 
@@ -242,17 +242,16 @@ h1 {
 
 .email,
 .confirm {
+  grid-column: 3;
+  grid-row: 1;
   border: 0;
   border-radius: 10px;
-  margin-left: auto;
   padding: 6px 8px;
   font-size: 13px;
   font-weight: 750;
   cursor: pointer;
-  white-space: normal;
+  white-space: nowrap;
   text-align: center;
-  min-width: 0;
-  max-width: 100%;
 }
 
 .email {
@@ -261,6 +260,8 @@ h1 {
 }
 
 .confirm {
+  align-self: start;
+  margin-top: 1px;
   background: var(--blue);
   color: white;
 }
