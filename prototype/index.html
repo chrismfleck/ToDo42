@@ -41,8 +41,16 @@
   <script src="logic.js"></script>
   <script src="app.js"></script>
   <script>
+    function hideMarcOnP() {
+      const onP = document.querySelector(".tab.on")?.dataset.list === "P";
+      document.querySelectorAll(".confirm").forEach((button) => {
+        button.hidden = onP;
+      });
+    }
+    new MutationObserver(hideMarcOnP).observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ["class"] });
+    hideMarcOnP();
     if ("serviceWorker" in navigator) {
-      navigator.serviceWorker.register("sw.js");
+      navigator.serviceWorker.register("sw.js", { updateViaCache: "none" });
     }
   </script>
 </body>

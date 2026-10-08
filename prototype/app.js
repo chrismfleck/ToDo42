@@ -98,7 +98,8 @@ function renderTask(task) {
   check.className = task.status === "done" ? "check on" : "check";
   check.dataset.action = "toggle";
   check.setAttribute("aria-pressed", task.status === "done" ? "true" : "false");
-  if (task.status === "waiting") {
+  const marcList = logic.usesMarcConfirm(task);
+  if (task.status === "waiting" && marcList) {
     check.disabled = true;
     check.setAttribute("aria-label", `Waiting on ${task.waitingOn}. Still open.`);
   } else if (task.status === "done") {
@@ -132,12 +133,14 @@ function renderTask(task) {
     badge.className = "badge wait";
     badge.textContent = `Waiting on ${task.waitingOn}`;
     main.append(badge);
-    confirm = document.createElement("button");
-    confirm.type = "button";
-    confirm.className = "confirm";
-    confirm.dataset.action = "confirm";
-    confirm.textContent = "Marc confirmed";
-  } else if (task.status === "done" && task.waitingOn) {
+    if (marcList) {
+      confirm = document.createElement("button");
+      confirm.type = "button";
+      confirm.className = "confirm";
+      confirm.dataset.action = "confirm";
+      confirm.textContent = "Marc confirmed";
+    }
+  } else if (marcList && task.status === "done" && task.waitingOn) {
     const badge = document.createElement("span");
     badge.className = "badge done";
     badge.textContent = "Confirmed";
