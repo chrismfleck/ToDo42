@@ -8,6 +8,14 @@ import UserNotifications
 enum PairRole: String, Codable {
     case chris
     case deena
+
+    /// User-facing seat label. CloudKit still stores `chris` / `deena`.
+    var seatLabel: String {
+        switch self {
+        case .chris: return "primary"
+        case .deena: return "partner"
+        }
+    }
 }
 
 struct PairProfile: Codable, Identifiable, Hashable {
@@ -51,6 +59,8 @@ final class PairSession {
     var isComposingNewPair = false
     /// Bumps when a local head photo changes so SwiftUI refreshes initials/photos.
     var headPhotoRevision = 0
+    /// Which seat heart the user just tapped (so saveHeart writes that flag only).
+    var pendingHeartSeat: PairRole?
 
     private let defaults = UserDefaults.standard
     private let appGroupDefaults = UserDefaults(suiteName: AppGroup.id)
@@ -61,6 +71,7 @@ final class PairSession {
     private let partnerNameKey = "todo42.partnerName"
     private let pairHistoryKey = "todo42.pairIDHistory"
     private let savedPairsKey = "todo42.savedPairs"
+    private let joinedAsGuestKey = "todo42.joinedAsGuest"
     private let activePairAppGroupKey = "todo42.activePairID"
 
     var isPaired: Bool { pairID != nil && role != nil }
@@ -113,6 +124,11 @@ final class PairSession {
             ]
         } else {
             syncActiveFromSavedPairsIfNeeded()
+        }
+        // Joiner phones must stay on the partner seat — Restore often flipped
+        // Deena to primary so her tappable heart was labeled Chris.
+        if defaults.bool(forKey: joinedAsGuestKey), role != .deena, pairID != nil {
+            becomePartner(swapIdentity: role == .chris || role == nil)
         }
         mirrorActivePairToAppGroup()
     }
@@ -184,6 +200,46 @@ final class PairSession {
         if isPaired {
             Task { await CloudSync.shared.uploadPairNames() }
         }
+    }
+
+    /// Mark this phone as the joiner / partner seat. Use when Restore left the
+    /// partner on primary so the heart next to their name did nothing.
+    func becomePartner(swapIdentity: Bool = true) {
+        defaults.set(true, forKey: joinedAsGuestKey)
+        let wasPrimary = role == .chris || role == nil
+        role = .deena
+        if swapIdentity, wasPrimary {
+            let oldMine = myName
+            myName = partnerName
+            partnerName = oldMine
+            let key = headPairKey()
+            PairHeadPhotos.swapMeAndPartner(pairKey: key)
+            headPhotoRevision += 1
+        }
+        statusMessage = "This phone is the partner. Heart next to \(myHeartLabel)."
+        persist()
+    }
+
+    func becomePrimary(swapIdentity: Bool = true) {
+        defaults.set(false, forKey: joinedAsGuestKey)
+        let wasGuest = role == .deena
+        role = .chris
+        if swapIdentity, wasGuest {
+            let oldMine = myName
+            myName = partnerName
+            partnerName = oldMine
+            let key = headPairKey()
+            PairHeadPhotos.swapMeAndPartner(pairKey: key)
+            headPhotoRevision += 1
+        }
+        statusMessage = "This phone is primary. Heart next to \(myHeartLabel)."
+        persist()
+    }
+
+    var joinedAsGuest: Bool { defaults.bool(forKey: joinedAsGuestKey) }
+
+    func markJoinedAsGuest(_ value: Bool) {
+        defaults.set(value, forKey: joinedAsGuestKey)
     }
 
     func persistLocal() {
@@ -296,14 +352,81 @@ final class PairSession {
     func applyRemoteNames(host: String?, guest: String?) {
         let hostName = host?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         let guestName = guest?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        // Only fill blanks. Blind overwrite let a third joiner rename the couple
+        // (Chris saw “paired to Diane” after Diane wrote guestName).
+        var changed = false
         if role == .deena {
-            if !guestName.isEmpty { myName = guestName }
-            if !hostName.isEmpty { partnerName = hostName }
+            if trimmedMyName.isEmpty, !guestName.isEmpty {
+                myName = guestName
+                changed = true
+            }
+            if trimmedPartnerName.isEmpty, !hostName.isEmpty {
+                partnerName = hostName
+                changed = true
+            }
         } else {
-            if !hostName.isEmpty { myName = hostName }
-            if !guestName.isEmpty { partnerName = guestName }
+            if trimmedMyName.isEmpty, !hostName.isEmpty {
+                myName = hostName
+                changed = true
+            }
+            if trimmedPartnerName.isEmpty, !guestName.isEmpty {
+                partnerName = guestName
+                changed = true
+            }
         }
-        persistLocal()
+        if reconcileSeat(host: hostName, guest: guestName) {
+            changed = true
+        }
+        if changed {
+            persistLocal()
+        }
+    }
+
+    /// Fix inverted names / wrong seat after Restore (Deena’s phone showed
+    /// “Chris” on the tappable heart and her own heart did nothing).
+    @discardableResult
+    func reconcileSeat(host: String, guest: String) -> Bool {
+        let me = trimmedMyName
+        let partner = trimmedPartnerName
+        guard !me.isEmpty else { return false }
+        var changed = false
+
+        // This phone has the primary seat but its name is the CloudKit guest —
+        // it is the partner device (common after Restore).
+        if role == .chris || role == nil,
+           !guest.isEmpty,
+           me.caseInsensitiveCompare(guest) == .orderedSame {
+            role = .deena
+            if !host.isEmpty { partnerName = host }
+            myName = guest
+            changed = true
+        }
+
+        // Partner seat but local names are swapped (myName is host).
+        if role == .deena,
+           !host.isEmpty,
+           me.caseInsensitiveCompare(host) == .orderedSame {
+            myName = guest.isEmpty ? partner : guest
+            partnerName = host
+            changed = true
+        }
+
+        // Partner seat: partner label should be the host, not ourselves.
+        if role == .deena,
+           !host.isEmpty,
+           (partner.isEmpty
+            || partner.caseInsensitiveCompare(me) == .orderedSame
+            || (!guest.isEmpty && partner.caseInsensitiveCompare(guest) == .orderedSame
+                && me.caseInsensitiveCompare(guest) != .orderedSame)) {
+            // If partner name equals guest but I'm not the guest name, leave it;
+            // if partner name equals my name, replace with host.
+            if partner.caseInsensitiveCompare(me) == .orderedSame || partner.isEmpty {
+                partnerName = host
+                changed = true
+            }
+        }
+
+        return changed
     }
 
     func displayName(forEditor editor: String) -> String {
@@ -316,7 +439,7 @@ final class PairSession {
         return editor.capitalized
     }
 
-    func noteLocalEdit(_ item: TodoItem, kind: String) {
+    func noteLocalEdit(_ item: TodoItem, kind: String, heartSeat: PairRole? = nil) {
         // Always stamp locally first. Skipping the stamp while a pull runs let
         // catalog cleanup treat a just-added bottom photo as "missing remotely"
         // and delete it before the companion upload landed.
@@ -326,6 +449,9 @@ final class PairSession {
         if kind == "add" {
             let pair = item.pairID.isEmpty ? pairID : item.pairID
             DeletedItemLedger.allowAgain(pairID: pair, urlString: item.urlString, id: item.id)
+        }
+        if kind == "heart" {
+            pendingHeartSeat = heartSeat
         }
         item.updatedAt = Date()
         item.lastEditor = role?.rawValue ?? ""
@@ -509,11 +635,32 @@ final class CloudSync {
         session.pairID = pairID
         session.role = .chris
         session.inviteCode = code
+        session.markJoinedAsGuest(false)
         session.markComposeFinished()
         session.persistLocal()
         try await subscribe()
         try await requestNotifications()
         await uploadCategoryTitles()
+        return code
+    }
+
+    /// New 6-digit code for the **same** shared list (re-invite). Does not create
+    /// a second CloudKit pair or copy items.
+    func rotateInviteCode() async throws -> String {
+        try await ensureiCloud()
+        guard let pairID = PairSession.shared.pairID, !pairID.isEmpty else {
+            throw SyncError.message("Pair first, then you can send a new code.")
+        }
+        let code = String((0..<6).map { _ in "0123456789".randomElement()! })
+        let codeRecord = CKRecord(recordType: "TDPairCode", recordID: CKRecord.ID(recordName: "code-\(code)"))
+        codeRecord["pairID"] = pairID
+        codeRecord["createdAt"] = Date()
+        _ = try await database.modifyRecords(saving: [codeRecord], deleting: [], savePolicy: .allKeys)
+        if let old = PairSession.shared.inviteCode, old != code {
+            try? await database.deleteRecord(withID: CKRecord.ID(recordName: "code-\(old)"))
+        }
+        PairSession.shared.inviteCode = code
+        PairSession.shared.persistLocal()
         return code
     }
 
@@ -537,23 +684,36 @@ final class CloudSync {
         if !session.isComposingNewPair {
             session.discardActivePairSlotBeforeReplace()
         }
+        let pair = try await database.record(for: CKRecord.ID(recordName: "pair-\(pairID)"))
+        let host = (pair["hostName"] as? String ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        let guest = (pair["guestName"] as? String ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        guard RemoteItemApply.canJoinExistingPair(
+            myName: session.trimmedMyName,
+            hostName: host,
+            guestName: guest
+        ) else {
+            throw SyncError.message(
+                "This list already has two people. For a separate list, your partner must tap Add a pair and send a new code — not the code from their other pair."
+            )
+        }
         session.pairID = pairID
         session.role = .deena
         session.inviteCode = trimmed
+        session.markJoinedAsGuest(true)
         session.markComposeFinished()
-        session.persistLocal()
-        if let pair = try? await database.record(for: CKRecord.ID(recordName: "pair-\(pairID)")) {
-            let host = pair["hostName"] as? String ?? ""
-            if !host.isEmpty {
-                session.partnerName = host
-            }
-            CategoryNames.shared.applyRemoteJSON(pair[CategoryNames.cloudField] as? String)
-            pair["guestName"] = session.trimmedMyName
-            if session.trimmedPartnerName.isEmpty == false, host.isEmpty {
-                pair["hostName"] = session.trimmedPartnerName
-            }
-            try await saveOverwriting(pair)
+        if !host.isEmpty {
+            session.partnerName = host
         }
+        CategoryNames.shared.applyRemoteJSON(pair[CategoryNames.cloudField] as? String)
+        // Only claim the open guest seat (or refresh the same guest re-joining).
+        // Never replace an existing guest name with a third person.
+        if guest.isEmpty || guest.caseInsensitiveCompare(session.trimmedMyName) == .orderedSame {
+            pair["guestName"] = session.trimmedMyName
+        }
+        if session.trimmedPartnerName.isEmpty == false, host.isEmpty {
+            pair["hostName"] = session.trimmedPartnerName
+        }
+        try await saveOverwriting(pair)
         session.persistLocal()
         try await subscribe()
         try await requestNotifications()
@@ -592,7 +752,8 @@ final class CloudSync {
         modelContext: ModelContext,
         allowCreate: Bool = false,
         hintRecordIDs: [CKRecord.ID] = [],
-        coalesce: Bool = true
+        coalesce: Bool = true,
+        preferCatalogFetch: Bool = false
     ) async {
         guard PairSession.shared.isPaired else { return }
         // Background polls coalesce onto the in-flight sync instead of queueing
@@ -606,9 +767,14 @@ final class CloudSync {
             defer { self.isBusySyncing = false }
             do {
                 try await self.ensureiCloud()
-                let shouldRefreshSubs = self.lastSubscribeAt.map { Date().timeIntervalSince($0) > 600 } ?? true
+                // Refresh push subscriptions every Force sync / first sync so
+                // v6 partner-only alerts replace older “notify both phones” subs.
+                let shouldRefreshSubs = preferCatalogFetch
+                    || self.lastSubscribeAt.map { Date().timeIntervalSince($0) > 600 } ?? true
                 if shouldRefreshSubs {
-                    try? await self.subscribe()
+                    _ = try? await self.withTimeout(seconds: 10) {
+                        try await self.subscribe()
+                    }
                     try? await self.requestNotifications()
                     self.lastSubscribeAt = Date()
                 }
@@ -617,15 +783,33 @@ final class CloudSync {
                 ItemStore.purgeBlankTitleGhosts(in: modelContext)
                 ItemStore.deduplicate(in: modelContext)
                 ItemStore.deduplicateContentTwins(in: modelContext)
-                let pairItems = ItemStore.items(forPair: PairSession.shared.pairID, in: modelContext)
+                // Strict pair scope for uploads — never push another list's rows
+                // (or unscoped leftovers) into this pair's CloudKit catalog.
+                let pairItems = ItemStore.items(
+                    forPair: PairSession.shared.pairID,
+                    in: modelContext,
+                    includeUnscoped: false
+                )
                 if allowCreate {
                     try await self.pushAll(pairItems, allowCreate: true)
                     // Restore may create rows that were never catalogued — list them once.
                     try? await self.registerItemIDs(pairItems.map(\.id.uuidString))
-                    try await self.pull(modelContext: modelContext, hintRecordIDs: hintRecordIDs)
+                    try await self.pull(
+                        modelContext: modelContext,
+                        hintRecordIDs: hintRecordIDs,
+                        preferCatalogFetch: preferCatalogFetch
+                    )
                 } else {
-                    try await self.pull(modelContext: modelContext, hintRecordIDs: hintRecordIDs)
-                    let afterPull = ItemStore.items(forPair: PairSession.shared.pairID, in: modelContext)
+                    try await self.pull(
+                        modelContext: modelContext,
+                        hintRecordIDs: hintRecordIDs,
+                        preferCatalogFetch: preferCatalogFetch
+                    )
+                    let afterPull = ItemStore.items(
+                        forPair: PairSession.shared.pairID,
+                        in: modelContext,
+                        includeUnscoped: false
+                    )
                     try await self.pushAll(afterPull, allowCreate: false)
                     // Re-try brand-new locals that never got an iCloud row (failed first
                     // upload). Does not recreate old partner zombies — only recent
@@ -653,27 +837,23 @@ final class CloudSync {
         guard PairSession.shared.isPaired else { return }
         await enqueue {
             do {
-                // List the id in the shared catalog BEFORE writing the TDItem row.
-                // Subscriptions fire only on TDItem, so a partner pull triggered by
-                // saveItem used to race ahead of registerItemIDs and skip the new
-                // row as a "catalog orphan" (Build 153+ catalogReady gate).
-                if notifyKind == "add" {
-                    do {
-                        try await self.registerItemIDs([item.id.uuidString], retries: 3)
-                    } catch {
-                        // Still save the item — partner pull can accept provisional
-                        // adds / push-hint fetches. Surface the catalog error.
-                        PairSession.shared.statusMessage = Self.friendlyMessage(error)
-                    }
+                if notifyKind == "heart" {
+                    // Heart-only: skip photo companions so partner taps stay snappy
+                    // and cannot fail behind a large image upload.
+                    try await self.saveHeart(item)
+                    PairSession.shared.statusMessage = ""
+                    return
                 }
+                // Save the TDItem row FIRST. Registering the catalog id before
+                // save left orphan catalog entries when Production rejected the
+                // row (Chris saw catalog N↑ but fetch 3/5 — no item to download).
+                // Partner pull still accepts provisional / push-hinted adds while
+                // the post-save catalog register catches up.
                 try await self.saveItem(item, notifyKind: notifyKind)
-                // Catalog must land even if the first register raced. Retries cover
-                // brief pair-record conflicts without failing the whole upload.
                 do {
-                    try await self.registerItemIDs([item.id.uuidString], retries: 3)
+                    try await self.registerItemIDs([item.id.uuidString], retries: 5)
                     PairSession.shared.statusMessage = ""
                 } catch {
-                    // Item row is already on iCloud; catalog miss is recoverable.
                     PairSession.shared.statusMessage = notifyKind == "add"
                         ? "Saved item; catalog retry needed — tap Force sync."
                         : Self.friendlyMessage(error)
@@ -684,26 +864,103 @@ final class CloudSync {
         }
     }
 
+    /// Writes only this phone's heart flag + notify metadata.
+    private func saveHeart(_ item: TodoItem) async throws {
+        let pairID: String
+        if !item.pairID.isEmpty {
+            pairID = item.pairID
+        } else if let active = PairSession.shared.pairID {
+            pairID = active
+            item.pairID = active
+        } else {
+            throw SyncError.message("Pair first, then heart items.")
+        }
+        if let active = PairSession.shared.pairID, pairID != active {
+            // Retag onto the open list so partner hearts still land after a
+            // messy multi-pair restore (silent return made hearts feel dead).
+            item.pairID = active
+        }
+        let effectivePair = PairSession.shared.pairID ?? pairID
+        let recordID = CKRecord.ID(recordName: "item-\(item.id.uuidString)")
+        if DeletedItemLedger.contains(pairID: effectivePair, id: item.id.uuidString) {
+            return
+        }
+        let record: CKRecord
+        if let existing = try? await database.record(for: recordID) {
+            if RemoteItemApply.shouldSkipSaveOverTombstone(existingNotifyKind: existing["notifyKind"] as? String) {
+                return
+            }
+            let remotePair = (existing["pairID"] as? String ?? "")
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            if !remotePair.isEmpty, remotePair != effectivePair {
+                throw SyncError.message("That item belongs to another list. Open the matching pair, then heart.")
+            }
+            record = existing
+        } else {
+            record = CKRecord(recordType: "TDItem", recordID: recordID)
+            record["itemID"] = item.id.uuidString
+            record["pairID"] = effectivePair
+            record["title"] = item.title
+            record["urlString"] = item.urlString ?? ""
+            record["notes"] = item.notes
+            record["categoryRaw"] = item.categoryRaw
+            record["chrisHearted"] = item.chrisHearted ? 1 : 0
+            record["deenaHearted"] = item.deenaHearted ? 1 : 0
+            record["isDone"] = item.isDone ? 1 : 0
+            record["sortOrder"] = item.sortOrder
+            record["createdAt"] = item.createdAt
+        }
+        record["pairID"] = effectivePair
+        // Write the seat the user tapped. Falls back to this phone's role.
+        // Writing only one flag avoids wiping the partner's heart when local
+        // state is stale; writing by tap (not role) lets a wrong-seat phone
+        // sync the heart next to their headshot.
+        let seat = PairSession.shared.pendingHeartSeat ?? PairSession.shared.role
+        PairSession.shared.pendingHeartSeat = nil
+        switch seat {
+        case .chris:
+            record["chrisHearted"] = item.chrisHearted ? 1 : 0
+        case .deena:
+            record["deenaHearted"] = item.deenaHearted ? 1 : 0
+        case nil:
+            record["chrisHearted"] = item.chrisHearted ? 1 : 0
+            record["deenaHearted"] = item.deenaHearted ? 1 : 0
+        }
+        record["updatedAt"] = item.updatedAt ?? Date()
+        record["lastEditor"] = item.lastEditor
+        record["notifyKind"] = "heart"
+        try await saveOverwriting(record)
+        try? await registerItemIDs([item.id.uuidString], retries: 3)
+    }
+
     /// Short report so both phones can confirm they share the same CloudKit pair.
+    /// Avoids unbounded CloudKit queries — those hung Force sync on “Syncing…”.
     func syncDiagnostics() async -> String {
         guard let pairID = PairSession.shared.pairID else {
             return "Not paired — Restore with the 6-digit code first."
         }
-        let role = PairSession.shared.role?.rawValue ?? "?"
+        let role = PairSession.shared.role?.seatLabel ?? "?"
         let code = PairSession.shared.inviteCode ?? "no-code"
         let short = String(pairID.suffix(8))
         do {
             try await ensureiCloud()
-            let pair = try await database.record(for: CKRecord.ID(recordName: "pair-\(pairID)"))
+            let pair = try await withTimeout(seconds: 12) {
+                try await self.database.record(for: CKRecord.ID(recordName: "pair-\(pairID)"))
+            }
             let live = CloudKitValues.liveItemIDs(in: pair["itemIDs"] as? String)
             let sample = Array(live.suffix(5))
             let fetched = await fetchNamedRecords(sample.map { "item-\($0)" })
-            let query = CKQuery(
-                recordType: "TDItem",
-                predicate: NSPredicate(format: "pairID == %@", pairID)
-            )
-            let queried = (try? await queryAll(query))?.filter { recordKind($0) == .listItem }.count ?? -1
-            return "Pair …\(short) · \(role) · code \(code) · catalog \(live.count) · fetch \(fetched.count)/\(sample.count) · query \(queried)"
+            let queryMode = lastPairQuerySucceeded ? "query ok" : (lastUsedCatalogFetch ? "catalog fetch" : "query fallback")
+            var line = "Pair …\(short) · \(role) · code \(code) · catalog \(live.count) · fetch \(fetched.count)/\(sample.count) · \(queryMode)"
+            if lastPullCatalogCount > 0 {
+                line += " · pulled \(lastPullFetchedCount)/\(lastPullCatalogCount)"
+            }
+            if !sample.isEmpty, fetched.count < sample.count {
+                line += "\nSome catalog ids have no item row — partner should Force sync to re-upload."
+            } else if lastPullCatalogCount > 0, lastPullFetchedCount + 5 < lastPullCatalogCount {
+                line += "\nPartial catalog download — Force sync again on both phones."
+            }
+            return line
         } catch {
             return "Pair …\(short) · \(role) · code \(code) · \(Self.friendlyMessage(error))"
         }
@@ -833,31 +1090,46 @@ final class CloudSync {
         session.pairID = pairID
         session.inviteCode = code
 
-        var role: PairRole = priorRole ?? .chris
+        // Default Restore to partner. Empty-name Restore used to assume primary
+        // and fill "Your name" with the host (Deena’s phone became “Chris”).
+        var role: PairRole = priorRole ?? .deena
         if let pair = try? await database.record(for: CKRecord.ID(recordName: "pair-\(pairID)")) {
             let host = (pair["hostName"] as? String ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
             let guest = (pair["guestName"] as? String ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
             let me = session.trimmedMyName
             let partner = session.trimmedPartnerName
             if priorRole == nil {
-                if !me.isEmpty, me.caseInsensitiveCompare(guest) == .orderedSame {
+                if session.joinedAsGuest {
                     role = .deena
-                } else if !me.isEmpty, me.caseInsensitiveCompare(host) == .orderedSame {
+                } else if !me.isEmpty, me.caseInsensitiveCompare(host) == .orderedSame,
+                          guest.isEmpty || me.caseInsensitiveCompare(guest) != .orderedSame {
+                    // Only claim primary when this phone already knows it is the host.
                     role = .chris
+                } else if !me.isEmpty, me.caseInsensitiveCompare(guest) == .orderedSame {
+                    role = .deena
                 } else if !partner.isEmpty, partner.caseInsensitiveCompare(host) == .orderedSame {
                     role = .deena
-                } else if !partner.isEmpty, partner.caseInsensitiveCompare(guest) == .orderedSame {
+                } else if !partner.isEmpty, partner.caseInsensitiveCompare(guest) == .orderedSame,
+                          !me.isEmpty, me.caseInsensitiveCompare(host) == .orderedSame {
                     role = .chris
                 } else {
-                    role = .chris
+                    role = .deena
                 }
             }
             if role == .chris {
                 if session.trimmedMyName.isEmpty, !host.isEmpty { session.myName = host }
                 if session.trimmedPartnerName.isEmpty, !guest.isEmpty { session.partnerName = guest }
+                session.markJoinedAsGuest(false)
             } else {
                 if session.trimmedMyName.isEmpty, !guest.isEmpty { session.myName = guest }
                 if session.trimmedPartnerName.isEmpty, !host.isEmpty { session.partnerName = host }
+                // If Restore left us as partner but names still say host/guest swapped
+                // (myName == Chris, partner == Deena), flip labels to match the seat.
+                if !host.isEmpty, session.trimmedMyName.caseInsensitiveCompare(host) == .orderedSame {
+                    session.myName = guest.isEmpty ? session.partnerName : guest
+                    session.partnerName = host
+                }
+                session.markJoinedAsGuest(true)
             }
             CategoryNames.shared.applyRemoteJSON(pair[CategoryNames.cloudField] as? String)
         }
@@ -959,7 +1231,8 @@ final class CloudSync {
 
     private func pull(
         modelContext: ModelContext,
-        hintRecordIDs: [CKRecord.ID] = []
+        hintRecordIDs: [CKRecord.ID] = [],
+        preferCatalogFetch: Bool = false
     ) async throws {
         guard let pairID = PairSession.shared.pairID else { return }
         let pair: CKRecord
@@ -992,7 +1265,8 @@ final class CloudSync {
         let fetched = await fetchRemoteItemRecords(
             pairID: pairID,
             listedIDs: listedIDs,
-            hintRecordIDs: hintRecordIDs
+            hintRecordIDs: hintRecordIDs,
+            preferCatalogFetch: preferCatalogFetch
         )
         let remote = fetched.records.filter { recordKind($0) == .listItem }
         let extraRecords = fetched.records.filter { recordKind($0) == .extraPhoto }
@@ -1219,6 +1493,13 @@ final class CloudSync {
                     // back". Resolve it authoritatively with a strongly-consistent
                     // per-record fetch (CloudKit record fetches are consistent;
                     // the catalog string and queries are not).
+                    //
+                    // Already pulled live this pass (partner add notification but
+                    // catalog register still racing) — never delete; heal instead.
+                    if remoteIDs.contains(idString) {
+                        idsToHeal.append(idString)
+                        continue
+                    }
                     let recordID = CKRecord.ID(recordName: "item-\(idString)")
                     if let row = try? await database.record(for: recordID) {
                         if RemoteItemApply.isTombstone(notifyKind: row["notifyKind"] as? String) {
@@ -1230,14 +1511,22 @@ final class CloudSync {
                         idsToHeal.append(idString)
                         continue
                     }
-                    // No row on the server at all.
+                    // No row on the server at all (or a transient fetch miss).
                     if RemoteItemApply.isOwnEdit(lastEditor: local.lastEditor, myRole: session.role?.rawValue) {
                         // Our own add whose first upload never landed — keep it
                         // (do not delete a brand-new item that just hasn't synced).
                         idsToHeal.append(idString)
                         continue
                     }
-                    // Partner-authored and gone from both catalog and server.
+                    // Partner add: a failed record fetch used to wipe the row we
+                    // just inserted from the same pull (banner fired, list empty).
+                    let recentPartner = Date().timeIntervalSince(local.createdAt) < 48 * 3600
+                        || Date().timeIntervalSince(local.updatedAt ?? local.createdAt) < 48 * 3600
+                    if recentPartner {
+                        idsToHeal.append(idString)
+                        continue
+                    }
+                    // Older partner-authored and gone from both catalog and server.
                     modelContext.delete(local)
                     continue
                 }
@@ -1334,13 +1623,19 @@ final class CloudSync {
             if DeletedItemLedger.contains(pairID: item.pairID, id: item.id.uuidString) { continue }
             if DeletedItemLedger.containsURL(pairID: item.pairID, urlString: item.urlString) { continue }
             let mine = item.lastEditor.isEmpty || item.lastEditor == role
-            let recent = now.timeIntervalSince(item.createdAt) < 48 * 3600
+            // Wider window so Force sync can repair “some items miss” after a
+            // failed photo upload from earlier in the day / weekend.
+            let recent = now.timeIntervalSince(item.createdAt) < 7 * 24 * 3600
             guard mine, recent else { continue }
             let recordID = CKRecord.ID(recordName: "item-\(item.id.uuidString)")
             if let existing = try? await database.record(for: recordID) {
                 if RemoteItemApply.isTombstone(notifyKind: existing["notifyKind"] as? String) {
                     // Partner (or we) already deleted this — drop the local leftover.
                     continue
+                }
+                // Row exists but may be missing its photo — best-effort attach.
+                if item.hasAnyPhotos || (item.imageData?.isEmpty == false) {
+                    try? await saveItem(item, notifyKind: "", allowCreate: false)
                 }
                 continue
             }
@@ -1359,7 +1654,8 @@ final class CloudSync {
     private func fetchRemoteItemRecords(
         pairID: String,
         listedIDs: [String],
-        hintRecordIDs: [CKRecord.ID] = []
+        hintRecordIDs: [CKRecord.ID] = [],
+        preferCatalogFetch: Bool = false
     ) async -> (records: [CKRecord], catalogComplete: Bool) {
         var found: [String: CKRecord] = [:]
         var catalogComplete = false
@@ -1368,10 +1664,21 @@ final class CloudSync {
             recordType: "TDItem",
             predicate: NSPredicate(format: "pairID == %@", pairID)
         )
-        if let queried = try? await queryAll(pairQuery) {
-            catalogComplete = true
-            for record in queried {
-                found[record.recordID.recordName] = record
+        var pairQueryOK = false
+        // Force sync skips the pairID query — it often hangs/times out on
+        // Production and burned the whole sync before catalog downloads finished.
+        if !preferCatalogFetch {
+            do {
+                let queried = try await withTimeout(seconds: 8) {
+                    try await self.queryAll(pairQuery)
+                }
+                pairQueryOK = true
+                catalogComplete = true
+                for record in queried {
+                    found[record.recordID.recordName] = record
+                }
+            } catch {
+                pairQueryOK = false
             }
         }
 
@@ -1391,35 +1698,69 @@ final class CloudSync {
             }
         }
 
-        // Named-fetch catalog ids the query missed, plus the newest catalog
-        // tail (query lag). Avoid re-fetching the entire catalog every poll.
+        // Named-fetch catalog ids the query missed. When the pairID query fails
+        // (or Force sync asks for catalog-first), fetch the shared catalog by id.
         let missing = listedIDs.filter { found["item-\($0)"] == nil }
-        let refreshNames = Array(Set(missing + Array(listedIDs.suffix(30))))
+        let refreshNames: [String]
+        if pairQueryOK {
+            refreshNames = Array(Set(missing + Array(listedIDs.suffix(30))))
+        } else if listedIDs.count <= 400 {
+            refreshNames = Array(Set(missing + listedIDs))
+        } else {
+            refreshNames = Array(Set(missing + Array(listedIDs.suffix(80))))
+        }
         if !refreshNames.isEmpty {
             for record in await fetchNamedRecords(refreshNames.map { "item-\($0)" }) {
                 found[record.recordID.recordName] = record
             }
         }
-        let missingExtras = listedIDs.filter { found["extra-\($0)"] == nil }
+        // Second pass for catalog ids still missing (CloudKit eventually
+        // consistent after a partner save — one miss used to drop new items).
+        let stillMissing = listedIDs.filter { found["item-\($0)"] == nil }
+        if !stillMissing.isEmpty, stillMissing.count <= 80 {
+            try? await Task.sleep(nanoseconds: 300_000_000)
+            for record in await fetchNamedRecords(stillMissing.map { "item-\($0)" }) {
+                found[record.recordID.recordName] = record
+            }
+        }
+        // Extra photos only for list items we actually downloaded — fetching
+        // extras for every catalog id made Force sync crawl for minutes.
+        let fetchedListIDs = found.values.compactMap { record -> String? in
+            guard recordKind(record) == .listItem else { return nil }
+            return record["itemID"] as? String
+        }
+        let missingExtras = fetchedListIDs.filter { found["extra-\($0)"] == nil }
         if !missingExtras.isEmpty {
             for record in await fetchNamedRecords(missingExtras.map { "extra-\($0)" }) {
                 found[record.recordID.recordName] = record
             }
         }
-        let missingExtra2 = listedIDs.filter { found["extra2-\($0)"] == nil }
+        let missingExtra2 = fetchedListIDs.filter { found["extra2-\($0)"] == nil }
         if !missingExtra2.isEmpty {
             for record in await fetchNamedRecords(missingExtra2.map { "extra2-\($0)" }) {
                 found[record.recordID.recordName] = record
             }
         }
-        let missingExtra3 = listedIDs.filter { found["extra3-\($0)"] == nil }
+        let missingExtra3 = fetchedListIDs.filter { found["extra3-\($0)"] == nil }
         if !missingExtra3.isEmpty {
             for record in await fetchNamedRecords(missingExtra3.map { "extra3-\($0)" }) {
                 found[record.recordID.recordName] = record
             }
         }
+        lastPairQuerySucceeded = pairQueryOK
+        lastUsedCatalogFetch = preferCatalogFetch
+        let listItems = found.values.filter { recordKind($0) == .listItem }.count
+        lastPullCatalogCount = listedIDs.count
+        lastPullFetchedCount = listItems
         return (Array(found.values), catalogComplete || !listedIDs.isEmpty)
     }
+
+    /// For Force sync diagnostics — false when Production pairID query failed.
+    private(set) var lastPairQuerySucceeded = true
+    /// True when the last pull skipped the pairID query and used catalog ids.
+    private(set) var lastUsedCatalogFetch = false
+    private(set) var lastPullCatalogCount = 0
+    private(set) var lastPullFetchedCount = 0
 
     private func fetchRecoverableItemRecords(oldCode: String) async -> (records: [CKRecord], emptyMessage: String) {
         var found: [String: CKRecord] = [:]
@@ -1517,6 +1858,7 @@ final class CloudSync {
     private func queryAll(_ query: CKQuery) async throws -> [CKRecord] {
         var records: [CKRecord] = []
         var cursor: CKQueryOperation.Cursor?
+        var pages = 0
         repeat {
             let matchResults: [(CKRecord.ID, Result<CKRecord, Error>)]
             let next: CKQueryOperation.Cursor?
@@ -1531,21 +1873,60 @@ final class CloudSync {
                 }
             }
             cursor = next
+            pages += 1
+            // Safety: never page forever on a stuck public-DB cursor.
+            if pages >= 20 { break }
         } while cursor != nil
         return records
     }
 
+    /// Race an iCloud call against a deadline so Force sync cannot spin forever.
+    private func withTimeout<T>(
+        seconds: TimeInterval,
+        _ operation: @escaping () async throws -> T
+    ) async throws -> T {
+        try await withThrowingTaskGroup(of: T.self) { group in
+            group.addTask { @MainActor in
+                try await operation()
+            }
+            group.addTask {
+                let ns = UInt64(max(1, seconds) * 1_000_000_000)
+                try await Task.sleep(nanoseconds: ns)
+                throw SyncError.message("iCloud timed out. Tap Force sync again.")
+            }
+            guard let value = try await group.next() else {
+                throw SyncError.message("iCloud timed out. Tap Force sync again.")
+            }
+            group.cancelAll()
+            return value
+        }
+    }
+
     private func fetchNamedRecords(_ names: [String]) async -> [CKRecord] {
         var records: [CKRecord] = []
+        var got = Set<String>()
         let ids = names.map { CKRecord.ID(recordName: $0) }
         var start = 0
         while start < ids.count {
-            let end = min(start + 100, ids.count)
+            let end = min(start + 50, ids.count)
             let batch = Array(ids[start..<end])
             if let result = try? await database.records(for: batch) {
                 for id in batch {
-                    if let record = try? result[id]?.get() {
+                    if let record = try? result[id]?.get(),
+                       got.insert(id.recordName).inserted {
                         records.append(record)
+                    }
+                }
+            }
+            let miss = batch.filter { !got.contains($0.recordName) }
+            if !miss.isEmpty {
+                try? await Task.sleep(nanoseconds: 200_000_000)
+                if let result = try? await database.records(for: miss) {
+                    for id in miss {
+                        if let record = try? result[id]?.get(),
+                           got.insert(id.recordName).inserted {
+                            records.append(record)
+                        }
                     }
                 }
             }
@@ -1577,6 +1958,11 @@ final class CloudSync {
             // Do not push a blank title over iCloud. Hearts can still move,
             // and Chris's copy will republish the real title on catch-up.
             if let existing = try? await database.record(for: recordID) {
+                let remotePair = (existing["pairID"] as? String ?? "")
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                if !remotePair.isEmpty, remotePair != pairID {
+                    return
+                }
                 // Never write over a tombstone — the delete must stay deleted.
                 if RemoteItemApply.shouldSkipSaveOverTombstone(existingNotifyKind: existing["notifyKind"] as? String) {
                     return
@@ -1597,6 +1983,13 @@ final class CloudSync {
         }
         let record: CKRecord
         if let existing = try? await database.record(for: recordID) {
+            let remotePair = (existing["pairID"] as? String ?? "")
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            // item-<uuid> ids are global in the public DB. Never rewrite another
+            // list's row onto this pair (that is how Diane inherited Chris/Deena).
+            if !remotePair.isEmpty, remotePair != pairID {
+                return
+            }
             // Never resurrect a deleted item: if the server copy is a tombstone,
             // the delete wins over any local catch-up push or edit.
             if RemoteItemApply.shouldSkipSaveOverTombstone(existingNotifyKind: existing["notifyKind"] as? String) {
@@ -1647,12 +2040,22 @@ final class CloudSync {
         if !notifyKind.isEmpty {
             record["notifyKind"] = notifyKind
         }
-        if let data = item.imageData, !data.isEmpty {
-            let url = FileManager.default.temporaryDirectory.appendingPathComponent("\(item.id.uuidString).jpg")
-            try data.write(to: url)
-            record["image"] = CKAsset(fileURL: url)
-        }
+        // Always land the text row first. Attaching a large photo in the same
+        // save used to fail the whole upload — partner saw “some items sync,
+        // others miss”. Photo is best-effort afterward.
+        let photoData = item.imageData
         try await saveOverwriting(record)
+        if let data = photoData, !data.isEmpty {
+            do {
+                let url = FileManager.default.temporaryDirectory
+                    .appendingPathComponent("\(item.id.uuidString).jpg")
+                try data.write(to: url)
+                record["image"] = CKAsset(fileURL: url)
+                try await saveOverwriting(record)
+            } catch {
+                // Item row is already shared; photo can retry on next Force sync.
+            }
+        }
         // Bottom photos use a companion record with the existing `image` asset field.
         // Writing a second `image2` field on the item used to happen in a follow-up
         // save that failed silently on Production CloudKit, so partners never saw it.
@@ -1919,10 +2322,12 @@ final class CloudSync {
               let myRole = PairSession.shared.role else { return }
         let partnerRole = myRole == .chris ? PairRole.deena.rawValue : PairRole.chris.rawValue
         let prefix = pairID.prefix(8)
-        let alertID = "todo42-alert-v5-\(prefix)-\(myRole.rawValue)"
-        let silentID = "todo42-silent-v5-\(prefix)-\(myRole.rawValue)"
+        // v6: alert only for partner edits — v5's last-resort pairID predicate
+        // made BOTH phones banner on every local save.
+        let alertID = "todo42-alert-v6-\(prefix)-\(myRole.rawValue)"
+        let silentID = "todo42-silent-v6-\(prefix)-\(myRole.rawValue)"
 
-        let migrateKey = "todo42.pushSub.v5.\(prefix)"
+        let migrateKey = "todo42.pushSub.v6.\(prefix)"
         if !UserDefaults.standard.bool(forKey: migrateKey) {
             for oldID in [
                 "todo42-tditem-\(prefix)",
@@ -1930,6 +2335,8 @@ final class CloudSync {
                 "todo42-alert-\(prefix)-\(myRole.rawValue)",
                 "todo42-alert-v4-\(prefix)-\(myRole.rawValue)",
                 "todo42-silent-v4-\(prefix)-\(myRole.rawValue)",
+                "todo42-alert-v5-\(prefix)-\(myRole.rawValue)",
+                "todo42-silent-v5-\(prefix)-\(myRole.rawValue)",
             ] {
                 try? await database.deleteSubscription(withID: oldID)
             }
@@ -1939,8 +2346,7 @@ final class CloudSync {
         let silentInfo = CKSubscription.NotificationInfo()
         silentInfo.shouldSendContentAvailable = true
         silentInfo.shouldBadge = false
-        // Prefer the broad pairID predicate. Role-filtered alert subs below can
-        // miss updates when Restore assigned both phones the same role.
+        // Silent wake on any pair change (for pull). No lock-screen banner.
         let silent = CKQuerySubscription(
             recordType: "TDItem",
             predicate: NSPredicate(format: "pairID == %@", pairID),
@@ -1951,17 +2357,16 @@ final class CloudSync {
         do {
             _ = try await database.save(silent)
         } catch {
-            // Already exists with same id — force replace once.
             try? await database.deleteSubscription(withID: silentID)
             try? await database.save(silent)
         }
 
+        // Visible banners: partner edits only. Never fall back to pairID-only —
+        // that notified the sender too.
         let notifyKinds = ["add", "heart", "edit", "reorder", "delete"]
         let predicates = [
             NSPredicate(format: "pairID == %@ AND lastEditor == %@ AND notifyKind IN %@", pairID, partnerRole, notifyKinds),
             NSPredicate(format: "pairID == %@ AND lastEditor == %@", pairID, partnerRole),
-            // Last resort when Restore assigned both phones the same role.
-            NSPredicate(format: "pairID == %@", pairID),
         ]
         for predicate in predicates {
             let subscription = CKQuerySubscription(

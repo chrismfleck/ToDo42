@@ -451,7 +451,13 @@ struct ContentView: View {
         let active = pairSession.pairID
         let scoped: [TodoItem]
         if let active, !active.isEmpty {
-            scoped = items.filter { $0.pairID == active || $0.pairID.isEmpty }
+            // With more than one pair, never show unscoped leftovers on the
+            // open list (that mixed Chris/Deena rows into a Diane list).
+            if pairSession.hasMultiplePairs {
+                scoped = items.filter { $0.pairID == active }
+            } else {
+                scoped = items.filter { $0.pairID == active || $0.pairID.isEmpty }
+            }
         } else {
             scoped = Array(items)
         }
@@ -814,6 +820,7 @@ struct ContentView: View {
                         ForEach(rows, id: \.persistentModelID) { item in
                             Group {
                                 if isListEditing {
+                                    // No clip here — it blocked the hamburger reorder drag.
                                     ItemRowView(
                                         item: item,
                                         showsDragHandle: true,
@@ -830,8 +837,18 @@ struct ContentView: View {
                                         selectedItem = item
                                     } label: {
                                         ItemRowView(item: item)
+                                            // Keep taps inside this card — without a shape,
+                                            // the right column often stole the left card’s
+                                            // right edge (especially over LockedText/UILabel).
+                                            .contentShape(
+                                                RoundedRectangle(cornerRadius: 18, style: .continuous)
+                                            )
                                     }
                                     .buttonStyle(.plain)
+                                    .clipShape(
+                                        RoundedRectangle(cornerRadius: 18, style: .continuous)
+                                    )
+                                    .clipped()
                                 }
                             }
                             .offset(y: reorderOffset(for: item))
@@ -864,10 +881,17 @@ struct ContentView: View {
                     .contentShape(Rectangle())
                     .onPreferenceChange(RowHeightPreferenceKey.self) { rowHeights = $0 }
                 }
-                .refreshable { await refreshFromCloud() }
-                .scrollDisabled(reorderDrag != nil)
+                .modifier(EditModeScrollPolicy(
+                    isEditing: isListEditing,
+                    isReordering: reorderDrag != nil,
+                    onRefresh: { await refreshFromCloud() }
+                ))
             }
-            .simultaneousGesture(categoryPageSwipeGesture)
+            // Edit-mode hamburger drags must not compete with category swipes.
+            .simultaneousGesture(
+                categoryPageSwipeGesture,
+                including: (isListEditing || reorderDrag != nil) ? .none : .all
+            )
         }
     }
 
@@ -1179,6 +1203,25 @@ private struct OptionalSwipeGesture<G: Gesture>: ViewModifier {
     }
 }
 
+/// Browse mode: pull-to-refresh. Edit mode: no refresh, and lock scroll once a
+/// tile reorder starts so the hamburger drag moves the card instead of the list.
+private struct EditModeScrollPolicy: ViewModifier {
+    var isEditing: Bool
+    var isReordering: Bool
+    var onRefresh: () async -> Void
+
+    @ViewBuilder
+    func body(content: Content) -> some View {
+        if isEditing {
+            content.scrollDisabled(isReordering)
+        } else {
+            content
+                .refreshable { await onRefresh() }
+                .scrollDisabled(false)
+        }
+    }
+}
+
 private let deleteRevealWidth: CGFloat = 88
 
 struct SwipeToDeleteRow<Content: View>: View {
@@ -1317,18 +1360,31 @@ struct ItemRowView: View {
                     Image(systemName: "line.3.horizontal")
                         .font(.body.weight(.semibold))
                         .foregroundStyle(.secondary)
-                        .frame(width: 24, height: 28)
+                        .frame(width: 48, height: 48)
                         .contentShape(Rectangle())
-                        .highPriorityGesture(
-                            DragGesture(minimumDistance: 4)
+                        // Long-press briefly, then drag — stops ScrollView / pull-to-refresh
+                        // from stealing the first vertical movement.
+                        .gesture(
+                            LongPressGesture(minimumDuration: 0.12)
+                                .sequenced(before: DragGesture(minimumDistance: 0))
                                 .onChanged { value in
-                                    onHandleDragChanged?(value.translation.height)
+                                    switch value {
+                                    case .first(true):
+                                        onHandleDragChanged?(0)
+                                    case .second(true, let drag):
+                                        onHandleDragChanged?(drag?.translation.height ?? 0)
+                                    default:
+                                        break
+                                    }
                                 }
-                                .onEnded { _ in
-                                    onHandleDragEnded?()
+                                .onEnded { value in
+                                    if case .second = value {
+                                        onHandleDragEnded?()
+                                    }
                                 }
                         )
                         .accessibilityLabel("Reorder")
+                        .accessibilityHint("Hold then drag to move")
                 }
             }
         }
@@ -1350,6 +1406,9 @@ private struct LockedText: UIViewRepresentable {
         label.numberOfLines = lines
         label.lineBreakMode = .byTruncatingTail
         label.adjustsFontForContentSizeCategory = false
+        // UILabels participate in UIKit hit-testing and can steal taps from the
+        // neighboring LazyVGrid card when the title sits near the column gap.
+        label.isUserInteractionEnabled = false
         label.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         label.setContentHuggingPriority(.defaultLow, for: .horizontal)
         return label
@@ -1514,20 +1573,6 @@ struct ItemDetailView: View {
 
     private var isGuest: Bool { pairSession.role == .deena }
 
-    private var myHeart: Binding<Bool> {
-        Binding(
-            get: { isGuest ? item.deenaHearted : item.chrisHearted },
-            set: { if isGuest { item.deenaHearted = $0 } else { item.chrisHearted = $0 } }
-        )
-    }
-
-    private var partnerHeart: Binding<Bool> {
-        Binding(
-            get: { isGuest ? item.chrisHearted : item.deenaHearted },
-            set: { if isGuest { item.chrisHearted = $0 } else { item.deenaHearted = $0 } }
-        )
-    }
-
     var body: some View {
         VStack(spacing: 0) {
             HStack(spacing: 12) {
@@ -1605,13 +1650,8 @@ struct ItemDetailView: View {
             }
             .padding(.horizontal, 20)
             .padding(.bottom, 8)
-            .onChange(of: item.chrisHearted) { _, _ in
-                PairSession.shared.noteLocalEdit(item, kind: "heart")
-            }
-            .onChange(of: item.deenaHearted) { _, _ in
-                PairSession.shared.noteLocalEdit(item, kind: "heart")
-            }
             .onChange(of: item.isDone) { _, _ in
+                guard !PairSession.shared.isApplyingRemote else { return }
                 PairSession.shared.noteLocalEdit(item, kind: "edit")
             }
 
@@ -1726,55 +1766,93 @@ struct ItemDetailView: View {
 
     @ViewBuilder
     private var itemActionRow: some View {
+        // Hearts are bound to seats (primary field / partner field), not to
+        // "left = this phone". Deena’s phone often still thinks it is primary,
+        // so a me/partner layout put her headshot on a dead control.
         HStack(spacing: 16) {
-            HStack(spacing: 6) {
-                PartnerHeartButton(name: pairSession.myHeartLabel, isOn: myHeart, size: 18)
-                if pairSession.isPaired {
-                    PairHeadButton(
-                        label: pairSession.myHeartLabel,
-                        tint: Color(red: 0.20, green: 0.48, blue: 0.98),
-                        size: 52,
-                        imageData: pairSession.headImageData(slot: .me)
-                    ) {
-                        if pairSession.hasMultiplePairs {
-                            pairSession.switchToNextPair()
-                        }
-                    }
-                    .accessibilityLabel(
-                        pairSession.hasMultiplePairs
-                            ? "Switch list. You are \(pairSession.myHeartLabel)"
-                            : "You, \(pairSession.myHeartLabel)"
-                    )
-                }
+            seatHeartCluster(
+                name: hostHeartLabel,
+                isOn: item.chrisHearted,
+                tint: Color(red: 0.20, green: 0.48, blue: 0.98),
+                imageData: hostHeadData,
+                accessibilityName: hostHeartLabel
+            ) {
+                toggleSeatHeart(isPrimarySeat: true)
             }
-            HStack(spacing: 6) {
-                PartnerHeartButton(
-                    name: pairSession.partnerHeartLabel,
-                    isOn: partnerHeart,
-                    interactive: false,
-                    size: 18
-                )
-                if pairSession.isPaired {
-                    PairHeadButton(
-                        label: pairSession.partnerHeartLabel,
-                        tint: Color(red: 0.22, green: 0.78, blue: 0.55),
-                        size: 52,
-                        imageData: pairSession.headImageData(slot: .partner)
-                    ) {
-                        if pairSession.hasMultiplePairs {
-                            pairSession.switchToNextPair()
-                        }
-                    }
-                    .accessibilityLabel(
-                        pairSession.hasMultiplePairs
-                            ? "Switch list. Current partner \(pairSession.partnerHeartLabel)"
-                            : "Partner \(pairSession.partnerHeartLabel)"
-                    )
-                }
+            seatHeartCluster(
+                name: guestHeartLabel,
+                isOn: item.deenaHearted,
+                tint: Color(red: 0.22, green: 0.78, blue: 0.55),
+                imageData: guestHeadData,
+                accessibilityName: guestHeartLabel
+            ) {
+                toggleSeatHeart(isPrimarySeat: false)
             }
             DoneCheckButton(isDone: $item.isDone, size: 18, name: "Done")
         }
         .frame(maxWidth: .infinity)
+    }
+
+    private var hostHeartLabel: String {
+        let name = pairSession.hostName
+        return name.isEmpty ? "Primary" : name
+    }
+
+    private var guestHeartLabel: String {
+        let name = pairSession.guestName
+        return name.isEmpty ? "Partner" : name
+    }
+
+    private var hostHeadData: Data? {
+        pairSession.role == .deena
+            ? pairSession.headImageData(slot: .partner)
+            : pairSession.headImageData(slot: .me)
+    }
+
+    private var guestHeadData: Data? {
+        pairSession.role == .deena
+            ? pairSession.headImageData(slot: .me)
+            : pairSession.headImageData(slot: .partner)
+    }
+
+    @ViewBuilder
+    private func seatHeartCluster(
+        name: String,
+        isOn: Bool,
+        tint: Color,
+        imageData: Data?,
+        accessibilityName: String,
+        onToggle: @escaping () -> Void
+    ) -> some View {
+        HStack(spacing: 6) {
+            PartnerHeartButton(name: name, isOn: isOn, size: 18, onTap: onToggle)
+            if pairSession.isPaired {
+                // Display only — pair switching stays on the home header heads.
+                PairHeadAvatar(
+                    label: name,
+                    tint: tint,
+                    size: 52,
+                    imageData: imageData
+                )
+                .accessibilityLabel(accessibilityName)
+                .accessibilityAddTraits(.isImage)
+            }
+        }
+    }
+
+    private func toggleSeatHeart(isPrimarySeat: Bool) {
+        if isPrimarySeat {
+            item.chrisHearted.toggle()
+        } else {
+            item.deenaHearted.toggle()
+        }
+        item.updatedAt = Date()
+        try? modelContext.save()
+        PairSession.shared.noteLocalEdit(
+            item,
+            kind: "heart",
+            heartSeat: isPrimarySeat ? .chris : .deena
+        )
     }
 
     @ViewBuilder
@@ -2101,16 +2179,17 @@ struct DoneCheckButton: View {
 
 struct PartnerHeartButton: View {
     let name: String
-    @Binding var isOn: Bool
+    var isOn: Bool
     var interactive: Bool = true
     var size: CGFloat = 34
+    var onTap: (() -> Void)? = nil
 
     var body: some View {
         Group {
             if interactive {
                 Button {
                     withAnimation(.spring(duration: 0.28)) {
-                        isOn.toggle()
+                        onTap?()
                     }
                 } label: {
                     heartMark
