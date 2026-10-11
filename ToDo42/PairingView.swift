@@ -92,11 +92,12 @@ struct PairingView: View {
 
     private var header: some View {
         HStack {
-            Button("Close") { dismiss() }
+            Button("Save/Close") { dismiss() }
                 .font(.subheadline.weight(.semibold))
                 .padding(.horizontal, 14)
                 .padding(.vertical, 6)
                 .background(pillFill, in: Capsule())
+                .accessibilityLabel("Save and close")
             Spacer()
         }
         .foregroundStyle(.primary)
@@ -222,6 +223,13 @@ struct PairingView: View {
                     text: partnerNameBinding
                 )
             }
+            pairField("Partner’s mobile (for text)", text: partnerPhoneBinding)
+                .keyboardType(.phonePad)
+                .textInputAutocapitalization(.never)
+                .autocorrectionDisabled()
+            Text("Optional. Lets Share → Save4Two also send message to your partner.")
+                .font(.caption2)
+                .foregroundStyle(.secondary)
         }
     }
 
@@ -604,6 +612,17 @@ struct PairingView: View {
         Binding(
             get: { session.partnerName },
             set: { session.partnerName = $0 }
+        )
+    }
+
+    private var partnerPhoneBinding: Binding<String> {
+        Binding(
+            get: { session.partnerPhone },
+            set: {
+                session.partnerPhone = $0
+                // Mirror into App Group immediately for the Share Extension.
+                session.persistLocal()
+            }
         )
     }
 

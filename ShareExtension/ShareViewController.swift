@@ -3,6 +3,8 @@ import UIKit
 import UniformTypeIdentifiers
 
 final class ShareViewController: UIViewController {
+    private let textPresenter = PartnerTextPresenter()
+
     override func viewDidLoad() {
         super.viewDidLoad()
         view.backgroundColor = .systemBackground
@@ -21,22 +23,40 @@ final class ShareViewController: UIViewController {
             onCancel: { [weak self] in
                 self?.extensionContext?.cancelRequest(withError: CocoaError(.userCancelled))
             },
-            onSave: { [weak self] payload, image in
-                do {
-                    try ShareInbox.save(payload: payload, image: image)
-                    self?.extensionContext?.completeRequest(returningItems: nil)
-                } catch {
-                    self?.extensionContext?.cancelRequest(withError: error)
-                }
+            onSave: { [weak self] payload, image, alsoTextPartner in
+                self?.handleSave(payload: payload, image: image, alsoTextPartner: alsoTextPartner)
             }
         )
 
         let host = UIHostingController(rootView: root)
         addChild(host)
         host.view.frame = view.bounds
-        host.view.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+        host.view.autoresizingMask = [
+            UIView.AutoresizingMask.flexibleWidth,
+            UIView.AutoresizingMask.flexibleHeight,
+        ]
         view.addSubview(host.view)
         host.didMove(toParent: self)
+    }
+
+    private func handleSave(payload: SharePayload, image: UIImage?, alsoTextPartner: Bool) {
+        do {
+            try ShareInbox.save(payload: payload, image: image)
+            if alsoTextPartner, PartnerTextHandoff.canOfferText {
+                textPresenter.present(
+                    from: self,
+                    title: payload.title,
+                    urlString: payload.urlString,
+                    onFinished: { [weak self] in
+                        self?.extensionContext?.completeRequest(returningItems: nil)
+                    }
+                )
+            } else {
+                extensionContext?.completeRequest(returningItems: nil)
+            }
+        } catch {
+            extensionContext?.cancelRequest(withError: error)
+        }
     }
 }
 
@@ -247,9 +267,12 @@ struct ShareFormView: View {
     @State var selectedCategories: Set<String>
     @State var previewImage: UIImage?
     @State private var isLoadingMeta = false
+    @State private var alsoTextPartner: Bool
     var pageImageURL: String
     var onCancel: () -> Void
-    var onSave: (SharePayload, UIImage?) -> Void
+    var onSave: (SharePayload, UIImage?, Bool) -> Void
+
+    private var canTextPartner: Bool { PartnerTextHandoff.canOfferText }
 
     init(
         title: String,
@@ -258,13 +281,14 @@ struct ShareFormView: View {
         image: UIImage?,
         pageImageURL: String = "",
         onCancel: @escaping () -> Void,
-        onSave: @escaping (SharePayload, UIImage?) -> Void
+        onSave: @escaping (SharePayload, UIImage?, Bool) -> Void
     ) {
         _title = State(initialValue: title)
         _urlString = State(initialValue: urlString)
         _notes = State(initialValue: notes)
         _selectedCategories = State(initialValue: [ShareInbox.guessedCategory(urlString: urlString, title: title)])
         _previewImage = State(initialValue: image)
+        _alsoTextPartner = State(initialValue: PartnerTextHandoff.canOfferText)
         self.pageImageURL = pageImageURL
         self.onCancel = onCancel
         self.onSave = onSave
@@ -320,6 +344,20 @@ struct ShareFormView: View {
                         }
                     }
                 }
+                Section {
+                    Toggle("Also text to partner", isOn: $alsoTextPartner)
+                        .disabled(!canTextPartner)
+                        .accessibilityHint(
+                            canTextPartner
+                                ? "Opens Messages to your partner after saving"
+                                : "Add your partner’s mobile in Pair first"
+                        )
+                    if !canTextPartner {
+                        Text("Add your partner’s mobile under Pair (heart+) to enable this.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
             }
             .navigationTitle("Add to Save4Two")
             .navigationBarTitleDisplayMode(.inline)
@@ -340,7 +378,8 @@ struct ShareFormView: View {
                                 notes: SharedText.reflowNotes(notes),
                                 category: encoded.isEmpty ? "places" : encoded
                             ),
-                            previewImage
+                            previewImage,
+                            alsoTextPartner && canTextPartner
                         )
                     }
                     .disabled(title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || isLoadingMeta)

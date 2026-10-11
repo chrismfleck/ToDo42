@@ -115,4 +115,4 @@ No change to Chrome desktop extension for v1; that path stays “send URL to pho
 - [x] User flow aligned with mockups  
 - [x] Grounded in current Share Extension + App Group + Pairing  
 - [x] v1 vs v2 split, acceptance criteria, risks  
-- [ ] Implementation (separate task / branch when approved)  
+- [x] Implementation (branch `cursor/save-text-partner-ac25`)  
