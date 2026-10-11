@@ -156,6 +156,7 @@ enum PartnerHeartMerge {
         localChris: Bool,
         remoteChris: Bool
     ) -> Bool {
+        // Primary owns chrisHearted; everyone else takes the cloud value.
         myRole == .chris ? localChris : remoteChris
     }
 
@@ -164,7 +165,11 @@ enum PartnerHeartMerge {
         localDeena: Bool,
         remoteDeena: Bool
     ) -> Bool {
-        myRole == .deena ? localDeena : remoteDeena
+        if myRole == .deena { return localDeena }
+        // Partner phone stuck on primary: keep a local partner-heart until
+        // CloudKit catches up (role-gated merge used to wipe her tap on pull).
+        if localDeena { return true }
+        return remoteDeena
     }
 }
 
@@ -248,6 +253,22 @@ enum RemoteItemApply {
             || kind == "reorder"
     }
 
+    /// A shared list has one host seat and one guest seat. A third person (or a
+    /// second partner code reused from an already-paired list) must not join —
+    /// that overwrote `guestName`, copied the catalog, and fired partner pushes
+    /// at the original couple (Diane on Chris/Deena).
+    ///
+    /// Allow: empty guest seat, or the same guest re-joining. Hosts reconnect
+    /// with Restore, not Join.
+    static func canJoinExistingPair(myName: String, hostName: String, guestName: String) -> Bool {
+        _ = hostName
+        let me = myName.trimmingCharacters(in: .whitespacesAndNewlines)
+        let guest = guestName.trimmingCharacters(in: .whitespacesAndNewlines)
+        if guest.isEmpty { return true }
+        guard !me.isEmpty else { return false }
+        return me.caseInsensitiveCompare(guest) == .orderedSame
+    }
+
     static func extraItemID(recordName: String, itemID: String?) -> String? {
         if let itemID, !itemID.isEmpty { return itemID }
         if recordName.hasPrefix("extra3-") {
@@ -321,8 +342,16 @@ enum RemoteItemApply {
         remoteUpdated: Date
     ) -> Bool {
         guard let remoteSort, remoteSort != localSort else { return false }
-        if lastEditor == myRole { return false }
-        if notifyKind == "reorder" { return true }
+        let editor = (lastEditor ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        let mine = (myRole ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        let kind = (notifyKind ?? "").trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        // Reorder always wins (even if Restore left both phones on the same
+        // seat so lastEditor looks like "our" echo).
+        if kind == "reorder" { return true }
+        // Never apply our own non-reorder echo.
+        if !editor.isEmpty, !mine.isEmpty, editor == mine { return false }
+        // Partner rebalance siblings (empty notifyKind) still move the list.
+        if !editor.isEmpty, editor != mine { return true }
         return remoteUpdated >= localUpdated
     }
 }

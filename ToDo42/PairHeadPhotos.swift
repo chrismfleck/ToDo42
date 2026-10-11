@@ -46,6 +46,14 @@ enum PairHeadPhotos {
         }
     }
 
+    /// Swap me/partner head files after fixing a wrong seat (Restore as primary).
+    static func swapMeAndPartner(pairKey: String) {
+        let me = load(pairKey: pairKey, slot: .me)
+        let partner = load(pairKey: pairKey, slot: .partner)
+        save(pairKey: pairKey, slot: .me, data: partner)
+        save(pairKey: pairKey, slot: .partner, data: me)
+    }
+
     static func compressedHead(_ image: UIImage) -> Data? {
         let maxSide: CGFloat = 512
         let longest = max(image.size.width, image.size.height)

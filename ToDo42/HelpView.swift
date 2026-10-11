@@ -57,7 +57,7 @@ struct HelpView: View {
 
                         HelpStep(
                             number: 3,
-                            spoken: "To add a partner tap the red heart with a plus. Enter names and headshots, send invite to partner. Or enter a code if you are sent one. To add second partner tap Add a pair."
+                            spoken: "To add a partner tap the red heart with a plus. Enter names and headshots, send invite to partner. Or enter a code if you are sent one. To add a second partner tap Add a pair for a separate empty list. Do not send your first pair code to someone else."
                         ) {
                             partnerHelpRow
                         }
@@ -174,7 +174,7 @@ struct HelpView: View {
                 )
             }
             helpText("Enter names and headshots, send invite to partner. Or enter a code if you are sent one.")
-            helpText("To add second partner tap Add a pair.")
+            helpText("To add a second partner tap Add a pair — that starts a separate empty list. Do not send your first pair’s code to someone else.")
         }
         .foregroundStyle(.primary)
         .fixedSize(horizontal: false, vertical: true)

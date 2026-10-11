@@ -33,8 +33,8 @@ https://save4two.com
 wishlist,couple,instagram,tiktok,travel,restaurants,places,todo,memories,shared,safari,recipes
 
 ## What's New
-Fixes partner sync so new items show up on both phones reliably.
+Improves partner sync so new items show more reliably on both phones.
 
-Also improves restore-from-iCloud feedback and keeps pairing on the same shared list.
+Also keeps second pairs separate, shows clearer Force sync status, and notifies only the partner who should see the update.
 
 Your existing list is unchanged.

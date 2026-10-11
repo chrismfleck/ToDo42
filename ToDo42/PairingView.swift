@@ -116,7 +116,7 @@ struct PairingView: View {
                     .font(.title2.bold())
                 Text(
                     session.isComposingNewPair
-                        ? "Start a separate list with someone else. Your other pairs stay as they are."
+                        ? "Start a separate empty list with someone else. Do not reuse a code from another pair — that mixes lists and names."
                         : "Share your list with someone you trust. Both phones must be signed in to iCloud."
                 )
                     .font(.caption)
@@ -332,9 +332,33 @@ struct PairingView: View {
             Label("Phones are paired", systemImage: "checkmark.circle.fill")
                 .font(.subheadline.weight(.semibold))
                 .foregroundStyle(Palette.brandBlue(colorScheme))
-            Text("This phone is \(session.myHeartLabel). Hearts and new items sync to \(session.partnerHeartLabel).")
-                .font(.caption)
+                Text("This phone is \(session.myHeartLabel) (\(session.role?.seatLabel ?? "?")). Hearts and new items sync to \(session.partnerHeartLabel).")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            // Wrong seat after Restore: Deena’s phone said “Chris (primary)”.
+            if session.role == .chris {
+                Text("If this is \(session.partnerHeartLabel)’s phone, the seat is wrong — fix it below.")
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(.red)
+                Button {
+                    session.becomePartner(swapIdentity: true)
+                } label: {
+                    Text("Switch to partner (\(session.partnerHeartLabel))")
+                        .font(.subheadline.weight(.bold))
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 12)
+                        .foregroundStyle(.white)
+                        .background(Color.red.opacity(0.9), in: Capsule())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Switch this phone to partner")
+            } else if session.role == .deena {
+                Button("Wrong seat? Switch this phone to primary (\(session.partnerHeartLabel))") {
+                    session.becomePrimary(swapIdentity: true)
+                }
+                .font(.caption.weight(.semibold))
                 .foregroundStyle(.secondary)
+            }
             Text(pairIdentityLine)
                 .font(.caption.weight(.semibold))
                 .foregroundStyle(.primary)
@@ -349,10 +373,13 @@ struct PairingView: View {
                     Button("Send the code again") { showShare = true }
                         .font(.subheadline.weight(.semibold))
                     Button("New invite code") {
-                        Task { await createInvite() }
+                        Task { await rotateInviteCode() }
                     }
                     .font(.subheadline)
                     .disabled(session.isBusy || !session.hasNames)
+                    Text("New invite code keeps this same list (for your current partner). For a different person, use Add a pair above.")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
                 }
             }
             Button {
@@ -399,7 +426,7 @@ struct PairingView: View {
             }
             return String(id.suffix(8))
         }()
-        let role = session.role?.rawValue ?? "?"
+        let role = session.role?.seatLabel ?? "?"
         let code = session.inviteCode ?? "no-code"
         return "Pair …\(short) · \(role) · code \(code)"
     }
@@ -450,7 +477,7 @@ struct PairingView: View {
     private var restoreCard: some View {
         pairCard {
             cardTitle("Restore from iCloud", icon: "clock.fill", tint: Color(red: 0.98, green: 0.72, blue: 0.20))
-            Text("Enter the same 6-digit invite code from Messages (the one used to pair before). Restore reconnects that pair and pulls the list. Do not tap Invite / New invite on either phone — that starts a blank list. Leave Deena’s phone as-is if it still has the items.")
+            Text("Enter the same 6-digit invite code from Messages (the one used to pair before). Restore reconnects that pair and pulls the list. Do not tap Invite / New invite on either phone — that starts a blank list. Leave your partner’s phone as-is if it still has the items.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
             pairField("Older 6-digit code", text: $restoreCode)
@@ -587,8 +614,27 @@ struct PairingView: View {
         session.persistLocal()
         do {
             _ = try await CloudSync.shared.createInvite()
-            await CloudSync.shared.sync(modelContext: modelContext, allowCreate: true)
+            // New / second pairs start empty. Do not allowCreate-push the other
+            // list's items into this pair (that shared Chris/Deena with Diane).
+            await CloudSync.shared.sync(
+                modelContext: modelContext,
+                allowCreate: false,
+                coalesce: false
+            )
             showShare = true
+        } catch {
+            errorText = error.localizedDescription
+        }
+    }
+
+    private func rotateInviteCode() async {
+        errorText = ""
+        session.isBusy = true
+        defer { session.isBusy = false }
+        do {
+            _ = try await CloudSync.shared.rotateInviteCode()
+            showShare = true
+            session.statusMessage = "New code for this same list. Send it to your partner."
         } catch {
             errorText = error.localizedDescription
         }
@@ -649,7 +695,13 @@ struct PairingView: View {
         session.persistLocal()
         do {
             try await CloudSync.shared.join(code: joinCode)
-            await CloudSync.shared.sync(modelContext: modelContext, allowCreate: true)
+            // Pull only — never upload this phone's other-pair items into the list
+            // we just joined.
+            await CloudSync.shared.sync(
+                modelContext: modelContext,
+                allowCreate: false,
+                coalesce: false
+            )
         } catch {
             errorText = error.localizedDescription
         }
@@ -660,13 +712,30 @@ struct PairingView: View {
         session.isBusy = true
         session.statusMessage = "Syncing with iCloud…"
         defer { session.isBusy = false }
+        // Always wait for sync to finish. A 45s cancel used to abort catalog
+        // downloads on query-fallback (Chris saw catalog 149 / fetch 3/5 and
+        // never received Deena’s new rows).
         await CloudSync.shared.sync(
             modelContext: modelContext,
             allowCreate: false,
-            coalesce: false
+            coalesce: false,
+            preferCatalogFetch: true
         )
         let report = await CloudSync.shared.syncDiagnostics()
-        session.statusMessage = report
+        if report.contains("Not paired") {
+            session.statusMessage = report
+            errorText = report
+            return
+        }
+        if report.contains("timed out") {
+            session.statusMessage = report
+            errorText = "iCloud timed out. Tap Force sync again — or Restore with code \(session.inviteCode ?? "from Messages")."
+            return
+        }
+        session.statusMessage = report + "\nBoth phones must show the same Pair …id and code above."
+        if report.contains("query fallback") || report.contains("catalog fetch") {
+            session.statusMessage += "\nIf new items still don’t appear, have your partner Force sync, then try again."
+        }
     }
 }
 

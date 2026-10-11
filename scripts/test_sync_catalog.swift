@@ -130,6 +130,14 @@ enum RemoteItemApply {
             || kind == "heart"
             || kind == "reorder"
     }
+    static func canJoinExistingPair(myName: String, hostName: String, guestName: String) -> Bool {
+        _ = hostName
+        let me = myName.trimmingCharacters(in: .whitespacesAndNewlines)
+        let guest = guestName.trimmingCharacters(in: .whitespacesAndNewlines)
+        if guest.isEmpty { return true }
+        guard !me.isEmpty else { return false }
+        return me.caseInsensitiveCompare(guest) == .orderedSame
+    }
 }
 
 var failures = 0
@@ -180,6 +188,33 @@ expectBool(
     "allowCreate restore",
     RemoteItemApply.shouldCreateMissingRecord(allowCreate: true, notifyKind: "", title: "Restored"),
     true
+)
+
+print("\n== canJoinExistingPair: third person must not take the guest seat ==")
+expectBool(
+    "open guest seat",
+    RemoteItemApply.canJoinExistingPair(myName: "Diane", hostName: "Chris", guestName: ""),
+    true
+)
+expectBool(
+    "same guest rejoin",
+    RemoteItemApply.canJoinExistingPair(myName: "Deena", hostName: "Chris", guestName: "Deena"),
+    true
+)
+expectBool(
+    "case-insensitive guest rejoin",
+    RemoteItemApply.canJoinExistingPair(myName: "deena", hostName: "Chris", guestName: "Deena"),
+    true
+)
+expectBool(
+    "third person blocked",
+    RemoteItemApply.canJoinExistingPair(myName: "Diane", hostName: "Chris", guestName: "Deena"),
+    false
+)
+expectBool(
+    "empty joiner name blocked when seat taken",
+    RemoteItemApply.canJoinExistingPair(myName: "", hostName: "Chris", guestName: "Deena"),
+    false
 )
 
 print("\n== isOwnEdit: our own catalog-orphans are healed, not deleted ==")

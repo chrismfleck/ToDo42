@@ -272,18 +272,28 @@ enum ItemStore {
         (try? context.fetch(FetchDescriptor<TodoItem>())) ?? []
     }
 
-    static func items(forPair pairID: String?, in context: ModelContext) -> [TodoItem] {
+    static func items(forPair pairID: String?, in context: ModelContext, includeUnscoped: Bool = true) -> [TodoItem] {
         let all = allItems(in: context)
         guard let pairID, !pairID.isEmpty else { return all }
-        return all.filter { $0.pairID == pairID || $0.pairID.isEmpty }
+        if includeUnscoped {
+            return all.filter { $0.pairID == pairID || $0.pairID.isEmpty }
+        }
+        return all.filter { $0.pairID == pairID }
     }
 
     /// Assign legacy rows with no pair tag to the active pair so sync cannot wipe other lists.
+    /// Never assign them onto a brand-new second pair — that copied Chris/Deena’s
+    /// whole library into Diane’s invite and rewrote shared CloudKit item ids.
     @MainActor
     static func migrateUnscopedItems(in context: ModelContext, to pairID: String?) {
         guard let pairID, !pairID.isEmpty else { return }
+        let all = allItems(in: context)
+        let hasOtherPairContent = all.contains { !$0.pairID.isEmpty && $0.pairID != pairID }
+        if hasOtherPairContent {
+            return
+        }
         var changed = false
-        for item in allItems(in: context) where item.pairID.isEmpty {
+        for item in all where item.pairID.isEmpty {
             item.pairID = pairID
             changed = true
         }

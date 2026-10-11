@@ -26,6 +26,8 @@ struct ToDo42App: App {
                 .environment(PairSession.shared)
                 .environment(CategoryNames.shared)
                 .environment(HomeBase.shared)
+                // Always use the dark look — light mode washes out the canvas/photos.
+                .preferredColorScheme(.dark)
         }
         .modelContainer(modelContainer)
     }
