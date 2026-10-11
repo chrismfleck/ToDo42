@@ -1069,22 +1069,18 @@ struct ContentView: View {
         }
         withAnimation(.spring(response: 0.32, dampingFraction: 0.86)) {
             if from != to {
-                let prev = to > 0 ? ordered[to - 1].sortOrder : nil
-                let next = to < ordered.count - 1 ? ordered[to + 1].sortOrder : nil
-                if let slot = ListReorder.slot(prev: prev, next: next) {
-                    ordered[to].sortOrder = slot
-                    PairSession.shared.noteLocalReorder(moved: ordered[to], others: [])
-                } else {
-                    let orders = ListReorder.rebalanced(ordered.count)
-                    for (index, row) in ordered.enumerated() {
-                        row.sortOrder = orders[index]
-                    }
-                    let moved = ordered[to]
-                    PairSession.shared.noteLocalReorder(
-                        moved: moved,
-                        others: ordered.filter { $0.id != moved.id }
-                    )
+                // Always rewrite the whole category order and upload every row.
+                // Slot-only updates left partners with mismatched lists when a
+                // catch-up push or partial pull missed the single moved item.
+                let orders = ListReorder.rebalanced(ordered.count)
+                for (index, row) in ordered.enumerated() {
+                    row.sortOrder = orders[index]
                 }
+                let moved = ordered[to]
+                PairSession.shared.noteLocalReorder(
+                    moved: moved,
+                    others: ordered.filter { $0.id != moved.id }
+                )
             }
             reorderDrag = nil
         }

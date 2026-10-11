@@ -342,8 +342,15 @@ enum RemoteItemApply {
         remoteUpdated: Date
     ) -> Bool {
         guard let remoteSort, remoteSort != localSort else { return false }
-        if lastEditor == myRole { return false }
-        if notifyKind == "reorder" { return true }
+        let editor = (lastEditor ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        let mine = (myRole ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        // Never apply our own echo.
+        if !editor.isEmpty, !mine.isEmpty, editor == mine { return false }
+        // Partner reorder must win even when this phone has a newer local edit
+        // (heart/title) that would otherwise block the order change.
+        let kind = (notifyKind ?? "").trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        if kind == "reorder" { return true }
+        if !editor.isEmpty, editor != mine { return true }
         return remoteUpdated >= localUpdated
     }
 }

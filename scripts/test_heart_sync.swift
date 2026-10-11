@@ -206,8 +206,12 @@ enum RemoteItemApply {
         remoteUpdated: Date
     ) -> Bool {
         guard let remoteSort, remoteSort != localSort else { return false }
-        if lastEditor == myRole { return false }
-        if notifyKind == "reorder" { return true }
+        let editor = (lastEditor ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        let mine = (myRole ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        if !editor.isEmpty, !mine.isEmpty, editor == mine { return false }
+        let kind = (notifyKind ?? "").trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        if kind == "reorder" { return true }
+        if !editor.isEmpty, editor != mine { return true }
         return remoteUpdated >= localUpdated
     }
 }
@@ -428,6 +432,18 @@ expect(
         remoteUpdated: newer
     ) == false,
     "Do not apply our own reorder echo"
+)
+expect(
+    RemoteItemApply.shouldApplyRemoteSort(
+        myRole: "deena",
+        lastEditor: "chris",
+        notifyKind: "",
+        localSort: 2000,
+        remoteSort: 0,
+        localUpdated: newer,
+        remoteUpdated: older
+    ),
+    "Partner rebalance siblings apply even without notifyKind=reorder"
 )
 
 if failed > 0 {

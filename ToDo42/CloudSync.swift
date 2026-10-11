@@ -970,6 +970,9 @@ final class CloudSync {
         guard PairSession.shared.isPaired else { return }
         await enqueue {
             do {
+                // Upload the full category order. Only the moved row uses
+                // notifyKind=reorder so the partner gets one banner, not one
+                // per sibling.
                 for item in others {
                     try await self.saveItem(item, notifyKind: "")
                 }
@@ -1403,7 +1406,10 @@ final class CloudSync {
                 ) {
                     local.sortOrder = CloudKitValues.intValue(record["sortOrder"]) ?? local.sortOrder
                     local.updatedAt = remoteUpdated
-                    notifyUpdate(record, heartChanged: false)
+                    // One banner for the moved row; silent for rebalance siblings.
+                    if (notifyKind ?? "").lowercased() == "reorder" {
+                        notifyUpdate(record, heartChanged: false)
+                    }
                 }
             } else {
                 // Never revive a CloudKit orphan the catalog already dropped,
@@ -2215,6 +2221,14 @@ final class CloudSync {
         }
         let remoteUpdated = existing["updatedAt"] as? Date ?? .distantPast
         let localUpdated = item.updatedAt ?? item.createdAt
+        let remoteSort = CloudKitValues.intValue(existing["sortOrder"])
+        // Catch-up used to rewrite the whole row when hearts differed, which
+        // clobbered a partner's newer list order with our stale sortOrder.
+        if remoteUpdated >= localUpdated,
+           let remoteSort,
+           remoteSort != item.sortOrder {
+            return true
+        }
         guard remoteUpdated >= localUpdated else { return false }
         switch PairSession.shared.role {
         case .chris:
