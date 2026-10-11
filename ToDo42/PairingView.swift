@@ -227,7 +227,7 @@ struct PairingView: View {
                 .keyboardType(.phonePad)
                 .textInputAutocapitalization(.never)
                 .autocorrectionDisabled()
-            Text("Optional. Lets Share → Save4Two also open Messages to your partner.")
+            Text("Optional. Lets Share → Save4Two also send message to your partner.")
                 .font(.caption2)
                 .foregroundStyle(.secondary)
         }
