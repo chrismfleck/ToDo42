@@ -21,7 +21,7 @@ enum PartnerTextHandoff {
         for (index, ch) in trimmed.enumerated() {
             if ch.isNumber {
                 out.append(ch)
-            } else if ch == "+", index == 0 || out.isEmpty {
+            } else if ch == "+", (index == 0 || out.isEmpty) {
                 out.append(ch)
             }
         }
@@ -31,21 +31,29 @@ enum PartnerTextHandoff {
     static func messageBody(title: String, urlString: String) -> String {
         var lines = ["Saved this for us in Save4Two"]
         let link = urlString.trimmingCharacters(in: .whitespacesAndNewlines)
-        if !link.isEmpty {
+        if link.isEmpty == false {
             lines.append(link)
         } else {
             let name = title.trimmingCharacters(in: .whitespacesAndNewlines)
-            if !name.isEmpty { lines.append(name) }
+            if name.isEmpty == false {
+                lines.append(name)
+            }
         }
         return lines.joined(separator: "\n")
     }
+
+    static func smsURL(phone: String, body: String) -> URL? {
+        var components = URLComponents()
+        components.scheme = "sms"
+        components.path = phone
+        components.queryItems = [URLQueryItem(name: "body", value: body)]
+        return components.url
+    }
 }
 
-/// Presents Messages (or sms:) after a successful share save, then finishes the extension.
-@MainActor
+/// Presents Messages after a successful share save, then finishes the extension.
 final class PartnerTextPresenter: NSObject, MFMessageComposeViewControllerDelegate {
     private var onFinished: (() -> Void)?
-    private weak var host: UIViewController?
 
     func present(
         from host: UIViewController,
@@ -53,11 +61,10 @@ final class PartnerTextPresenter: NSObject, MFMessageComposeViewControllerDelega
         urlString: String,
         onFinished: @escaping () -> Void
     ) {
-        self.host = host
         self.onFinished = onFinished
         let phone = PartnerTextHandoff.storedPhone
         let body = PartnerTextHandoff.messageBody(title: title, urlString: urlString)
-        guard !phone.isEmpty else {
+        guard phone.isEmpty == false else {
             finish()
             return
         }
@@ -71,14 +78,11 @@ final class PartnerTextPresenter: NSObject, MFMessageComposeViewControllerDelega
             return
         }
 
-        // Fallback when the composer is unavailable (rare on iPhone).
-        var components = URLComponents()
-        components.scheme = "sms"
-        components.path = phone
-        components.queryItems = [URLQueryItem(name: "body", value: body)]
-        if let url = components.url {
+        if let url = PartnerTextHandoff.smsURL(phone: phone, body: body) {
             host.extensionContext?.open(url) { [weak self] _ in
-                Task { @MainActor in self?.finish() }
+                DispatchQueue.main.async {
+                    self?.finish()
+                }
             }
         } else {
             finish()

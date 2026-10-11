@@ -24,34 +24,39 @@ final class ShareViewController: UIViewController {
                 self?.extensionContext?.cancelRequest(withError: CocoaError(.userCancelled))
             },
             onSave: { [weak self] payload, image, alsoTextPartner in
-                guard let self else { return }
-                do {
-                    try ShareInbox.save(payload: payload, image: image)
-                    let finish = { [weak self] in
-                        self?.extensionContext?.completeRequest(returningItems: nil)
-                    }
-                    if alsoTextPartner, PartnerTextHandoff.canOfferText {
-                        self.textPresenter.present(
-                            from: self,
-                            title: payload.title,
-                            urlString: payload.urlString,
-                            onFinished: finish
-                        )
-                    } else {
-                        finish()
-                    }
-                } catch {
-                    self.extensionContext?.cancelRequest(withError: error)
-                }
+                self?.handleSave(payload: payload, image: image, alsoTextPartner: alsoTextPartner)
             }
         )
 
         let host = UIHostingController(rootView: root)
         addChild(host)
         host.view.frame = view.bounds
-        host.view.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+        host.view.autoresizingMask = [
+            UIView.AutoresizingMask.flexibleWidth,
+            UIView.AutoresizingMask.flexibleHeight,
+        ]
         view.addSubview(host.view)
         host.didMove(toParent: self)
+    }
+
+    private func handleSave(payload: SharePayload, image: UIImage?, alsoTextPartner: Bool) {
+        do {
+            try ShareInbox.save(payload: payload, image: image)
+            if alsoTextPartner, PartnerTextHandoff.canOfferText {
+                textPresenter.present(
+                    from: self,
+                    title: payload.title,
+                    urlString: payload.urlString,
+                    onFinished: { [weak self] in
+                        self?.extensionContext?.completeRequest(returningItems: nil)
+                    }
+                )
+            } else {
+                extensionContext?.completeRequest(returningItems: nil)
+            }
+        } catch {
+            extensionContext?.cancelRequest(withError: error)
+        }
     }
 }
 
