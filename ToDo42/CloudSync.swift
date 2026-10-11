@@ -1395,7 +1395,10 @@ final class CloudSync {
                     notifyUpdate(record, heartChanged: justHearted)
                 } else if justHearted {
                     notifyUpdate(record, heartChanged: true)
-                } else if RemoteItemApply.shouldApplyRemoteSort(
+                }
+                // Apply order on its own path. Content merge used to run as an
+                // if/else with sort, so a title/heart skip blocked reorders.
+                if RemoteItemApply.shouldApplyRemoteSort(
                     myRole: session.role?.rawValue,
                     lastEditor: record["lastEditor"] as? String,
                     notifyKind: notifyKind,
@@ -1405,8 +1408,10 @@ final class CloudSync {
                     remoteUpdated: remoteUpdated
                 ) {
                     local.sortOrder = CloudKitValues.intValue(record["sortOrder"]) ?? local.sortOrder
-                    local.updatedAt = remoteUpdated
-                    // One banner for the moved row; silent for rebalance siblings.
+                    if remoteUpdated > (local.updatedAt ?? local.createdAt) {
+                        local.updatedAt = remoteUpdated
+                    }
+                    local.lastEditor = record["lastEditor"] as? String ?? local.lastEditor
                     if (notifyKind ?? "").lowercased() == "reorder" {
                         notifyUpdate(record, heartChanged: false)
                     }
@@ -1694,9 +1699,8 @@ final class CloudSync {
         // Push payloads name the changed record. Query indexes can lag seconds
         // behind a save, so the partner's pull would miss the brand-new TDItem
         // without this strongly-consistent named fetch.
-        let hintNames = hintRecordIDs.map(\.recordName).filter { found[$0] == nil }
-        if !hintNames.isEmpty {
-            for record in await fetchNamedRecords(hintNames) {
+        if !hintRecordIDs.isEmpty {
+            for record in await fetchNamedRecords(hintRecordIDs.map(\.recordName)) {
                 if let pid = record["pairID"] as? String, !pid.isEmpty, pid != pairID {
                     continue
                 }
@@ -1704,14 +1708,27 @@ final class CloudSync {
             }
         }
 
-        // Named-fetch catalog ids the query missed. When the pairID query fails
-        // (or Force sync asks for catalog-first), fetch the shared catalog by id.
+        let sawReorder = found.values.contains {
+            (($0["notifyKind"] as? String) ?? "")
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+                .lowercased() == "reorder"
+        }
+        // pairID queries lag on sortOrder. A reorder notification used to fetch
+        // only the moved row + the last 30 catalog ids, so Deena got the banner
+        // but her list order never changed. Always named-fetch the shared catalog
+        // (or the whole list on reorder / push hint) so order matches.
         let missing = listedIDs.filter { found["item-\($0)"] == nil }
         let refreshNames: [String]
-        if pairQueryOK {
-            refreshNames = Array(Set(missing + Array(listedIDs.suffix(30))))
+        if sawReorder || !hintRecordIDs.isEmpty {
+            refreshNames = listedIDs
+        } else if pairQueryOK {
+            if listedIDs.count <= 250 {
+                refreshNames = listedIDs
+            } else {
+                refreshNames = Array(Set(missing + Array(listedIDs.suffix(80))))
+            }
         } else if listedIDs.count <= 400 {
-            refreshNames = Array(Set(missing + listedIDs))
+            refreshNames = listedIDs
         } else {
             refreshNames = Array(Set(missing + Array(listedIDs.suffix(80))))
         }

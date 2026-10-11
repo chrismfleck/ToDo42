@@ -208,9 +208,9 @@ enum RemoteItemApply {
         guard let remoteSort, remoteSort != localSort else { return false }
         let editor = (lastEditor ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
         let mine = (myRole ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-        if !editor.isEmpty, !mine.isEmpty, editor == mine { return false }
         let kind = (notifyKind ?? "").trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         if kind == "reorder" { return true }
+        if !editor.isEmpty, !mine.isEmpty, editor == mine { return false }
         if !editor.isEmpty, editor != mine { return true }
         return remoteUpdated >= localUpdated
     }
