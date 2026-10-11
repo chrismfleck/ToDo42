@@ -71,9 +71,12 @@ struct HelpView: View {
 
                         HelpStep(
                             number: 5,
-                            spoken: "Wait for the photo if it is still loading. Review or edit the page, tap every category where it should appear, tap Save."
+                            spoken: "Wait for the photo if it is still loading. Review or edit the page, tap every category where it should appear, tap Save. Turn on Also text to partner to open Messages with the link after saving. Add your partner mobile under Pair first."
                         ) {
-                            helpText("Wait for the photo if it is still loading. Review or edit the page, tap every category where it should appear, tap Save.")
+                            VStack(alignment: .leading, spacing: 6) {
+                                helpText("Wait for the photo if it is still loading. Review or edit the page, tap every category where it should appear, tap Save.")
+                                helpText("Turn on Also text to partner to open Messages with the link after saving. Add your partner’s mobile under Pair first.")
+                            }
                         }
 
                         HelpStep(
@@ -174,6 +177,7 @@ struct HelpView: View {
                 )
             }
             helpText("Enter names and headshots, send invite to partner. Or enter a code if you are sent one.")
+            helpText("Optional: add partner’s mobile so Share can also text them the link.")
             helpText("To add a second partner tap Add a pair — that starts a separate empty list. Do not send your first pair’s code to someone else.")
         }
         .foregroundStyle(.primary)

@@ -24,6 +24,8 @@ struct PairProfile: Codable, Identifiable, Hashable {
     var inviteCode: String?
     var myName: String
     var partnerName: String
+    /// Digits for SMS from the Share Extension (on-device / App Group only).
+    var partnerPhone: String
 
     var id: String { pairID }
 
@@ -32,12 +34,30 @@ struct PairProfile: Codable, Identifiable, Hashable {
         set { roleRaw = newValue?.rawValue ?? "" }
     }
 
-    init(pairID: String, role: PairRole, inviteCode: String?, myName: String, partnerName: String) {
+    init(
+        pairID: String,
+        role: PairRole,
+        inviteCode: String?,
+        myName: String,
+        partnerName: String,
+        partnerPhone: String = ""
+    ) {
         self.pairID = pairID
         self.roleRaw = role.rawValue
         self.inviteCode = inviteCode
         self.myName = myName
         self.partnerName = partnerName
+        self.partnerPhone = partnerPhone
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        pairID = try c.decode(String.self, forKey: .pairID)
+        roleRaw = try c.decode(String.self, forKey: .roleRaw)
+        inviteCode = try c.decodeIfPresent(String.self, forKey: .inviteCode)
+        myName = try c.decode(String.self, forKey: .myName)
+        partnerName = try c.decode(String.self, forKey: .partnerName)
+        partnerPhone = try c.decodeIfPresent(String.self, forKey: .partnerPhone) ?? ""
     }
 }
 
@@ -51,6 +71,8 @@ final class PairSession {
     var inviteCode: String?
     var myName = ""
     var partnerName = ""
+    /// Partner mobile for “Also text to partner” in the Share Extension.
+    var partnerPhone = ""
     var statusMessage = ""
     var isBusy = false
     /// Known pairs on this phone (including the active one once persisted).
@@ -69,10 +91,13 @@ final class PairSession {
     private let codeKey = "todo42.inviteCode"
     private let myNameKey = "todo42.myName"
     private let partnerNameKey = "todo42.partnerName"
+    private let partnerPhoneKey = "todo42.partnerPhone"
     private let pairHistoryKey = "todo42.pairIDHistory"
     private let savedPairsKey = "todo42.savedPairs"
     private let joinedAsGuestKey = "todo42.joinedAsGuest"
     private let activePairAppGroupKey = "todo42.activePairID"
+    /// Must match Share Extension `PartnerTextHandoff` App Group key.
+    private let partnerPhoneAppGroupKey = "todo42.partnerPhone"
 
     var isPaired: Bool { pairID != nil && role != nil }
     var isApplyingRemote = false
@@ -86,8 +111,16 @@ final class PairSession {
         partnerName.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
+    var trimmedPartnerPhone: String {
+        PartnerPhone.normalized(partnerPhone)
+    }
+
     var hasNames: Bool {
         !trimmedMyName.isEmpty && !trimmedPartnerName.isEmpty
+    }
+
+    var hasPartnerPhone: Bool {
+        trimmedPartnerPhone.count >= 7
     }
 
     var myHeartLabel: String { trimmedMyName.isEmpty ? "YourName" : trimmedMyName }
@@ -111,6 +144,7 @@ final class PairSession {
         inviteCode = defaults.string(forKey: codeKey)
         myName = defaults.string(forKey: myNameKey) ?? ""
         partnerName = defaults.string(forKey: partnerNameKey) ?? ""
+        partnerPhone = defaults.string(forKey: partnerPhoneKey) ?? ""
         savedPairs = Self.loadSavedPairs(from: defaults, key: savedPairsKey)
         if savedPairs.isEmpty, let id = pairID, let role {
             savedPairs = [
@@ -119,7 +153,8 @@ final class PairSession {
                     role: role,
                     inviteCode: inviteCode,
                     myName: myName,
-                    partnerName: partnerName
+                    partnerName: partnerName,
+                    partnerPhone: partnerPhone
                 )
             ]
         } else {
@@ -145,6 +180,7 @@ final class PairSession {
         role = nil
         inviteCode = nil
         partnerName = ""
+        partnerPhone = ""
         statusMessage = ""
         persistLocal()
     }
@@ -253,6 +289,7 @@ final class PairSession {
         defaults.set(inviteCode, forKey: codeKey)
         defaults.set(myName, forKey: myNameKey)
         defaults.set(partnerName, forKey: partnerNameKey)
+        defaults.set(partnerPhone, forKey: partnerPhoneKey)
         if let data = try? JSONEncoder().encode(savedPairs) {
             defaults.set(data, forKey: savedPairsKey)
         }
@@ -287,6 +324,8 @@ final class PairSession {
 
     private func mirrorActivePairToAppGroup() {
         appGroupDefaults?.set(pairID, forKey: activePairAppGroupKey)
+        appGroupDefaults?.set(trimmedPartnerPhone, forKey: partnerPhoneAppGroupKey)
+        appGroupDefaults?.set(trimmedPartnerName, forKey: "todo42.partnerName")
     }
 
     private func snapshotActiveIntoSavedPairs() {
@@ -296,7 +335,8 @@ final class PairSession {
             role: role,
             inviteCode: inviteCode,
             myName: myName,
-            partnerName: partnerName
+            partnerName: partnerName,
+            partnerPhone: partnerPhone
         )
         if let idx = savedPairs.firstIndex(where: { $0.pairID == id }) {
             savedPairs[idx] = profile
@@ -311,6 +351,7 @@ final class PairSession {
         inviteCode = profile.inviteCode
         myName = profile.myName
         partnerName = profile.partnerName
+        partnerPhone = profile.partnerPhone
         statusMessage = ""
     }
 
@@ -326,7 +367,8 @@ final class PairSession {
                     role: role,
                     inviteCode: inviteCode,
                     myName: myName,
-                    partnerName: partnerName
+                    partnerName: partnerName,
+                    partnerPhone: partnerPhone
                 ),
                 at: 0
             )

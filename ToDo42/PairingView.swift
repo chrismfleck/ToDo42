@@ -222,6 +222,13 @@ struct PairingView: View {
                     text: partnerNameBinding
                 )
             }
+            pairField("Partner’s mobile (for text)", text: partnerPhoneBinding)
+                .keyboardType(.phonePad)
+                .textInputAutocapitalization(.never)
+                .autocorrectionDisabled()
+            Text("Optional. Lets Share → Save4Two also open Messages to your partner.")
+                .font(.caption2)
+                .foregroundStyle(.secondary)
         }
     }
 
@@ -604,6 +611,17 @@ struct PairingView: View {
         Binding(
             get: { session.partnerName },
             set: { session.partnerName = $0 }
+        )
+    }
+
+    private var partnerPhoneBinding: Binding<String> {
+        Binding(
+            get: { session.partnerPhone },
+            set: {
+                session.partnerPhone = $0
+                // Mirror into App Group immediately for the Share Extension.
+                session.persistLocal()
+            }
         )
     }
 
