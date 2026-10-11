@@ -430,8 +430,8 @@ expect(
         remoteSort: 500,
         localUpdated: older,
         remoteUpdated: newer
-    ) == false,
-    "Do not apply our own reorder echo"
+    ),
+    "Reorder notifyKind applies even when seats were duplicated after Restore"
 )
 expect(
     RemoteItemApply.shouldApplyRemoteSort(
