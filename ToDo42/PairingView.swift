@@ -92,11 +92,12 @@ struct PairingView: View {
 
     private var header: some View {
         HStack {
-            Button("Close") { dismiss() }
+            Button("Save/Close") { dismiss() }
                 .font(.subheadline.weight(.semibold))
                 .padding(.horizontal, 14)
                 .padding(.vertical, 6)
                 .background(pillFill, in: Capsule())
+                .accessibilityLabel("Save and close")
             Spacer()
         }
         .foregroundStyle(.primary)
