@@ -592,7 +592,8 @@ struct ContentView: View {
             if phase == .active {
                 importSharedDrafts()
                 offerPairRestoreIfNeeded()
-                Task { await refreshFromCloud() }
+                // Fresh pull on foreground — do not coalesce onto a stale busy flag.
+                Task { await refreshFromCloud(coalesce: false) }
                 startSyncPolling()
             } else {
                 syncPollTask?.cancel()
@@ -602,9 +603,16 @@ struct ContentView: View {
         .onChange(of: pairSession.pairID) { _, _ in
             startSyncPolling()
         }
-        .onReceive(NotificationCenter.default.publisher(for: .todo42CloudPush)) { notification in
-            let pushInfo = notification.object as? [AnyHashable: Any]
-            Task { await refreshFromCloud(pushUserInfo: pushInfo) }
+        .onReceive(NotificationCenter.default.publisher(for: .todo42CloudPush)) { _ in
+            // AppDelegate already ran handleRemoteNotification (with record hints).
+            // Re-syncing here raced the in-flight pull and used to drop those hints.
+            Task { @MainActor in
+                seedIfNeeded()
+                repairSampleLinks()
+                if let cat = PairSession.shared.takeRevealCategory() {
+                    selectCategory(cat)
+                }
+            }
         }
         .onChange(of: category) { _, _ in
             reorderDrag = nil
@@ -913,14 +921,17 @@ struct ContentView: View {
         }
     }
 
-    private func refreshFromCloud(pushUserInfo: [AnyHashable: Any]? = nil) async {
+    private func refreshFromCloud(
+        pushUserInfo: [AnyHashable: Any]? = nil,
+        coalesce: Bool = true
+    ) async {
         if let pushUserInfo {
             await CloudSync.shared.handleRemoteNotification(
                 modelContext: modelContext,
                 userInfo: pushUserInfo
             )
         } else {
-            await CloudSync.shared.sync(modelContext: modelContext)
+            await CloudSync.shared.sync(modelContext: modelContext, coalesce: coalesce)
         }
         seedIfNeeded()
         repairSampleLinks()
