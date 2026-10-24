@@ -191,6 +191,22 @@ enum ItemDuplicatePick {
     }
 }
 
+/// Primary + companion bottom photos per list item.
+enum ItemPhotos {
+    /// Max photos on one item (1 primary + extras).
+    static let maxCount = 10
+    /// Extra companion slots (CloudKit `extra-` / `extra2-` … `extra9-`).
+    static let maxExtraSlots = maxCount - 1
+
+    static func recordPrefix(slot: Int) -> String {
+        slot <= 1 ? "extra-" : "extra\(slot)-"
+    }
+
+    static func recordName(slot: Int, itemID: UUID) -> String {
+        "\(recordPrefix(slot: slot))\(itemID.uuidString)"
+    }
+}
+
 /// Companion bottom-photo records are also `TDItem` rows that reuse `image`.
 /// They must never be applied as list items or they wipe titles and replace
 /// the primary photo.
@@ -200,7 +216,7 @@ enum TDItemRecordKind: Equatable {
     case unknown
 
     static func classify(recordName: String, title: String?, sortOrder: Int?) -> TDItemRecordKind {
-        if recordName.hasPrefix("extra3-") || recordName.hasPrefix("extra2-") || recordName.hasPrefix("extra-") {
+        if RemoteItemApply.extraSlot(recordName: recordName) != nil {
             return .extraPhoto
         }
         if recordName.hasPrefix("item-") { return .listItem }
@@ -271,22 +287,20 @@ enum RemoteItemApply {
 
     static func extraItemID(recordName: String, itemID: String?) -> String? {
         if let itemID, !itemID.isEmpty { return itemID }
-        if recordName.hasPrefix("extra3-") {
-            return String(recordName.dropFirst("extra3-".count))
-        }
-        if recordName.hasPrefix("extra2-") {
-            return String(recordName.dropFirst("extra2-".count))
-        }
-        if recordName.hasPrefix("extra-") {
-            return String(recordName.dropFirst("extra-".count))
-        }
-        return nil
+        guard let slot = extraSlot(recordName: recordName) else { return nil }
+        return String(recordName.dropFirst(ItemPhotos.recordPrefix(slot: slot).count))
     }
 
+    /// Companion photo slot 1…9 from `extra-` / `extra2-` … `extra9-` record names.
     static func extraSlot(recordName: String) -> Int? {
-        if recordName.hasPrefix("extra3-") { return 3 }
-        if recordName.hasPrefix("extra2-") { return 2 }
-        if recordName.hasPrefix("extra-") { return 1 }
+        for slot in (2...ItemPhotos.maxExtraSlots).reversed() {
+            if recordName.hasPrefix(ItemPhotos.recordPrefix(slot: slot)) {
+                return slot
+            }
+        }
+        if recordName.hasPrefix(ItemPhotos.recordPrefix(slot: 1)) {
+            return 1
+        }
         return nil
     }
 

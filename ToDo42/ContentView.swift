@@ -1980,16 +1980,16 @@ struct ItemDetailView: View {
                     }
                 }
             }
-            if item.hasExtraPhoto, let data = item.extraImageData, let image = UIImage(data: data) {
-                stackedBitmap(image, deleteLabel: "Delete photo 2", onDelete: clearExtraPhoto)
+            ForEach(1...ItemPhotos.maxExtraSlots, id: \.self) { slot in
+                if let data = item.extraSlotData(slot), let image = UIImage(data: data) {
+                    stackedBitmap(
+                        image,
+                        deleteLabel: "Delete photo \(slot + 1)",
+                        onDelete: { clearExtraPhoto(slot: slot) }
+                    )
+                }
             }
-            if item.hasExtraPhoto2, let data = item.extraImageData2, let image = UIImage(data: data) {
-                stackedBitmap(image, deleteLabel: "Delete photo 3", onDelete: clearExtraPhoto2)
-            }
-            if item.hasExtraPhoto3, let data = item.extraImageData3, let image = UIImage(data: data) {
-                stackedBitmap(image, deleteLabel: "Delete photo 4", onDelete: clearExtraPhoto3)
-            }
-            if isEditing, item.photoCount < 4 {
+            if isEditing, item.photoCount < ItemPhotos.maxCount {
                 PhotosPicker(selection: $photoItem, matching: .images) {
                     HStack(spacing: 10) {
                         Image(systemName: "photo.badge.plus")
@@ -2055,33 +2055,13 @@ struct ItemDetailView: View {
         guard let data = try? await picked.loadTransferable(type: Data.self),
               let image = UIImage(data: data),
               let jpeg = PhotoJPEG.compressed(image) else { return }
-        if !item.hasPhoto {
-            item.imageData = jpeg
-            item.imageAssetName = nil
-            item.imageURLString = nil
-        } else if !item.hasExtraPhoto {
-            item.extraImageData = jpeg
-        } else if !item.hasExtraPhoto2 {
-            item.extraImageData2 = jpeg
-        } else if !item.hasExtraPhoto3 {
-            item.extraImageData3 = jpeg
-        }
+        guard item.appendPhotoData(jpeg) else { return }
         photoItem = nil
         PairSession.shared.noteLocalEdit(item, kind: "edit")
     }
 
-    private func clearExtraPhoto() {
-        item.extraImageData = nil
-        PairSession.shared.noteLocalEdit(item, kind: "edit")
-    }
-
-    private func clearExtraPhoto2() {
-        item.extraImageData2 = nil
-        PairSession.shared.noteLocalEdit(item, kind: "edit")
-    }
-
-    private func clearExtraPhoto3() {
-        item.extraImageData3 = nil
+    private func clearExtraPhoto(slot: Int) {
+        item.setExtraSlotData(slot, nil)
         PairSession.shared.noteLocalEdit(item, kind: "edit")
     }
 

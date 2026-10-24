@@ -1309,9 +1309,11 @@ final class CloudSync {
         record["updatedAt"] = Date()
         do {
             try await saveOverwriting(record)
-            try? await database.deleteRecord(withID: extraRecordID(for: id))
-            try? await database.deleteRecord(withID: extra2RecordID(for: id))
-            try? await database.deleteRecord(withID: extra3RecordID(for: id))
+            for slot in 1...ItemPhotos.maxExtraSlots {
+                try? await database.deleteRecord(
+                    withID: CKRecord.ID(recordName: ItemPhotos.recordName(slot: slot, itemID: id))
+                )
+            }
             return true
         } catch {
             return false
@@ -1576,27 +1578,15 @@ final class CloudSync {
                 guard !RemoteItemApply.isTombstone(notifyKind: record["notifyKind"] as? String) else { return nil }
                 return record["itemID"] as? String
             })
-            let extrasByItemID = Set(extraRecords.compactMap { record -> String? in
-                guard RemoteItemApply.extraSlot(recordName: record.recordID.recordName) == 1 else { return nil }
-                return RemoteItemApply.extraItemID(
-                    recordName: record.recordID.recordName,
-                    itemID: record["itemID"] as? String
-                )
-            })
-            let extra2ByItemID = Set(extraRecords.compactMap { record -> String? in
-                guard RemoteItemApply.extraSlot(recordName: record.recordID.recordName) == 2 else { return nil }
-                return RemoteItemApply.extraItemID(
-                    recordName: record.recordID.recordName,
-                    itemID: record["itemID"] as? String
-                )
-            })
-            let extra3ByItemID = Set(extraRecords.compactMap { record -> String? in
-                guard RemoteItemApply.extraSlot(recordName: record.recordID.recordName) == 3 else { return nil }
-                return RemoteItemApply.extraItemID(
-                    recordName: record.recordID.recordName,
-                    itemID: record["itemID"] as? String
-                )
-            })
+            var extrasBySlot: [Int: Set<String>] = [:]
+            for record in extraRecords {
+                guard let slot = RemoteItemApply.extraSlot(recordName: record.recordID.recordName),
+                      let itemID = RemoteItemApply.extraItemID(
+                        recordName: record.recordID.recordName,
+                        itemID: record["itemID"] as? String
+                      ) else { continue }
+                extrasBySlot[slot, default: []].insert(itemID)
+            }
             for local in ItemStore.items(forPair: pairID, in: modelContext) {
                 let idString = local.id.uuidString
                 if deletedIDs.contains(idString)
@@ -1670,14 +1660,11 @@ final class CloudSync {
                     let iAmLastEditor = local.lastEditor == session.role?.rawValue
                         && !(session.role?.rawValue ?? "").isEmpty
                     if remoteClearlyNewer, !iAmLastEditor {
-                        if local.hasExtraPhoto, !extrasByItemID.contains(idString) {
-                            local.extraImageData = nil
-                        }
-                        if local.hasExtraPhoto2, !extra2ByItemID.contains(idString) {
-                            local.extraImageData2 = nil
-                        }
-                        if local.hasExtraPhoto3, !extra3ByItemID.contains(idString) {
-                            local.extraImageData3 = nil
+                        for slot in 1...ItemPhotos.maxExtraSlots {
+                            let present = extrasBySlot[slot]?.contains(idString) == true
+                            if local.extraSlotData(slot) != nil, !present {
+                                local.setExtraSlotData(slot, nil)
+                            }
                         }
                     }
                     continue
@@ -1863,21 +1850,11 @@ final class CloudSync {
             guard recordKind(record) == .listItem else { return nil }
             return record["itemID"] as? String
         }
-        let missingExtras = fetchedListIDs.filter { found["extra-\($0)"] == nil }
-        if !missingExtras.isEmpty {
-            for record in await fetchNamedRecords(missingExtras.map { "extra-\($0)" }) {
-                found[record.recordID.recordName] = record
-            }
-        }
-        let missingExtra2 = fetchedListIDs.filter { found["extra2-\($0)"] == nil }
-        if !missingExtra2.isEmpty {
-            for record in await fetchNamedRecords(missingExtra2.map { "extra2-\($0)" }) {
-                found[record.recordID.recordName] = record
-            }
-        }
-        let missingExtra3 = fetchedListIDs.filter { found["extra3-\($0)"] == nil }
-        if !missingExtra3.isEmpty {
-            for record in await fetchNamedRecords(missingExtra3.map { "extra3-\($0)" }) {
+        for slot in 1...ItemPhotos.maxExtraSlots {
+            let prefix = ItemPhotos.recordPrefix(slot: slot)
+            let missing = fetchedListIDs.filter { found["\(prefix)\($0)"] == nil }
+            guard !missing.isEmpty else { continue }
+            for record in await fetchNamedRecords(missing.map { "\(prefix)\($0)" }) {
                 found[record.recordID.recordName] = record
             }
         }
@@ -2136,7 +2113,7 @@ final class CloudSync {
             if notifyKind.isEmpty, shouldSkipCatchupPush(item, existing: existing) {
                 // Still publish a local bottom photo that never made it to iCloud
                 // (older builds dropped those uploads), without rewriting newer fields.
-                if item.hasExtraPhoto || item.hasExtraPhoto2 || item.hasExtraPhoto3 {
+                if item.hasAnyExtraPhotos {
                     await saveCompanionPhotos(for: item, pairID: pairID)
                 }
                 return
@@ -2202,43 +2179,18 @@ final class CloudSync {
 
     /// Extra photos sync through companion TDItem rows that reuse the known
     /// `image` asset field, so Production CloudKit does not need new image fields.
-    private func extraRecordID(for itemID: UUID) -> CKRecord.ID {
-        CKRecord.ID(recordName: "extra-\(itemID.uuidString)")
-    }
-
-    private func extra2RecordID(for itemID: UUID) -> CKRecord.ID {
-        CKRecord.ID(recordName: "extra2-\(itemID.uuidString)")
-    }
-
-    private func extra3RecordID(for itemID: UUID) -> CKRecord.ID {
-        CKRecord.ID(recordName: "extra3-\(itemID.uuidString)")
-    }
-
     private func saveCompanionPhotos(for item: TodoItem, pairID: String) async {
-        await saveCompanionPhoto(
-            data: item.extraImageData,
-            recordID: extraRecordID(for: item.id),
-            item: item,
-            pairID: pairID,
-            sortOrder: -1,
-            fileSuffix: "extra"
-        )
-        await saveCompanionPhoto(
-            data: item.extraImageData2,
-            recordID: extra2RecordID(for: item.id),
-            item: item,
-            pairID: pairID,
-            sortOrder: -2,
-            fileSuffix: "extra2"
-        )
-        await saveCompanionPhoto(
-            data: item.extraImageData3,
-            recordID: extra3RecordID(for: item.id),
-            item: item,
-            pairID: pairID,
-            sortOrder: -3,
-            fileSuffix: "extra3"
-        )
+        for slot in 1...ItemPhotos.maxExtraSlots {
+            let suffix = slot == 1 ? "extra" : "extra\(slot)"
+            await saveCompanionPhoto(
+                data: item.extraSlotData(slot),
+                recordID: CKRecord.ID(recordName: ItemPhotos.recordName(slot: slot, itemID: item.id)),
+                item: item,
+                pairID: pairID,
+                sortOrder: -slot,
+                fileSuffix: suffix
+            )
+        }
     }
 
     private func saveCompanionPhoto(
@@ -2278,6 +2230,7 @@ final class CloudSync {
     }
 
     private func applyExtraPhoto(_ record: CKRecord, to item: TodoItem) {
+        guard let slot = RemoteItemApply.extraSlot(recordName: record.recordID.recordName) else { return }
         if let asset = record["image"] as? CKAsset, let url = asset.fileURL,
            let data = try? Data(contentsOf: url), !data.isEmpty, data.count < 8_000_000 {
             let remoteUpdated = record["updatedAt"] as? Date
@@ -2286,19 +2239,8 @@ final class CloudSync {
             let localUpdated = item.updatedAt ?? item.createdAt
             // Never clobber a newer local bottom photo with a stale companion.
             let remoteMayOverwrite = remoteUpdated > localUpdated
-            switch RemoteItemApply.extraSlot(recordName: record.recordID.recordName) {
-            case 3:
-                if item.extraImageData3 == nil || remoteMayOverwrite {
-                    item.extraImageData3 = data
-                }
-            case 2:
-                if item.extraImageData2 == nil || remoteMayOverwrite {
-                    item.extraImageData2 = data
-                }
-            default:
-                if item.extraImageData == nil || remoteMayOverwrite {
-                    item.extraImageData = data
-                }
+            if item.extraSlotData(slot) == nil || remoteMayOverwrite {
+                item.setExtraSlotData(slot, data)
             }
         }
     }
