@@ -1,9 +1,10 @@
 import Foundation
 
 enum AppBuild {
-    /// Bump together with CURRENT_PROJECT_VERSION in the Xcode project.
+    /// MUST equal CURRENT_PROJECT_VERSION / CFBundleVersion (plist). Never diverge.
+    /// Use: bash scripts/bump_build.sh <n>  — bumps AppBuild + Xcode + confirm_build together.
     /// UI reads this stamp (not Info.plist) so a stale install cannot hide the real code.
-    static let number = "199"
+    static let number = "201"
 
     static var marketing: String {
         Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "1.0"
