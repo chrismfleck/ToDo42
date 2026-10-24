@@ -530,6 +530,24 @@ final class CloudSync {
     /// is not stuck behind an endless queue of 2s refreshes.
     private(set) var isBusySyncing = false
     private var lastSubscribeAt: Date?
+    /// Push hints that arrived while a sync was already in flight. Coalesced
+    /// polls used to `return` after waiting and drop these — partner then missed
+    /// brand-new TDItems until a later lucky query hit.
+    private var pendingHintRecordNames: Set<String> = []
+
+    private func enqueueHints(_ ids: [CKRecord.ID]) {
+        for id in ids {
+            let name = id.recordName.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !name.isEmpty else { continue }
+            pendingHintRecordNames.insert(name)
+        }
+    }
+
+    private func takePendingHints() -> [CKRecord.ID] {
+        let names = pendingHintRecordNames
+        pendingHintRecordNames.removeAll()
+        return names.map { CKRecord.ID(recordName: $0) }
+    }
 
     private func enqueue(_ work: @escaping () async -> Void) async {
         let previous = operationTail
@@ -798,10 +816,22 @@ final class CloudSync {
         preferCatalogFetch: Bool = false
     ) async {
         guard PairSession.shared.isPaired else { return }
+        // Always bank push hints first so a coalesced wait cannot lose them.
+        enqueueHints(hintRecordIDs)
         // Background polls coalesce onto the in-flight sync instead of queueing
-        // forever (which froze Force sync / Restore on Build 165).
+        // forever (which froze Force sync / Restore on Build 165). If a push
+        // arrived with record hints while we waited, run one follow-up pull so
+        // the partner still named-fetches the brand-new TDItem.
         if coalesce, isBusySyncing {
             await operationTail.value
+            if !pendingHintRecordNames.isEmpty {
+                await sync(
+                    modelContext: modelContext,
+                    allowCreate: allowCreate,
+                    coalesce: false,
+                    preferCatalogFetch: preferCatalogFetch
+                )
+            }
             return
         }
         await enqueue {
@@ -811,6 +841,7 @@ final class CloudSync {
                 try await self.ensureiCloud()
                 // Refresh push subscriptions every Force sync / first sync so
                 // v6 partner-only alerts replace older “notify both phones” subs.
+                // Also refresh after a successful add window so silent wake stays live.
                 let shouldRefreshSubs = preferCatalogFetch
                     || self.lastSubscribeAt.map { Date().timeIntervalSince($0) > 600 } ?? true
                 if shouldRefreshSubs {
@@ -832,19 +863,22 @@ final class CloudSync {
                     in: modelContext,
                     includeUnscoped: false
                 )
+                // Drain hints inside the sync body so anything banked mid-flight
+                // is included in this pull's strongly-consistent named fetch.
+                let hints = self.takePendingHints()
                 if allowCreate {
                     try await self.pushAll(pairItems, allowCreate: true)
                     // Restore may create rows that were never catalogued — list them once.
                     try? await self.registerItemIDs(pairItems.map(\.id.uuidString))
                     try await self.pull(
                         modelContext: modelContext,
-                        hintRecordIDs: hintRecordIDs,
+                        hintRecordIDs: hints,
                         preferCatalogFetch: preferCatalogFetch
                     )
                 } else {
                     try await self.pull(
                         modelContext: modelContext,
-                        hintRecordIDs: hintRecordIDs,
+                        hintRecordIDs: hints,
                         preferCatalogFetch: preferCatalogFetch
                     )
                     let afterPull = ItemStore.items(
@@ -873,6 +907,15 @@ final class CloudSync {
                 PairSession.shared.statusMessage = Self.friendlyMessage(error)
             }
         }
+        // Hints that landed during this sync still need a dedicated named fetch.
+        if !pendingHintRecordNames.isEmpty {
+            await sync(
+                modelContext: modelContext,
+                allowCreate: false,
+                coalesce: false,
+                preferCatalogFetch: preferCatalogFetch
+            )
+        }
     }
 
     func upload(_ item: TodoItem, notifyKind: String) async {
@@ -892,16 +935,43 @@ final class CloudSync {
                 // Partner pull still accepts provisional / push-hinted adds while
                 // the post-save catalog register catches up.
                 try await self.saveItem(item, notifyKind: notifyKind)
+                let itemID = item.id.uuidString
                 do {
-                    try await self.registerItemIDs([item.id.uuidString], retries: 5)
+                    try await self.registerItemIDs([itemID], retries: 5)
                     PairSession.shared.statusMessage = ""
                 } catch {
                     PairSession.shared.statusMessage = notifyKind == "add"
                         ? "Saved item; catalog retry needed — tap Force sync."
                         : Self.friendlyMessage(error)
+                    // Keep retrying catalog registration so the partner pull can
+                    // find the id even if the first mutatePairRecord raced.
+                    if notifyKind == "add" {
+                        Task { await self.retryCatalogRegister(itemID) }
+                    }
                 }
             } catch {
                 PairSession.shared.statusMessage = Self.friendlyMessage(error)
+            }
+        }
+    }
+
+    /// Background retries for `registerItemIDs` after a successful TDItem save.
+    private func retryCatalogRegister(_ itemID: String) async {
+        let delays: [UInt64] = [
+            2_000_000_000,
+            5_000_000_000,
+            15_000_000_000,
+        ]
+        for delay in delays {
+            try? await Task.sleep(nanoseconds: delay)
+            do {
+                try await registerItemIDs([itemID], retries: 5)
+                if PairSession.shared.statusMessage.hasPrefix("Saved item; catalog") {
+                    PairSession.shared.statusMessage = ""
+                }
+                return
+            } catch {
+                continue
             }
         }
     }
@@ -1239,9 +1309,11 @@ final class CloudSync {
         record["updatedAt"] = Date()
         do {
             try await saveOverwriting(record)
-            try? await database.deleteRecord(withID: extraRecordID(for: id))
-            try? await database.deleteRecord(withID: extra2RecordID(for: id))
-            try? await database.deleteRecord(withID: extra3RecordID(for: id))
+            for slot in 1...ItemPhotos.maxExtraSlots {
+                try? await database.deleteRecord(
+                    withID: CKRecord.ID(recordName: ItemPhotos.recordName(slot: slot, itemID: id))
+                )
+            }
             return true
         } catch {
             return false
@@ -1506,27 +1578,15 @@ final class CloudSync {
                 guard !RemoteItemApply.isTombstone(notifyKind: record["notifyKind"] as? String) else { return nil }
                 return record["itemID"] as? String
             })
-            let extrasByItemID = Set(extraRecords.compactMap { record -> String? in
-                guard RemoteItemApply.extraSlot(recordName: record.recordID.recordName) == 1 else { return nil }
-                return RemoteItemApply.extraItemID(
-                    recordName: record.recordID.recordName,
-                    itemID: record["itemID"] as? String
-                )
-            })
-            let extra2ByItemID = Set(extraRecords.compactMap { record -> String? in
-                guard RemoteItemApply.extraSlot(recordName: record.recordID.recordName) == 2 else { return nil }
-                return RemoteItemApply.extraItemID(
-                    recordName: record.recordID.recordName,
-                    itemID: record["itemID"] as? String
-                )
-            })
-            let extra3ByItemID = Set(extraRecords.compactMap { record -> String? in
-                guard RemoteItemApply.extraSlot(recordName: record.recordID.recordName) == 3 else { return nil }
-                return RemoteItemApply.extraItemID(
-                    recordName: record.recordID.recordName,
-                    itemID: record["itemID"] as? String
-                )
-            })
+            var extrasBySlot: [Int: Set<String>] = [:]
+            for record in extraRecords {
+                guard let slot = RemoteItemApply.extraSlot(recordName: record.recordID.recordName),
+                      let itemID = RemoteItemApply.extraItemID(
+                        recordName: record.recordID.recordName,
+                        itemID: record["itemID"] as? String
+                      ) else { continue }
+                extrasBySlot[slot, default: []].insert(itemID)
+            }
             for local in ItemStore.items(forPair: pairID, in: modelContext) {
                 let idString = local.id.uuidString
                 if deletedIDs.contains(idString)
@@ -1600,14 +1660,11 @@ final class CloudSync {
                     let iAmLastEditor = local.lastEditor == session.role?.rawValue
                         && !(session.role?.rawValue ?? "").isEmpty
                     if remoteClearlyNewer, !iAmLastEditor {
-                        if local.hasExtraPhoto, !extrasByItemID.contains(idString) {
-                            local.extraImageData = nil
-                        }
-                        if local.hasExtraPhoto2, !extra2ByItemID.contains(idString) {
-                            local.extraImageData2 = nil
-                        }
-                        if local.hasExtraPhoto3, !extra3ByItemID.contains(idString) {
-                            local.extraImageData3 = nil
+                        for slot in 1...ItemPhotos.maxExtraSlots {
+                            let present = extrasBySlot[slot]?.contains(idString) == true
+                            if local.extraSlotData(slot) != nil, !present {
+                                local.setExtraSlotData(slot, nil)
+                            }
                         }
                     }
                     continue
@@ -1711,7 +1768,6 @@ final class CloudSync {
         preferCatalogFetch: Bool = false
     ) async -> (records: [CKRecord], catalogComplete: Bool) {
         var found: [String: CKRecord] = [:]
-        var catalogComplete = false
 
         let pairQuery = CKQuery(
             recordType: "TDItem",
@@ -1726,7 +1782,6 @@ final class CloudSync {
                     try await self.queryAll(pairQuery)
                 }
                 pairQueryOK = true
-                catalogComplete = true
                 for record in queried {
                     found[record.recordID.recordName] = record
                 }
@@ -1779,14 +1834,15 @@ final class CloudSync {
                 found[record.recordID.recordName] = record
             }
         }
-        // Second pass for catalog ids still missing (CloudKit eventually
-        // consistent after a partner save — one miss used to drop new items).
-        let stillMissing = listedIDs.filter { found["item-\($0)"] == nil }
-        if !stillMissing.isEmpty, stillMissing.count <= 80 {
-            try? await Task.sleep(nanoseconds: 300_000_000)
+        // Retry every still-missing catalog id (CloudKit eventually consistent
+        // after a partner save). The old ≤80 gate left large gaps undownloaded.
+        var stillMissing = listedIDs.filter { found["item-\($0)"] == nil }
+        for round in 0..<3 where !stillMissing.isEmpty {
+            try? await Task.sleep(nanoseconds: UInt64(300_000_000 * (round + 1)))
             for record in await fetchNamedRecords(stillMissing.map { "item-\($0)" }) {
                 found[record.recordID.recordName] = record
             }
+            stillMissing = listedIDs.filter { found["item-\($0)"] == nil }
         }
         // Extra photos only for list items we actually downloaded — fetching
         // extras for every catalog id made Force sync crawl for minutes.
@@ -1794,21 +1850,11 @@ final class CloudSync {
             guard recordKind(record) == .listItem else { return nil }
             return record["itemID"] as? String
         }
-        let missingExtras = fetchedListIDs.filter { found["extra-\($0)"] == nil }
-        if !missingExtras.isEmpty {
-            for record in await fetchNamedRecords(missingExtras.map { "extra-\($0)" }) {
-                found[record.recordID.recordName] = record
-            }
-        }
-        let missingExtra2 = fetchedListIDs.filter { found["extra2-\($0)"] == nil }
-        if !missingExtra2.isEmpty {
-            for record in await fetchNamedRecords(missingExtra2.map { "extra2-\($0)" }) {
-                found[record.recordID.recordName] = record
-            }
-        }
-        let missingExtra3 = fetchedListIDs.filter { found["extra3-\($0)"] == nil }
-        if !missingExtra3.isEmpty {
-            for record in await fetchNamedRecords(missingExtra3.map { "extra3-\($0)" }) {
+        for slot in 1...ItemPhotos.maxExtraSlots {
+            let prefix = ItemPhotos.recordPrefix(slot: slot)
+            let missing = fetchedListIDs.filter { found["\(prefix)\($0)"] == nil }
+            guard !missing.isEmpty else { continue }
+            for record in await fetchNamedRecords(missing.map { "\(prefix)\($0)" }) {
                 found[record.recordID.recordName] = record
             }
         }
@@ -1817,7 +1863,11 @@ final class CloudSync {
         let listItems = found.values.filter { recordKind($0) == .listItem }.count
         lastPullCatalogCount = listedIDs.count
         lastPullFetchedCount = listItems
-        return (Array(found.values), catalogComplete || !listedIDs.isEmpty)
+        // Only treat the catalog as complete when every listed id was fetched.
+        // A non-empty catalog with large gaps used to trigger cleanup as if we
+        // had everything — partners then looked like items "never synced".
+        let coverageOK = listedIDs.isEmpty || stillMissing.isEmpty
+        return (Array(found.values), coverageOK)
     }
 
     /// For Force sync diagnostics — false when Production pairID query failed.
@@ -1970,30 +2020,32 @@ final class CloudSync {
     private func fetchNamedRecords(_ names: [String]) async -> [CKRecord] {
         var records: [CKRecord] = []
         var got = Set<String>()
-        let ids = names.map { CKRecord.ID(recordName: $0) }
+        let uniqueNames = Array(Set(names.filter { !$0.isEmpty }))
+        let ids = uniqueNames.map { CKRecord.ID(recordName: $0) }
         var start = 0
         while start < ids.count {
             let end = min(start + 50, ids.count)
-            let batch = Array(ids[start..<end])
-            if let result = try? await database.records(for: batch) {
-                for id in batch {
-                    if let record = try? result[id]?.get(),
-                       got.insert(id.recordName).inserted {
-                        records.append(record)
-                    }
+            var pending = Array(ids[start..<end])
+            // Up to 3 tries per batch — whole-batch `try?` used to swallow
+            // rate limits and leave partners missing random catalog rows.
+            for attempt in 0..<3 where !pending.isEmpty {
+                if attempt > 0 {
+                    try? await Task.sleep(nanoseconds: UInt64(250_000_000 * attempt))
                 }
-            }
-            let miss = batch.filter { !got.contains($0.recordName) }
-            if !miss.isEmpty {
-                try? await Task.sleep(nanoseconds: 200_000_000)
-                if let result = try? await database.records(for: miss) {
-                    for id in miss {
-                        if let record = try? result[id]?.get(),
-                           got.insert(id.recordName).inserted {
+                guard let result = try? await database.records(for: pending) else {
+                    continue
+                }
+                var still: [CKRecord.ID] = []
+                for id in pending {
+                    if let record = try? result[id]?.get() {
+                        if got.insert(id.recordName).inserted {
                             records.append(record)
                         }
+                    } else {
+                        still.append(id)
                     }
                 }
+                pending = still
             }
             start = end
         }
@@ -2010,10 +2062,8 @@ final class CloudSync {
         } else {
             return
         }
-        // Never re-tag another list onto the open pair's CloudKit records.
-        if let active = PairSession.shared.pairID, pairID != active {
-            return
-        }
+        // Upload for this item's pair even if the user switched lists before the
+        // enqueued save ran. Never rewrite pairID onto a different active pair.
         let recordID = CKRecord.ID(recordName: "item-\(item.id.uuidString)")
         if DeletedItemLedger.contains(pairID: pairID, id: item.id.uuidString) {
             return
@@ -2063,7 +2113,7 @@ final class CloudSync {
             if notifyKind.isEmpty, shouldSkipCatchupPush(item, existing: existing) {
                 // Still publish a local bottom photo that never made it to iCloud
                 // (older builds dropped those uploads), without rewriting newer fields.
-                if item.hasExtraPhoto || item.hasExtraPhoto2 || item.hasExtraPhoto3 {
+                if item.hasAnyExtraPhotos {
                     await saveCompanionPhotos(for: item, pairID: pairID)
                 }
                 return
@@ -2129,43 +2179,18 @@ final class CloudSync {
 
     /// Extra photos sync through companion TDItem rows that reuse the known
     /// `image` asset field, so Production CloudKit does not need new image fields.
-    private func extraRecordID(for itemID: UUID) -> CKRecord.ID {
-        CKRecord.ID(recordName: "extra-\(itemID.uuidString)")
-    }
-
-    private func extra2RecordID(for itemID: UUID) -> CKRecord.ID {
-        CKRecord.ID(recordName: "extra2-\(itemID.uuidString)")
-    }
-
-    private func extra3RecordID(for itemID: UUID) -> CKRecord.ID {
-        CKRecord.ID(recordName: "extra3-\(itemID.uuidString)")
-    }
-
     private func saveCompanionPhotos(for item: TodoItem, pairID: String) async {
-        await saveCompanionPhoto(
-            data: item.extraImageData,
-            recordID: extraRecordID(for: item.id),
-            item: item,
-            pairID: pairID,
-            sortOrder: -1,
-            fileSuffix: "extra"
-        )
-        await saveCompanionPhoto(
-            data: item.extraImageData2,
-            recordID: extra2RecordID(for: item.id),
-            item: item,
-            pairID: pairID,
-            sortOrder: -2,
-            fileSuffix: "extra2"
-        )
-        await saveCompanionPhoto(
-            data: item.extraImageData3,
-            recordID: extra3RecordID(for: item.id),
-            item: item,
-            pairID: pairID,
-            sortOrder: -3,
-            fileSuffix: "extra3"
-        )
+        for slot in 1...ItemPhotos.maxExtraSlots {
+            let suffix = slot == 1 ? "extra" : "extra\(slot)"
+            await saveCompanionPhoto(
+                data: item.extraSlotData(slot),
+                recordID: CKRecord.ID(recordName: ItemPhotos.recordName(slot: slot, itemID: item.id)),
+                item: item,
+                pairID: pairID,
+                sortOrder: -slot,
+                fileSuffix: suffix
+            )
+        }
     }
 
     private func saveCompanionPhoto(
@@ -2205,6 +2230,7 @@ final class CloudSync {
     }
 
     private func applyExtraPhoto(_ record: CKRecord, to item: TodoItem) {
+        guard let slot = RemoteItemApply.extraSlot(recordName: record.recordID.recordName) else { return }
         if let asset = record["image"] as? CKAsset, let url = asset.fileURL,
            let data = try? Data(contentsOf: url), !data.isEmpty, data.count < 8_000_000 {
             let remoteUpdated = record["updatedAt"] as? Date
@@ -2213,19 +2239,8 @@ final class CloudSync {
             let localUpdated = item.updatedAt ?? item.createdAt
             // Never clobber a newer local bottom photo with a stale companion.
             let remoteMayOverwrite = remoteUpdated > localUpdated
-            switch RemoteItemApply.extraSlot(recordName: record.recordID.recordName) {
-            case 3:
-                if item.extraImageData3 == nil || remoteMayOverwrite {
-                    item.extraImageData3 = data
-                }
-            case 2:
-                if item.extraImageData2 == nil || remoteMayOverwrite {
-                    item.extraImageData2 = data
-                }
-            default:
-                if item.extraImageData == nil || remoteMayOverwrite {
-                    item.extraImageData = data
-                }
+            if item.extraSlotData(slot) == nil || remoteMayOverwrite {
+                item.setExtraSlotData(slot, data)
             }
         }
     }
@@ -2276,6 +2291,13 @@ final class CloudSync {
             localTitle: item.title,
             remoteTitle: existing["title"] as? String
         ) {
+            return false
+        }
+        // Local photos that never made it up must still push — skipping left
+        // partners with text-only / missing tiles.
+        let remoteHasPhoto = (existing["image"] as? CKAsset) != nil
+            || (existing["image2"] as? CKAsset) != nil
+        if item.hasAnyPhotos, !remoteHasPhoto {
             return false
         }
         let remoteUpdated = existing["updatedAt"] as? Date ?? .distantPast

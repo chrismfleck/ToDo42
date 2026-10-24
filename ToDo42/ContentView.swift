@@ -592,7 +592,8 @@ struct ContentView: View {
             if phase == .active {
                 importSharedDrafts()
                 offerPairRestoreIfNeeded()
-                Task { await refreshFromCloud() }
+                // Fresh pull on foreground — do not coalesce onto a stale busy flag.
+                Task { await refreshFromCloud(coalesce: false) }
                 startSyncPolling()
             } else {
                 syncPollTask?.cancel()
@@ -602,9 +603,16 @@ struct ContentView: View {
         .onChange(of: pairSession.pairID) { _, _ in
             startSyncPolling()
         }
-        .onReceive(NotificationCenter.default.publisher(for: .todo42CloudPush)) { notification in
-            let pushInfo = notification.object as? [AnyHashable: Any]
-            Task { await refreshFromCloud(pushUserInfo: pushInfo) }
+        .onReceive(NotificationCenter.default.publisher(for: .todo42CloudPush)) { _ in
+            // AppDelegate already ran handleRemoteNotification (with record hints).
+            // Re-syncing here raced the in-flight pull and used to drop those hints.
+            Task { @MainActor in
+                seedIfNeeded()
+                repairSampleLinks()
+                if let cat = PairSession.shared.takeRevealCategory() {
+                    selectCategory(cat)
+                }
+            }
         }
         .onChange(of: category) { _, _ in
             reorderDrag = nil
@@ -913,14 +921,17 @@ struct ContentView: View {
         }
     }
 
-    private func refreshFromCloud(pushUserInfo: [AnyHashable: Any]? = nil) async {
+    private func refreshFromCloud(
+        pushUserInfo: [AnyHashable: Any]? = nil,
+        coalesce: Bool = true
+    ) async {
         if let pushUserInfo {
             await CloudSync.shared.handleRemoteNotification(
                 modelContext: modelContext,
                 userInfo: pushUserInfo
             )
         } else {
-            await CloudSync.shared.sync(modelContext: modelContext)
+            await CloudSync.shared.sync(modelContext: modelContext, coalesce: coalesce)
         }
         seedIfNeeded()
         repairSampleLinks()
@@ -1566,6 +1577,7 @@ struct ItemDetailView: View {
     @State private var awaitingReturnFromLink = false
     /// Remounts the page once after an external link so TabView height restores.
     @State private var layoutRefresh = 0
+    @State private var calendarAlertMessage: String?
 
     private var isGuest: Bool { pairSession.role == .deena }
 
@@ -1585,7 +1597,17 @@ struct ItemDetailView: View {
 
                 Spacer()
 
-                if !isEditing, savedURL != nil {
+                Button {
+                    Task { await openInCalendar() }
+                } label: {
+                    Image(systemName: "calendar.badge.plus")
+                        .font(.system(size: 20, weight: .semibold))
+                        .foregroundStyle(Palette.brandBlue(colorScheme))
+                        .frame(width: 32, height: 32)
+                }
+                .accessibilityLabel("Add to Calendar")
+
+                if toolbarURL != nil {
                     Button {
                         openSavedLink()
                     } label: {
@@ -1736,6 +1758,17 @@ struct ItemDetailView: View {
         } message: {
             Text("It will come off this phone and the shared list.")
         }
+        .alert(
+            "Calendar",
+            isPresented: Binding(
+                get: { calendarAlertMessage != nil },
+                set: { if !$0 { calendarAlertMessage = nil } }
+            )
+        ) {
+            Button("OK", role: .cancel) { calendarAlertMessage = nil }
+        } message: {
+            Text(calendarAlertMessage ?? "")
+        }
     }
 
     private var savedURL: URL? {
@@ -1745,8 +1778,41 @@ struct ItemDetailView: View {
             ?? OpenableURL.from(SampleData.matching(title: item.title)?.urlString)
     }
 
+    /// Link for the toolbar — uses the draft while editing so new pastes work before Save.
+    private var toolbarURL: URL? {
+        if isEditing {
+            return OpenableURL.from(draftLink) ?? savedURL
+        }
+        return savedURL
+    }
+
+    private var calendarTitle: String {
+        if isEditing {
+            return draftTitle.trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        return item.title.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private var calendarNotes: String {
+        if isEditing { return draftNotes }
+        return item.notes
+    }
+
+    private var calendarLocation: String? {
+        let locality = item.placeLocality?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        if !locality.isEmpty { return locality }
+        // placeCaption is "City · 12 mi" — use the locality portion when cached.
+        if let caption = placeCaption?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !caption.isEmpty {
+            return caption.split(separator: "·").first.map {
+                String($0).trimmingCharacters(in: .whitespacesAndNewlines)
+            }
+        }
+        return nil
+    }
+
     private func openSavedLink() {
-        guard let url = savedURL else { return }
+        guard let url = toolbarURL else { return }
         UIImpactFeedbackGenerator(style: .medium).impactOccurred()
         if item.urlString == nil || OpenableURL.from(item.urlString)?.absoluteString != url.absoluteString {
             item.urlString = url.absoluteString
@@ -1757,6 +1823,25 @@ struct ItemDetailView: View {
             onOpenLink(url)
         } else {
             OpenableURL.presentInSafari(url)
+        }
+    }
+
+    private func openInCalendar() async {
+        UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+        let title = calendarTitle
+        guard !title.isEmpty else {
+            calendarAlertMessage = "Add a title first, then tap Calendar."
+            return
+        }
+        if let message = await CalendarEventHandoff.present(
+            draft: .init(
+                title: title,
+                notes: calendarNotes,
+                url: toolbarURL,
+                location: calendarLocation
+            )
+        ) {
+            calendarAlertMessage = message
         }
     }
 
@@ -1969,16 +2054,16 @@ struct ItemDetailView: View {
                     }
                 }
             }
-            if item.hasExtraPhoto, let data = item.extraImageData, let image = UIImage(data: data) {
-                stackedBitmap(image, deleteLabel: "Delete photo 2", onDelete: clearExtraPhoto)
+            ForEach(1...ItemPhotos.maxExtraSlots, id: \.self) { slot in
+                if let data = item.extraSlotData(slot), let image = UIImage(data: data) {
+                    stackedBitmap(
+                        image,
+                        deleteLabel: "Delete photo \(slot + 1)",
+                        onDelete: { clearExtraPhoto(slot: slot) }
+                    )
+                }
             }
-            if item.hasExtraPhoto2, let data = item.extraImageData2, let image = UIImage(data: data) {
-                stackedBitmap(image, deleteLabel: "Delete photo 3", onDelete: clearExtraPhoto2)
-            }
-            if item.hasExtraPhoto3, let data = item.extraImageData3, let image = UIImage(data: data) {
-                stackedBitmap(image, deleteLabel: "Delete photo 4", onDelete: clearExtraPhoto3)
-            }
-            if isEditing, item.photoCount < 4 {
+            if isEditing, item.photoCount < ItemPhotos.maxCount {
                 PhotosPicker(selection: $photoItem, matching: .images) {
                     HStack(spacing: 10) {
                         Image(systemName: "photo.badge.plus")
@@ -2044,33 +2129,13 @@ struct ItemDetailView: View {
         guard let data = try? await picked.loadTransferable(type: Data.self),
               let image = UIImage(data: data),
               let jpeg = PhotoJPEG.compressed(image) else { return }
-        if !item.hasPhoto {
-            item.imageData = jpeg
-            item.imageAssetName = nil
-            item.imageURLString = nil
-        } else if !item.hasExtraPhoto {
-            item.extraImageData = jpeg
-        } else if !item.hasExtraPhoto2 {
-            item.extraImageData2 = jpeg
-        } else if !item.hasExtraPhoto3 {
-            item.extraImageData3 = jpeg
-        }
+        guard item.appendPhotoData(jpeg) else { return }
         photoItem = nil
         PairSession.shared.noteLocalEdit(item, kind: "edit")
     }
 
-    private func clearExtraPhoto() {
-        item.extraImageData = nil
-        PairSession.shared.noteLocalEdit(item, kind: "edit")
-    }
-
-    private func clearExtraPhoto2() {
-        item.extraImageData2 = nil
-        PairSession.shared.noteLocalEdit(item, kind: "edit")
-    }
-
-    private func clearExtraPhoto3() {
-        item.extraImageData3 = nil
+    private func clearExtraPhoto(slot: Int) {
+        item.setExtraSlotData(slot, nil)
         PairSession.shared.noteLocalEdit(item, kind: "edit")
     }
 
