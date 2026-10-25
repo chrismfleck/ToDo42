@@ -925,24 +925,36 @@ struct ContentView: View {
         pushUserInfo: [AnyHashable: Any]? = nil,
         coalesce: Bool = true
     ) async {
-        // Pull-to-refresh must finish even if iCloud is slow — otherwise the
-        // spinner freezes the home list (Build 204).
+        // Pull-only + hard 8s UI timeout. Full catch-up push belongs in Force sync;
+        // awaiting it here left both phones spinning on refresh (Build 205).
+        let work = Task { @MainActor in
+            if let pushUserInfo {
+                await CloudSync.shared.handleRemoteNotification(
+                    modelContext: modelContext,
+                    userInfo: pushUserInfo
+                )
+            } else {
+                await CloudSync.shared.sync(
+                    modelContext: modelContext,
+                    coalesce: coalesce,
+                    catchupPush: false
+                )
+            }
+        }
+        let deadline = Task {
+            try? await Task.sleep(nanoseconds: 8_000_000_000)
+        }
         await withTaskGroup(of: Void.self) { group in
-            group.addTask { @MainActor in
-                if let pushUserInfo {
-                    await CloudSync.shared.handleRemoteNotification(
-                        modelContext: modelContext,
-                        userInfo: pushUserInfo
-                    )
-                } else {
-                    await CloudSync.shared.sync(modelContext: modelContext, coalesce: coalesce)
-                }
+            group.addTask {
+                _ = await work.result
             }
             group.addTask {
-                try? await Task.sleep(nanoseconds: 20_000_000_000)
+                _ = await deadline.result
             }
             _ = await group.next()
             group.cancelAll()
+            work.cancel()
+            deadline.cancel()
         }
         seedIfNeeded()
         repairSampleLinks()

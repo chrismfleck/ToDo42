@@ -534,6 +534,10 @@ final class CloudSync {
     /// polls used to `return` after waiting and drop these — partner then missed
     /// brand-new TDItems until a later lucky query hit.
     private var pendingHintRecordNames: Set<String> = []
+    /// Light pull requested while a sync was busy — run once after the queue drains
+    /// instead of making pull-to-refresh await the whole pushAll (UI spinner forever).
+    private var pendingLightPull = false
+    private var syncGeneration = 0
 
     private func enqueueHints(_ ids: [CKRecord.ID]) {
         for id in ids {
@@ -814,16 +818,23 @@ final class CloudSync {
         hintRecordIDs: [CKRecord.ID] = [],
         coalesce: Bool = true,
         preferCatalogFetch: Bool = false,
-        hintFollowUpsRemaining: Int = 1
+        hintFollowUpsRemaining: Int = 1,
+        /// When false (pull-to-refresh / poll), skip `pushAll` so the UI is not
+        /// stuck uploading every item’s photos. Force sync / restore keep true.
+        catchupPush: Bool = true
     ) async {
         guard PairSession.shared.isPaired else { return }
         // Always bank push hints first so a coalesced wait cannot lose them.
         enqueueHints(hintRecordIDs)
         // Background polls coalesce onto the in-flight sync instead of queueing
-        // forever (which froze Force sync / Restore on Build 165). If a push
-        // arrived with record hints while we waited, run one follow-up pull so
-        // the partner still named-fetches the brand-new TDItem.
+        // forever (which froze Force sync / Restore on Build 165).
         if coalesce, isBusySyncing {
+            if !catchupPush {
+                // Light refresh must NOT await the in-flight pushAll — that left
+                // both phones spinning on pull-to-refresh (Build 205).
+                pendingLightPull = true
+                return
+            }
             await operationTail.value
             if !pendingHintRecordNames.isEmpty {
                 await sync(
@@ -831,23 +842,33 @@ final class CloudSync {
                     allowCreate: false,
                     coalesce: false,
                     preferCatalogFetch: preferCatalogFetch,
-                    hintFollowUpsRemaining: 1
+                    hintFollowUpsRemaining: 1,
+                    catchupPush: catchupPush
                 )
             }
             return
         }
+        let generation = syncGeneration + 1
+        syncGeneration = generation
         await enqueue {
             self.isBusySyncing = true
-            defer { self.isBusySyncing = false }
+            defer {
+                if self.syncGeneration == generation {
+                    self.isBusySyncing = false
+                }
+            }
             do {
                 try await self.ensureiCloud()
                 // Refresh push subscriptions every Force sync / first sync so
                 // v6 partner-only alerts replace older “notify both phones” subs.
-                // Also refresh after a successful add window so silent wake stays live.
+                // Skip on light pull — subscribe alone can burn ~10s and freeze refresh.
                 let shouldRefreshSubs = preferCatalogFetch
-                    || self.lastSubscribeAt.map { Date().timeIntervalSince($0) > 600 } ?? true
+                    || (
+                        catchupPush
+                            && self.lastSubscribeAt.map { Date().timeIntervalSince($0) > 600 } ?? true
+                    )
                 if shouldRefreshSubs {
-                    _ = try? await self.withTimeout(seconds: 10) {
+                    _ = try? await self.withTimeout(seconds: 8) {
                         try await self.subscribe()
                     }
                     try? await self.requestNotifications()
@@ -888,7 +909,9 @@ final class CloudSync {
                         in: modelContext,
                         includeUnscoped: false
                     )
-                    try await self.pushAll(afterPull, allowCreate: false)
+                    if catchupPush {
+                        try await self.pushAll(afterPull, allowCreate: false)
+                    }
                     // Re-try brand-new locals that never got an iCloud row (failed first
                     // upload). Does not recreate old partner zombies — only recent
                     // items we authored, and never over a delete tombstone.
@@ -917,7 +940,18 @@ final class CloudSync {
                 allowCreate: false,
                 coalesce: false,
                 preferCatalogFetch: preferCatalogFetch,
-                hintFollowUpsRemaining: hintFollowUpsRemaining - 1
+                hintFollowUpsRemaining: hintFollowUpsRemaining - 1,
+                catchupPush: catchupPush
+            )
+        } else if pendingLightPull {
+            pendingLightPull = false
+            await sync(
+                modelContext: modelContext,
+                allowCreate: false,
+                coalesce: false,
+                preferCatalogFetch: false,
+                hintFollowUpsRemaining: 0,
+                catchupPush: false
             )
         }
     }
@@ -1334,7 +1368,12 @@ final class CloudSync {
            let recordID = note.recordID {
             hintIDs.append(recordID)
         }
-        await sync(modelContext: modelContext, hintRecordIDs: hintIDs)
+        // Push wakes should pull fast — never run a full catch-up pushAll here.
+        await sync(
+            modelContext: modelContext,
+            hintRecordIDs: hintIDs,
+            catchupPush: false
+        )
     }
 
     func inviteText(code: String) -> String {
