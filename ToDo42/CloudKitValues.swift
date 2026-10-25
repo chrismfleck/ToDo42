@@ -392,6 +392,56 @@ enum ListReorder {
     }
 }
 
+/// Home-list order shared by both phones: not-done first, then 2 hearts,
+/// then 1 heart, then most recently created. Done items sink to the bottom
+/// (same heart / recency rules within done). Tie-break on id so both partners
+/// always compute the same sequence after hearts sync.
+enum ListAutoRank {
+    static func heartCount(chrisHearted: Bool, deenaHearted: Bool) -> Int {
+        (chrisHearted ? 1 : 0) + (deenaHearted ? 1 : 0)
+    }
+
+    static func heartCount(_ item: TodoItem) -> Int {
+        heartCount(chrisHearted: item.chrisHearted, deenaHearted: item.deenaHearted)
+    }
+
+    static func compare(_ lhs: TodoItem, _ rhs: TodoItem) -> Bool {
+        if lhs.isDone != rhs.isDone {
+            return !lhs.isDone && rhs.isDone
+        }
+        let leftHearts = heartCount(lhs)
+        let rightHearts = heartCount(rhs)
+        if leftHearts != rightHearts {
+            return leftHearts > rightHearts
+        }
+        if lhs.createdAt != rhs.createdAt {
+            return lhs.createdAt > rhs.createdAt
+        }
+        return lhs.id.uuidString < rhs.id.uuidString
+    }
+
+    static func ranked(_ items: [TodoItem]) -> [TodoItem] {
+        items.sorted(by: compare)
+    }
+
+    /// Writes evenly spaced `sortOrder` values to match `ranked`. Returns whether
+    /// any row changed (so the caller can upload once).
+    @discardableResult
+    static func applySortOrders(_ items: [TodoItem]) -> Bool {
+        let ordered = ranked(items)
+        let orders = ListReorder.rebalanced(ordered.count)
+        var changed = false
+        for (index, item) in ordered.enumerated() {
+            let next = orders[index]
+            if item.sortOrder != next {
+                item.sortOrder = next
+                changed = true
+            }
+        }
+        return changed
+    }
+}
+
 /// Deletes this phone has made. Survives relaunch, and is checked before any
 /// iCloud row is shown again. A partner still on an older build can push a
 /// YouTube item back into the catalog; this list is what keeps it off the screen.

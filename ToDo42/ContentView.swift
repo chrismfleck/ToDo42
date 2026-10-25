@@ -468,14 +468,7 @@ struct ContentView: View {
     }
 
     private var filtered: [TodoItem] {
-        pairScopedItems
-            .filter { $0.belongs(to: category) }
-            .sorted { lhs, rhs in
-                if lhs.sortOrder == rhs.sortOrder {
-                    return lhs.createdAt > rhs.createdAt
-                }
-                return lhs.sortOrder < rhs.sortOrder
-            }
+        ListAutoRank.ranked(pairScopedItems.filter { $0.belongs(to: category) })
     }
 
     private var pagerItems: [TodoItem] {
@@ -613,6 +606,9 @@ struct ContentView: View {
                     selectCategory(cat)
                 }
             }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .todo42AutoOrganize)) { _ in
+            persistAutoOrganizeAndUpload()
         }
         .onChange(of: category) { _, _ in
             reorderDrag = nil
@@ -791,14 +787,22 @@ struct ContentView: View {
     }
 
     private func items(in cat: ItemCategory) -> [TodoItem] {
-        pairScopedItems
-            .filter { $0.belongs(to: cat) }
-            .sorted { lhs, rhs in
-                if lhs.sortOrder == rhs.sortOrder {
-                    return lhs.createdAt > rhs.createdAt
-                }
-                return lhs.sortOrder < rhs.sortOrder
-            }
+        ListAutoRank.ranked(pairScopedItems.filter { $0.belongs(to: cat) })
+    }
+
+    /// Keep CloudKit `sortOrder` aligned with auto-rank after hearts / done change.
+    private func persistAutoOrganizeAndUpload() {
+        guard !PairSession.shared.isApplyingRemote else { return }
+        let all = pairScopedItems
+        guard ListAutoRank.applySortOrders(all) else { return }
+        try? modelContext.save()
+        guard pairSession.isPaired else { return }
+        let ordered = ListAutoRank.ranked(all)
+        guard let moved = ordered.first else { return }
+        PairSession.shared.noteLocalReorder(
+            moved: moved,
+            others: Array(ordered.dropFirst())
+        )
     }
 
     @ViewBuilder
@@ -958,6 +962,11 @@ struct ContentView: View {
         }
         seedIfNeeded()
         repairSampleLinks()
+        // Recompute local order from hearts/done after pull (same rules on both phones).
+        let all = pairScopedItems
+        if ListAutoRank.applySortOrders(all) {
+            try? modelContext.save()
+        }
         if let cat = PairSession.shared.takeRevealCategory() {
             selectCategory(cat)
         }
@@ -1694,6 +1703,7 @@ struct ItemDetailView: View {
             .onChange(of: item.isDone) { _, _ in
                 guard !PairSession.shared.isApplyingRemote else { return }
                 PairSession.shared.noteLocalEdit(item, kind: "edit")
+                NotificationCenter.default.post(name: .todo42AutoOrganize, object: nil)
             }
 
             ScrollView {
@@ -1957,6 +1967,7 @@ struct ItemDetailView: View {
             kind: "heart",
             heartSeat: isPrimarySeat ? .chris : .deena
         )
+        NotificationCenter.default.post(name: .todo42AutoOrganize, object: nil)
     }
 
     @ViewBuilder

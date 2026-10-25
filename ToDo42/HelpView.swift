@@ -81,15 +81,9 @@ struct HelpView: View {
 
                         HelpStep(
                             number: 6,
-                            spoken: "In list view, items can be reordered by tapping the pencil and dragging the hamburger handle up or down. Then tap the check."
+                            spoken: "The home list auto-organizes the same on both phones: two hearts on top, then one heart, then newest items. Done items move to the bottom."
                         ) {
-                            helpText("In list view, items can be reordered by tapping ")
-                            + chrome("pencil.circle")
-                            + helpText(" and dragging ")
-                            + chrome("line.3.horizontal")
-                            + helpText(" up or down. Then tap ")
-                            + chrome("checkmark.circle")
-                            + helpText(".")
+                            helpText("The home list auto-organizes the same on both phones: two hearts on top, then one heart, then newest. Done items move to the bottom.")
                         }
 
                         HelpStep(
