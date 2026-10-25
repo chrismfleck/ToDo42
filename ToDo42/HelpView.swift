@@ -81,24 +81,20 @@ struct HelpView: View {
 
                         HelpStep(
                             number: 6,
-                            spoken: "In list view, items can be reordered by tapping the pencil and dragging the hamburger handle up or down. Then tap the check."
+                            spoken: "The home list auto-organizes the same on both phones: two hearts on top, then one heart, then newest items. Done items move to the bottom."
                         ) {
-                            helpText("In list view, items can be reordered by tapping ")
-                            + chrome("pencil.circle")
-                            + helpText(" and dragging ")
-                            + chrome("line.3.horizontal")
-                            + helpText(" up or down. Then tap ")
-                            + chrome("checkmark.circle")
-                            + helpText(".")
+                            helpText("The home list auto-organizes the same on both phones: two hearts on top, then one heart, then newest. Done items move to the bottom.")
                         }
 
                         HelpStep(
                             number: 7,
-                            spoken: "To edit an item, tap it in the list, then tap the pencil on that page. Details can be edited and the original plus three more photos can be added. Tap your heart so your partner sees you like it. Tap the check when you are done."
+                            spoken: "To edit an item, tap it in the list, then tap the pencil on that page. Details can be edited and up to 10 photos can be added. Tap the calendar icon to create an all-day Calendar event with the title filled in. Tap your heart so your partner sees you like it. Tap the check when you are done."
                         ) {
                             helpText("To edit an item, tap it in the list, then tap ")
                             + chrome("pencil.circle")
-                            + helpText(" on that page. Details can be edited and the original plus three more photos can be added. Tap your heart so your partner sees you like it. Tap ")
+                            + helpText(" on that page. Details can be edited and up to 10 photos can be added. Tap ")
+                            + chrome("calendar.badge.plus")
+                            + helpText(" to create an all-day Calendar event. Tap your heart so your partner sees you like it. Tap ")
                             + chrome("checkmark.circle")
                             + helpText(" when you are done.")
                         }

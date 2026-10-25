@@ -166,6 +166,8 @@ final class TodoItem {
     var extraImageData: Data?
     var extraImageData2: Data? = nil
     var extraImageData3: Data? = nil
+    /// Property-list archive of `[Data]` for extra slots 4…9 (empty `Data` = vacant).
+    var extraImageDataTail: Data? = nil
     var notes: String = ""
     var chrisHearted: Bool = false
     var deenaHearted: Bool = false
@@ -193,6 +195,7 @@ final class TodoItem {
         extraImageData: Data? = nil,
         extraImageData2: Data? = nil,
         extraImageData3: Data? = nil,
+        extraImageDataTail: Data? = nil,
         notes: String = "",
         sortOrder: Int = 0,
         pairID: String? = nil
@@ -207,6 +210,7 @@ final class TodoItem {
         self.extraImageData = extraImageData
         self.extraImageData2 = extraImageData2
         self.extraImageData3 = extraImageData3
+        self.extraImageDataTail = extraImageDataTail
         self.notes = notes
         self.chrisHearted = false
         self.deenaHearted = false
@@ -245,26 +249,135 @@ final class TodoItem {
         return false
     }
 
-    var hasExtraPhoto: Bool {
-        if let data = extraImageData, !data.isEmpty { return true }
-        return false
-    }
-
-    var hasExtraPhoto2: Bool {
-        if let data = extraImageData2, !data.isEmpty { return true }
-        return false
-    }
-
-    var hasExtraPhoto3: Bool {
-        if let data = extraImageData3, !data.isEmpty { return true }
-        return false
-    }
+    var hasExtraPhoto: Bool { extraSlotData(1) != nil }
+    var hasExtraPhoto2: Bool { extraSlotData(2) != nil }
+    var hasExtraPhoto3: Bool { extraSlotData(3) != nil }
 
     var photoCount: Int {
-        (hasPhoto ? 1 : 0) + (hasExtraPhoto ? 1 : 0) + (hasExtraPhoto2 ? 1 : 0) + (hasExtraPhoto3 ? 1 : 0)
+        (hasPhoto ? 1 : 0) + (1...ItemPhotos.maxExtraSlots).filter { extraSlotData($0) != nil }.count
     }
 
     var hasAnyPhotos: Bool { photoCount > 0 }
+
+    var hasAnyExtraPhotos: Bool {
+        (1...ItemPhotos.maxExtraSlots).contains { extraSlotData($0) != nil }
+    }
+
+    /// Non-empty JPEG bytes for companion slot `1…9`, or nil if vacant.
+    func extraSlotData(_ slot: Int) -> Data? {
+        switch slot {
+        case 1:
+            return nonemptyPhoto(extraImageData)
+        case 2:
+            return nonemptyPhoto(extraImageData2)
+        case 3:
+            return nonemptyPhoto(extraImageData3)
+        case 4...ItemPhotos.maxExtraSlots:
+            return nonemptyPhoto(readExtraTail()[slot - 4])
+        default:
+            return nil
+        }
+    }
+
+    func setExtraSlotData(_ slot: Int, _ data: Data?) {
+        let value = nonemptyPhoto(data)
+        switch slot {
+        case 1:
+            extraImageData = value
+        case 2:
+            extraImageData2 = value
+        case 3:
+            extraImageData3 = value
+        case 4...ItemPhotos.maxExtraSlots:
+            var tail = readExtraTail()
+            let index = slot - 4
+            guard tail.indices.contains(index) else { return }
+            tail[index] = value ?? Data()
+            writeExtraTail(tail)
+        default:
+            break
+        }
+    }
+
+    /// First vacant photo slot: primary (0) or extra `1…9`. Nil when full.
+    func firstOpenPhotoSlot() -> Int? {
+        if !hasPhoto { return 0 }
+        for slot in 1...ItemPhotos.maxExtraSlots {
+            if extraSlotData(slot) == nil { return slot }
+        }
+        return nil
+    }
+
+    /// Appends into the next open slot. If the item already has
+    /// `ItemPhotos.maxCount` photos, the new image is ignored (no replace, no error).
+    @discardableResult
+    func appendPhotoData(_ data: Data) -> Bool {
+        guard let jpeg = nonemptyPhoto(data) else { return false }
+        // At cap — drop the most recent pick instead of failing or hanging.
+        guard photoCount < ItemPhotos.maxCount,
+              let slot = firstOpenPhotoSlot() else { return false }
+        if slot == 0 {
+            imageData = jpeg
+            imageAssetName = nil
+            imageURLString = nil
+        } else {
+            setExtraSlotData(slot, jpeg)
+        }
+        return true
+    }
+
+    func clearPhotoAtDisplayIndex(_ index: Int) {
+        // 0 = primary; 1… = extras in slot order.
+        if index == 0 {
+            imageData = nil
+            imageAssetName = nil
+            imageURLString = nil
+            return
+        }
+        setExtraSlotData(index, nil)
+    }
+
+    /// Copy any missing extra slots from another local twin (dedupe / merge).
+    func absorbMissingExtraPhotos(from other: TodoItem) {
+        for slot in 1...ItemPhotos.maxExtraSlots {
+            if extraSlotData(slot) == nil, let data = other.extraSlotData(slot) {
+                setExtraSlotData(slot, data)
+            }
+        }
+    }
+
+    private func nonemptyPhoto(_ data: Data?) -> Data? {
+        guard let data, !data.isEmpty else { return nil }
+        return data
+    }
+
+    private func readExtraTail() -> [Data] {
+        let count = ItemPhotos.maxExtraSlots - 3
+        guard count > 0 else { return [] }
+        if let blob = extraImageDataTail,
+           let decoded = try? PropertyListDecoder().decode([Data].self, from: blob) {
+            if decoded.count >= count {
+                return Array(decoded.prefix(count))
+            }
+            return decoded + Array(repeating: Data(), count: count - decoded.count)
+        }
+        return Array(repeating: Data(), count: count)
+    }
+
+    private func writeExtraTail(_ slots: [Data]) {
+        let count = ItemPhotos.maxExtraSlots - 3
+        let padded: [Data]
+        if slots.count >= count {
+            padded = Array(slots.prefix(count))
+        } else {
+            padded = slots + Array(repeating: Data(), count: count - slots.count)
+        }
+        if padded.allSatisfy(\.isEmpty) {
+            extraImageDataTail = nil
+        } else {
+            extraImageDataTail = try? PropertyListEncoder().encode(padded)
+        }
+    }
 }
 
 enum ItemStore {
@@ -346,15 +459,7 @@ enum ItemStore {
                 if keep.imageData == nil, let data = extra.imageData, !data.isEmpty {
                     keep.imageData = data
                 }
-                if keep.extraImageData == nil, let data = extra.extraImageData, !data.isEmpty {
-                    keep.extraImageData = data
-                }
-                if keep.extraImageData2 == nil, let data = extra.extraImageData2, !data.isEmpty {
-                    keep.extraImageData2 = data
-                }
-                if keep.extraImageData3 == nil, let data = extra.extraImageData3, !data.isEmpty {
-                    keep.extraImageData3 = data
-                }
+                keep.absorbMissingExtraPhotos(from: extra)
                 if keep.notes.isEmpty, !extra.notes.isEmpty {
                     keep.notes = extra.notes
                 }
@@ -430,15 +535,7 @@ enum ItemStore {
             if keep.imageData == nil, let data = extra.imageData, data.isEmpty == false {
                 keep.imageData = data
             }
-            if keep.extraImageData == nil, let data = extra.extraImageData, data.isEmpty == false {
-                keep.extraImageData = data
-            }
-            if keep.extraImageData2 == nil, let data = extra.extraImageData2, data.isEmpty == false {
-                keep.extraImageData2 = data
-            }
-            if keep.extraImageData3 == nil, let data = extra.extraImageData3, data.isEmpty == false {
-                keep.extraImageData3 = data
-            }
+            keep.absorbMissingExtraPhotos(from: extra)
             context.delete(extra)
         }
         try? context.save()
@@ -471,15 +568,7 @@ enum ItemStore {
                 if keep.imageData == nil, let data = extra.imageData, data.isEmpty == false {
                     keep.imageData = data
                 }
-                if keep.extraImageData == nil, let data = extra.extraImageData, data.isEmpty == false {
-                    keep.extraImageData = data
-                }
-                if keep.extraImageData2 == nil, let data = extra.extraImageData2, data.isEmpty == false {
-                    keep.extraImageData2 = data
-                }
-                if keep.extraImageData3 == nil, let data = extra.extraImageData3, data.isEmpty == false {
-                    keep.extraImageData3 = data
-                }
+                keep.absorbMissingExtraPhotos(from: extra)
                 if keep.imageAssetName == nil || keep.imageAssetName?.isEmpty == true,
                    let name = extra.imageAssetName, name.isEmpty == false {
                     keep.imageAssetName = name

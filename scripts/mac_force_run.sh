@@ -1,5 +1,5 @@
 #!/bin/bash
-# Sync this checkout to BRANCH (default: App Store bump 1.0.6 / Build 201),
+# Sync this checkout to BRANCH (default: sync reliability + 10 photos / Build 209),
 # close Xcode, open the right project.
 # After git reset, the script re-execs itself so stamp checks always match the
 # newly pulled files (hard-coded 176 vs 177 used to fail mid-run).
@@ -8,7 +8,7 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
 # Override with: BRANCH=cursor/some-branch-ac25 bash scripts/mac_force_run.sh
-BRANCH="${BRANCH:-cursor/bump-1-0-6-ac25}"
+BRANCH="${BRANCH:-cursor/sync-reliability-ac25}"
 
 if [[ "${1:-}" != "--after-sync" ]]; then
   echo "=============================================="
