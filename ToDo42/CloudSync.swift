@@ -2216,9 +2216,12 @@ final class CloudSync {
                 fileSuffix: suffix
             )
         }
-        if highestFilled > 0 {
-            for slot in (syncThrough + 1)...ItemPhotos.maxExtraSlots {
-                try? await database.deleteRecord(
+        // Clear orphaned higher slots only when there is a gap below max.
+        // `(syncThrough+1)...max` traps when syncThrough == maxExtraSlots (full 10 photos).
+        let clearFrom = syncThrough + 1
+        if highestFilled > 0, clearFrom <= ItemPhotos.maxExtraSlots {
+            for slot in clearFrom...ItemPhotos.maxExtraSlots {
+                _ = try? await database.deleteRecord(
                     withID: CKRecord.ID(recordName: ItemPhotos.recordName(slot: slot, itemID: item.id))
                 )
             }
