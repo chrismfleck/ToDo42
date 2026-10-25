@@ -925,13 +925,24 @@ struct ContentView: View {
         pushUserInfo: [AnyHashable: Any]? = nil,
         coalesce: Bool = true
     ) async {
-        if let pushUserInfo {
-            await CloudSync.shared.handleRemoteNotification(
-                modelContext: modelContext,
-                userInfo: pushUserInfo
-            )
-        } else {
-            await CloudSync.shared.sync(modelContext: modelContext, coalesce: coalesce)
+        // Pull-to-refresh must finish even if iCloud is slow — otherwise the
+        // spinner freezes the home list (Build 204).
+        await withTaskGroup(of: Void.self) { group in
+            group.addTask { @MainActor in
+                if let pushUserInfo {
+                    await CloudSync.shared.handleRemoteNotification(
+                        modelContext: modelContext,
+                        userInfo: pushUserInfo
+                    )
+                } else {
+                    await CloudSync.shared.sync(modelContext: modelContext, coalesce: coalesce)
+                }
+            }
+            group.addTask {
+                try? await Task.sleep(nanoseconds: 20_000_000_000)
+            }
+            _ = await group.next()
+            group.cancelAll()
         }
         seedIfNeeded()
         repairSampleLinks()

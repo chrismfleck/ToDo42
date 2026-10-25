@@ -813,7 +813,8 @@ final class CloudSync {
         allowCreate: Bool = false,
         hintRecordIDs: [CKRecord.ID] = [],
         coalesce: Bool = true,
-        preferCatalogFetch: Bool = false
+        preferCatalogFetch: Bool = false,
+        hintFollowUpsRemaining: Int = 1
     ) async {
         guard PairSession.shared.isPaired else { return }
         // Always bank push hints first so a coalesced wait cannot lose them.
@@ -827,9 +828,10 @@ final class CloudSync {
             if !pendingHintRecordNames.isEmpty {
                 await sync(
                     modelContext: modelContext,
-                    allowCreate: allowCreate,
+                    allowCreate: false,
                     coalesce: false,
-                    preferCatalogFetch: preferCatalogFetch
+                    preferCatalogFetch: preferCatalogFetch,
+                    hintFollowUpsRemaining: 1
                 )
             }
             return
@@ -907,13 +909,15 @@ final class CloudSync {
                 PairSession.shared.statusMessage = Self.friendlyMessage(error)
             }
         }
-        // Hints that landed during this sync still need a dedicated named fetch.
-        if !pendingHintRecordNames.isEmpty {
+        // At most one follow-up for hints that landed mid-sync — chaining every
+        // push during a long pull froze pull-to-refresh on Build 204.
+        if !pendingHintRecordNames.isEmpty, hintFollowUpsRemaining > 0 {
             await sync(
                 modelContext: modelContext,
                 allowCreate: false,
                 coalesce: false,
-                preferCatalogFetch: preferCatalogFetch
+                preferCatalogFetch: preferCatalogFetch,
+                hintFollowUpsRemaining: hintFollowUpsRemaining - 1
             )
         }
     }
@@ -1834,25 +1838,34 @@ final class CloudSync {
                 found[record.recordID.recordName] = record
             }
         }
-        // Retry every still-missing catalog id (CloudKit eventually consistent
-        // after a partner save). The old ≤80 gate left large gaps undownloaded.
+        // One short retry for catalog ids still missing (index lag). Build 204
+        // ran 3 full rounds and froze pull-to-refresh on large lists.
         var stillMissing = listedIDs.filter { found["item-\($0)"] == nil }
-        for round in 0..<3 where !stillMissing.isEmpty {
-            try? await Task.sleep(nanoseconds: UInt64(300_000_000 * (round + 1)))
+        if !stillMissing.isEmpty, stillMissing.count <= 120 {
+            try? await Task.sleep(nanoseconds: 250_000_000)
             for record in await fetchNamedRecords(stillMissing.map { "item-\($0)" }) {
                 found[record.recordID.recordName] = record
             }
             stillMissing = listedIDs.filter { found["item-\($0)"] == nil }
         }
-        // Extra photos only for list items we actually downloaded — fetching
-        // extras for every catalog id made Force sync crawl for minutes.
+        // Extra photos only for list items we actually downloaded. Probe slot N+1
+        // only when slot N exists — fetching empty extra4…extra9 for every item
+        // (× 3 retries) froze the app on Build 204.
         let fetchedListIDs = found.values.compactMap { record -> String? in
             guard recordKind(record) == .listItem else { return nil }
             return record["itemID"] as? String
         }
         for slot in 1...ItemPhotos.maxExtraSlots {
             let prefix = ItemPhotos.recordPrefix(slot: slot)
-            let missing = fetchedListIDs.filter { found["\(prefix)\($0)"] == nil }
+            let candidates: [String]
+            if slot == 1 {
+                candidates = fetchedListIDs
+            } else {
+                let prev = ItemPhotos.recordPrefix(slot: slot - 1)
+                candidates = fetchedListIDs.filter { found["\(prev)\($0)"] != nil }
+            }
+            guard !candidates.isEmpty else { break }
+            let missing = candidates.filter { found["\(prefix)\($0)"] == nil }
             guard !missing.isEmpty else { continue }
             for record in await fetchNamedRecords(missing.map { "\(prefix)\($0)" }) {
                 found[record.recordID.recordName] = record
@@ -2026,22 +2039,28 @@ final class CloudSync {
         while start < ids.count {
             let end = min(start + 50, ids.count)
             var pending = Array(ids[start..<end])
-            // Up to 3 tries per batch — whole-batch `try?` used to swallow
-            // rate limits and leave partners missing random catalog rows.
+            // Retry only transient failures. unknownItem is permanent (empty
+            // photo slots) — retrying those ×3 per pull froze Build 204.
             for attempt in 0..<3 where !pending.isEmpty {
                 if attempt > 0 {
-                    try? await Task.sleep(nanoseconds: UInt64(250_000_000 * attempt))
+                    try? await Task.sleep(nanoseconds: UInt64(200_000_000 * attempt))
                 }
                 guard let result = try? await database.records(for: pending) else {
                     continue
                 }
                 var still: [CKRecord.ID] = []
                 for id in pending {
-                    if let record = try? result[id]?.get() {
+                    switch result[id] {
+                    case .success(let record):
                         if got.insert(id.recordName).inserted {
                             records.append(record)
                         }
-                    } else {
+                    case .failure(let error):
+                        if let ck = error as? CKError, ck.code == .unknownItem {
+                            continue
+                        }
+                        still.append(id)
+                    case .none:
                         still.append(id)
                     }
                 }
@@ -2180,7 +2199,13 @@ final class CloudSync {
     /// Extra photos sync through companion TDItem rows that reuse the known
     /// `image` asset field, so Production CloudKit does not need new image fields.
     private func saveCompanionPhotos(for item: TodoItem, pairID: String) async {
-        for slot in 1...ItemPhotos.maxExtraSlots {
+        let highestFilled = (1...ItemPhotos.maxExtraSlots)
+            .reversed()
+            .first { item.extraSlotData($0) != nil } ?? 0
+        // Always maintain slots 1…3 (legacy). Higher slots only up through the
+        // highest filled — avoid 6 empty deletes on every heart/edit.
+        let syncThrough = max(highestFilled, 3)
+        for slot in 1...syncThrough {
             let suffix = slot == 1 ? "extra" : "extra\(slot)"
             await saveCompanionPhoto(
                 data: item.extraSlotData(slot),
@@ -2190,6 +2215,13 @@ final class CloudSync {
                 sortOrder: -slot,
                 fileSuffix: suffix
             )
+        }
+        if highestFilled > 0 {
+            for slot in (syncThrough + 1)...ItemPhotos.maxExtraSlots {
+                try? await database.deleteRecord(
+                    withID: CKRecord.ID(recordName: ItemPhotos.recordName(slot: slot, itemID: item.id))
+                )
+            }
         }
     }
 
