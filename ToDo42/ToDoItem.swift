@@ -308,10 +308,14 @@ final class TodoItem {
         return nil
     }
 
+    /// Appends into the next open slot. If the item already has
+    /// `ItemPhotos.maxCount` photos, the new image is ignored (no replace, no error).
     @discardableResult
     func appendPhotoData(_ data: Data) -> Bool {
         guard let jpeg = nonemptyPhoto(data) else { return false }
-        guard let slot = firstOpenPhotoSlot() else { return false }
+        // At cap — drop the most recent pick instead of failing or hanging.
+        guard photoCount < ItemPhotos.maxCount,
+              let slot = firstOpenPhotoSlot() else { return false }
         if slot == 0 {
             imageData = jpeg
             imageAssetName = nil

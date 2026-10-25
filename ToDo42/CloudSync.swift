@@ -2304,7 +2304,8 @@ final class CloudSync {
     }
 
     private func applyExtraPhoto(_ record: CKRecord, to item: TodoItem) {
-        guard let slot = RemoteItemApply.extraSlot(recordName: record.recordID.recordName) else { return }
+        guard let slot = RemoteItemApply.extraSlot(recordName: record.recordID.recordName),
+              (1...ItemPhotos.maxExtraSlots).contains(slot) else { return }
         if let asset = record["image"] as? CKAsset, let url = asset.fileURL,
            let data = try? Data(contentsOf: url), !data.isEmpty, data.count < 8_000_000 {
             let remoteUpdated = record["updatedAt"] as? Date
@@ -2313,6 +2314,11 @@ final class CloudSync {
             let localUpdated = item.updatedAt ?? item.createdAt
             // Never clobber a newer local bottom photo with a stale companion.
             let remoteMayOverwrite = remoteUpdated > localUpdated
+            // New remote slot while already at 10 local photos — ignore the newest.
+            if item.extraSlotData(slot) == nil,
+               item.photoCount >= ItemPhotos.maxCount {
+                return
+            }
             if item.extraSlotData(slot) == nil || remoteMayOverwrite {
                 item.setExtraSlotData(slot, data)
             }

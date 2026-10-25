@@ -2148,12 +2148,17 @@ struct ItemDetailView: View {
         guard let picked else { return }
         guard !isApplyingPhoto else { return }
         isApplyingPhoto = true
-        defer { isApplyingPhoto = false }
+        defer {
+            isApplyingPhoto = false
+            // Always clear the picker — including when at the 10-photo cap — so a
+            // rejected pick cannot re-fire and hang the edit page.
+            photoItem = nil
+        }
+        guard item.photoCount < ItemPhotos.maxCount else { return }
         guard let data = try? await picked.loadTransferable(type: Data.self),
               let image = UIImage(data: data),
               let jpeg = PhotoJPEG.compressed(image) else { return }
         guard item.appendPhotoData(jpeg) else { return }
-        photoItem = nil
         PairSession.shared.noteLocalEdit(item, kind: "edit")
     }
 
