@@ -368,6 +368,66 @@ enum RemoteItemApply {
         if !editor.isEmpty, editor != mine { return true }
         return remoteUpdated >= localUpdated
     }
+
+    /// `notifyKind` stays `"reorder"` on the CloudKit row until a later save
+    /// replaces it. Every poll re-reads that same row. Banner only when this
+    /// save actually moved the item — a heart, photo, or catch-up that left
+    /// the old flag in place is not a reorder.
+    static func shouldAnnounceReorder(notifyKind: String?, sortChanged: Bool) -> Bool {
+        guard sortChanged else { return false }
+        return (notifyKind ?? "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased() == "reorder"
+    }
+}
+
+/// One local banner per CloudKit save. Polls (and a pull that both merges
+/// content and sort) re-read the same record; `recordChangeTag` identifies
+/// that save. Auto-rank writes `rank` and must stay silent.
+enum PartnerNotice {
+    static func banners(kind: String) -> Bool {
+        switch kind.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
+        case "", "rank":
+            return false
+        default:
+            return true
+        }
+    }
+
+    static func eventKey(recordName: String, changeTag: String?, updatedAt: Date?, kind: String) -> String {
+        let kindNorm = kind.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        let tag = (changeTag ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        let stamp: String
+        if !tag.isEmpty {
+            stamp = "tag:\(tag)"
+        } else if let updatedAt {
+            let ms = Int64((updatedAt.timeIntervalSince1970 * 1000).rounded())
+            stamp = "t:\(ms)"
+        } else {
+            stamp = "t:0"
+        }
+        return "\(recordName)|\(stamp)|\(kindNorm)"
+    }
+
+    struct Log {
+        private(set) var keys: [String]
+        let cap: Int
+
+        init(keys: [String] = [], cap: Int = 300) {
+            self.cap = max(cap, 1)
+            self.keys = Array(keys.suffix(self.cap))
+        }
+
+        /// True the first time `key` is seen.
+        mutating func shouldPost(_ key: String) -> Bool {
+            if keys.contains(key) { return false }
+            keys.append(key)
+            if keys.count > cap {
+                keys.removeFirst(keys.count - cap)
+            }
+            return true
+        }
+    }
 }
 
 enum ListReorder {
@@ -425,7 +485,13 @@ enum ListAutoRank {
     }
 
     /// Writes evenly spaced `sortOrder` values to match `ranked`. Returns whether
-    /// any row changed (so the caller can upload once).
+    /// any row changed.
+    ///
+    /// Do not call this after a pull, and do not upload the result as
+    /// `notifyKind=reorder`. The home list already ranks from hearts / done /
+    /// created date. Rewriting `sortOrder` away from the CloudKit value makes
+    /// the next poll look like a brand-new reorder — that banner then repeats
+    /// forever, because `notifyKind` stays `"reorder"` on the row.
     @discardableResult
     static func applySortOrders(_ items: [TodoItem]) -> Bool {
         let ordered = ranked(items)

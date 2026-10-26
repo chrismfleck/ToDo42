@@ -607,9 +607,6 @@ struct ContentView: View {
                 }
             }
         }
-        .onReceive(NotificationCenter.default.publisher(for: .todo42AutoOrganize)) { _ in
-            persistAutoOrganizeAndUpload()
-        }
         .onChange(of: category) { _, _ in
             reorderDrag = nil
         }
@@ -790,21 +787,6 @@ struct ContentView: View {
         ListAutoRank.ranked(pairScopedItems.filter { $0.belongs(to: cat) })
     }
 
-    /// Keep CloudKit `sortOrder` aligned with auto-rank after hearts / done change.
-    private func persistAutoOrganizeAndUpload() {
-        guard !PairSession.shared.isApplyingRemote else { return }
-        let all = pairScopedItems
-        guard ListAutoRank.applySortOrders(all) else { return }
-        try? modelContext.save()
-        guard pairSession.isPaired else { return }
-        let ordered = ListAutoRank.ranked(all)
-        guard let moved = ordered.first else { return }
-        PairSession.shared.noteLocalReorder(
-            moved: moved,
-            others: Array(ordered.dropFirst())
-        )
-    }
-
     @ViewBuilder
     private func itemList(for cat: ItemCategory) -> some View {
         let rows = items(in: cat)
@@ -962,11 +944,9 @@ struct ContentView: View {
         }
         seedIfNeeded()
         repairSampleLinks()
-        // Recompute local order from hearts/done after pull (same rules on both phones).
-        let all = pairScopedItems
-        if ListAutoRank.applySortOrders(all) {
-            try? modelContext.save()
-        }
+        // Leave CloudKit sortOrder as pulled. The list ranks from hearts, done,
+        // and created date. Rewriting sortOrder here made the next poll apply
+        // the same reorder row again and banner "reordered the list".
         if let cat = PairSession.shared.takeRevealCategory() {
             selectCategory(cat)
         }
@@ -1703,7 +1683,6 @@ struct ItemDetailView: View {
             .onChange(of: item.isDone) { _, _ in
                 guard !PairSession.shared.isApplyingRemote else { return }
                 PairSession.shared.noteLocalEdit(item, kind: "edit")
-                NotificationCenter.default.post(name: .todo42AutoOrganize, object: nil)
             }
 
             ScrollView {
@@ -1967,7 +1946,6 @@ struct ItemDetailView: View {
             kind: "heart",
             heartSeat: isPrimarySeat ? .chris : .deena
         )
-        NotificationCenter.default.post(name: .todo42AutoOrganize, object: nil)
     }
 
     @ViewBuilder
