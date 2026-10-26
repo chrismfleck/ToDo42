@@ -83,7 +83,6 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
 
 extension Notification.Name {
     static let todo42CloudPush = Notification.Name("todo42CloudPush")
-    static let todo42AutoOrganize = Notification.Name("todo42AutoOrganize")
 }
 
 private struct PaletteHost: View {

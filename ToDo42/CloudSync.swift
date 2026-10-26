@@ -526,6 +526,12 @@ final class CloudSync {
     private var database: CKDatabase { container.publicCloudDatabase }
 
     private var operationTail: Task<Void, Never> = Task {}
+    /// CloudKit saves we already turned into a local banner. Polls re-fetch the
+    /// same reorder row every few seconds; without this, one drag (or a stale
+    /// `notifyKind`) banners "reordered the list" until the flag is replaced.
+    private var noticeLog = PartnerNotice.Log()
+    private var noticeLogLoaded = false
+    private static let noticeLogKey = "todo42.partnerNotice.v1"
     /// True while a sync body is running. Polling skips when set so Force sync
     /// is not stuck behind an endless queue of 2s refreshes.
     private(set) var isBusySyncing = false
@@ -1525,6 +1531,8 @@ final class CloudSync {
                 }
                 let remoteChris = CloudKitValues.flag(record["chrisHearted"])
                 let remoteDeena = CloudKitValues.flag(record["deenaHearted"])
+                let remoteSortValue = CloudKitValues.intValue(record["sortOrder"])
+                let sortChanged = remoteSortValue.map { $0 != local.sortOrder } ?? false
                 let justHearted = PartnerHeartMerge.partnerJustHearted(
                     myRole: session.role,
                     localChris: local.chrisHearted,
@@ -1549,9 +1557,9 @@ final class CloudSync {
                     remoteTitle: record["title"] as? String
                 ) {
                     apply(record, to: local, hearts: false)
-                    notifyUpdate(record, heartChanged: justHearted)
+                    notifyUpdate(record, heartChanged: justHearted, sortChanged: sortChanged)
                 } else if justHearted {
-                    notifyUpdate(record, heartChanged: true)
+                    notifyUpdate(record, heartChanged: true, sortChanged: false)
                 }
                 // Apply order on its own path. Content merge used to run as an
                 // if/else with sort, so a title/heart skip blocked reorders.
@@ -1569,8 +1577,8 @@ final class CloudSync {
                         local.updatedAt = remoteUpdated
                     }
                     local.lastEditor = record["lastEditor"] as? String ?? local.lastEditor
-                    if (notifyKind ?? "").lowercased() == "reorder" {
-                        notifyUpdate(record, heartChanged: false)
+                    if RemoteItemApply.shouldAnnounceReorder(notifyKind: notifyKind, sortChanged: true) {
+                        notifyUpdate(record, heartChanged: false, sortChanged: true)
                     }
                 }
             } else {
@@ -2606,7 +2614,7 @@ final class CloudSync {
         guard editor != PairSession.shared.role?.rawValue else { return }
         let who = PairSession.shared.displayName(forEditor: editor)
         let title = record["title"] as? String ?? "an item"
-        postNotice(title: "\(who) removed an item", body: title)
+        announce(record, kind: "delete", title: "\(who) removed an item", body: title)
     }
 
     private func notifyNew(_ record: CKRecord) {
@@ -2615,38 +2623,63 @@ final class CloudSync {
         guard editor != PairSession.shared.role?.rawValue else { return }
         let who = PairSession.shared.displayName(forEditor: editor)
         let title = record["title"] as? String ?? "an item"
-        postNotice(title: "\(who) added an item", body: title)
+        announce(record, kind: "add", title: "\(who) added an item", body: title)
     }
 
-    private func notifyUpdate(_ record: CKRecord, heartChanged: Bool) {
+    private func notifyUpdate(_ record: CKRecord, heartChanged: Bool, sortChanged: Bool) {
         let title = record["title"] as? String ?? "an item"
         if heartChanged {
             let who = PairSession.shared.partnerHeartLabel
-            postNotice(title: "\(who) hearted an item", body: title)
+            announce(record, kind: "heart", title: "\(who) hearted an item", body: title)
             return
         }
         let editor = record["lastEditor"] as? String ?? ""
         guard editor != PairSession.shared.role?.rawValue else { return }
         let who = PairSession.shared.displayName(forEditor: editor)
-        let kind = record["notifyKind"] as? String ?? ""
+        let kind = (record["notifyKind"] as? String ?? "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+        // A later heart/photo/catch-up used to leave notifyKind=reorder on the
+        // row. Polls then announced "reordered the list" even though the order
+        // was unchanged.
         if kind == "reorder" {
-            postNotice(title: "\(who) reordered the list", body: title)
+            guard RemoteItemApply.shouldAnnounceReorder(notifyKind: kind, sortChanged: sortChanged) else { return }
+            announce(record, kind: "reorder", title: "\(who) reordered the list", body: title)
             return
         }
-        if kind.isEmpty { return }
-        postNotice(title: "\(who) updated an item", body: title)
+        guard PartnerNotice.banners(kind: kind) else { return }
+        announce(record, kind: kind, title: "\(who) updated an item", body: title)
     }
 
-    private func postNotice(title: String, body: String) {
-        // Lock-screen banners for a closed app come from CloudKit. Local
-        // notices are only for when this phone is already open.
+    /// Foreground-only banner. The same CloudKit save must not banner again on
+    /// the next poll; a closed app still gets the CloudKit lock-screen push.
+    private func announce(_ record: CKRecord, kind: String, title: String, body: String) {
+        guard PartnerNotice.banners(kind: kind) else { return }
         guard UIApplication.shared.applicationState == .active else { return }
+        guard claimNotice(record, kind: kind) else { return }
         let content = UNMutableNotificationContent()
         content.title = title
         content.body = body
         content.sound = .default
         let request = UNNotificationRequest(identifier: UUID().uuidString, content: content, trigger: nil)
         UNUserNotificationCenter.current().add(request)
+    }
+
+    private func claimNotice(_ record: CKRecord, kind: String) -> Bool {
+        if !noticeLogLoaded {
+            noticeLogLoaded = true
+            let stored = UserDefaults.standard.stringArray(forKey: Self.noticeLogKey) ?? []
+            noticeLog = PartnerNotice.Log(keys: stored)
+        }
+        let key = PartnerNotice.eventKey(
+            recordName: record.recordID.recordName,
+            changeTag: record.recordChangeTag,
+            updatedAt: record["updatedAt"] as? Date,
+            kind: kind
+        )
+        guard noticeLog.shouldPost(key) else { return false }
+        UserDefaults.standard.set(noticeLog.keys, forKey: Self.noticeLogKey)
+        return true
     }
 }
 

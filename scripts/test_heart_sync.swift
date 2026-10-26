@@ -136,8 +136,10 @@ enum TDItemRecordKind: Equatable {
     static func classify(recordName: String, title: String?, sortOrder: Int?) -> TDItemRecordKind {
         if recordName.hasPrefix("extra3-") || recordName.hasPrefix("extra2-") || recordName.hasPrefix("extra-") { return .extraPhoto }
         if recordName.hasPrefix("item-") { return .listItem }
+        // Negative sortOrder is reserved for companion photo rows, even if a
+        // leftover title was written onto the CloudKit record.
+        if let sortOrder, sortOrder < 0 { return .extraPhoto }
         let emptyTitle = (title ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-        if let sortOrder, sortOrder <= -1, emptyTitle { return .extraPhoto }
         if emptyTitle { return .extraPhoto }
         return .listItem
     }
@@ -213,6 +215,58 @@ enum RemoteItemApply {
         if !editor.isEmpty, !mine.isEmpty, editor == mine { return false }
         if !editor.isEmpty, editor != mine { return true }
         return remoteUpdated >= localUpdated
+    }
+
+    static func shouldAnnounceReorder(notifyKind: String?, sortChanged: Bool) -> Bool {
+        guard sortChanged else { return false }
+        return (notifyKind ?? "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased() == "reorder"
+    }
+}
+
+enum PartnerNotice {
+    static func banners(kind: String) -> Bool {
+        switch kind.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
+        case "", "rank":
+            return false
+        default:
+            return true
+        }
+    }
+
+    static func eventKey(recordName: String, changeTag: String?, updatedAt: Date?, kind: String) -> String {
+        let kindNorm = kind.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        let tag = (changeTag ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        let stamp: String
+        if !tag.isEmpty {
+            stamp = "tag:\(tag)"
+        } else if let updatedAt {
+            let ms = Int64((updatedAt.timeIntervalSince1970 * 1000).rounded())
+            stamp = "t:\(ms)"
+        } else {
+            stamp = "t:0"
+        }
+        return "\(recordName)|\(stamp)|\(kindNorm)"
+    }
+
+    struct Log {
+        private(set) var keys: [String]
+        let cap: Int
+
+        init(keys: [String] = [], cap: Int = 300) {
+            self.cap = max(cap, 1)
+            self.keys = Array(keys.suffix(self.cap))
+        }
+
+        mutating func shouldPost(_ key: String) -> Bool {
+            if keys.contains(key) { return false }
+            keys.append(key)
+            if keys.count > cap {
+                keys.removeFirst(keys.count - cap)
+            }
+            return true
+        }
     }
 }
 
@@ -444,6 +498,59 @@ expect(
         remoteUpdated: older
     ),
     "Partner rebalance siblings apply even without notifyKind=reorder"
+)
+expect(
+    RemoteItemApply.shouldApplyRemoteSort(
+        myRole: "chris",
+        lastEditor: "deena",
+        notifyKind: "reorder",
+        localSort: 500,
+        remoteSort: 500,
+        localUpdated: older,
+        remoteUpdated: newer
+    ) == false,
+    "Same sortOrder is not a new reorder, even if notifyKind is still reorder"
+)
+expect(
+    RemoteItemApply.shouldAnnounceReorder(notifyKind: "reorder", sortChanged: true),
+    "A reorder save that moved the row can banner once"
+)
+expect(
+    RemoteItemApply.shouldAnnounceReorder(notifyKind: "reorder", sortChanged: false) == false,
+    "Stale notifyKind=reorder does not banner when the order did not change"
+)
+expect(
+    RemoteItemApply.shouldAnnounceReorder(notifyKind: "heart", sortChanged: true) == false,
+    "A heart is not announced as a reorder"
+)
+expect(
+    PartnerNotice.banners(kind: "rank") == false && PartnerNotice.banners(kind: "") == false,
+    "Auto-rank and catch-up saves stay silent"
+)
+expect(
+    PartnerNotice.banners(kind: "reorder") && PartnerNotice.banners(kind: "heart"),
+    "Real partner edits still banner"
+)
+var noticeLog = PartnerNotice.Log()
+let reorderKey = PartnerNotice.eventKey(
+    recordName: "item-1",
+    changeTag: "abc",
+    updatedAt: newer,
+    kind: "reorder"
+)
+expect(noticeLog.shouldPost(reorderKey), "First poll of a reorder save banners")
+expect(noticeLog.shouldPost(reorderKey) == false, "The next poll of that same save does not banner again")
+let laterKey = PartnerNotice.eventKey(
+    recordName: "item-1",
+    changeTag: "def",
+    updatedAt: newer,
+    kind: "reorder"
+)
+expect(noticeLog.shouldPost(laterKey), "A new reorder save banners once")
+expect(
+    PartnerNotice.eventKey(recordName: "item-1", changeTag: nil, updatedAt: newer, kind: "reorder")
+        == PartnerNotice.eventKey(recordName: "item-1", changeTag: "  ", updatedAt: newer, kind: " Reorder "),
+    "Missing change tag falls back to updatedAt and kind is normalized"
 )
 
 if failed > 0 {
