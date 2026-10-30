@@ -155,15 +155,137 @@ struct FindIdeasPagePreview {
     var imageJPEG: Data?
 }
 
+enum IdeaAssistant: String, CaseIterable, Identifiable {
+    case grok
+    case chatgpt
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .grok: "Grok"
+        case .chatgpt: "ChatGPT"
+        }
+    }
+
+    var symbol: String {
+        switch self {
+        case .grok: "sparkles"
+        case .chatgpt: "bubble.left.and.bubble.right"
+        }
+    }
+
+    func askURL(prompt: String) -> URL? {
+        let host = self == .grok ? "https://grok.com/" : "https://chatgpt.com/"
+        var components = URLComponents(string: host)
+        components?.queryItems = [URLQueryItem(name: "q", value: prompt)]
+        return components?.url
+    }
+}
+
+struct IdeaListLine: Equatable {
+    var title: String
+    var notes: String
+    var url: String?
+}
+
+enum IdeaPrompt {
+    static let existingLimit = 12
+
+    static func text(
+        homeLabel: String?,
+        categoryNames: [String],
+        existing: [IdeaListLine],
+        keywords: String
+    ) -> String {
+        let names = categoryNames
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+        let categoryPhrase = names.isEmpty ? "this list" : names.joined(separator: " and ")
+        let home = homeLabel?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let homeLine = home.isEmpty
+            ? "We have not set a home location."
+            : "We live near \(home)."
+
+        var lines = [
+            "\(homeLine) We are a couple looking for ideas for \(categoryPhrase).",
+            "",
+            "The ideas must fit this category: \(categoryPhrase)."
+        ]
+
+        let saved = existing.prefix(existingLimit)
+        if !saved.isEmpty {
+            lines.append("")
+            lines.append("Already saved. Do not suggest these again:")
+            for item in saved {
+                var bullet = "- \(item.title)"
+                let notes = item.notes.trimmingCharacters(in: .whitespacesAndNewlines)
+                if !notes.isEmpty {
+                    bullet += " — \(notes)"
+                }
+                if let url = item.url?.trimmingCharacters(in: .whitespacesAndNewlines), !url.isEmpty {
+                    bullet += " — \(url)"
+                }
+                lines.append(bullet)
+            }
+        }
+
+        let words = keywords.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !words.isEmpty {
+            lines.append("")
+            lines.append("Also use these keywords: \(words).")
+        }
+
+        lines.append("")
+        lines.append("Suggest 8 new ideas for \(categoryPhrase), within about an hour of home when that fits. For a trip category, suggest ideas in that destination.")
+        lines.append("")
+        lines.append("Reply with only a list. One item per line:")
+        lines.append("Title — one sentence why it fits — https://full-link")
+        lines.append("")
+        lines.append("Each link must be a real page we can open.")
+        return lines.joined(separator: "\n")
+    }
+}
+
 struct FindIdeasView: View {
+    var items: [TodoItem]
     var onSavePage: (FindIdeasPagePreview) -> Void
 
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.colorScheme) private var colorScheme
+    @Environment(PairSession.self) private var pairSession
+    @Environment(CategoryNames.self) private var categoryNames
     @State private var keywords = ""
     @State private var browser: BrowserPage?
+    @State private var selectedCategories: Set<ItemCategory>
+
+    init(
+        startingCategories: Set<ItemCategory>,
+        items: [TodoItem],
+        onSavePage: @escaping (FindIdeasPagePreview) -> Void
+    ) {
+        self.items = items
+        self.onSavePage = onSavePage
+        let seed = startingCategories.isEmpty ? [ItemCategory.places] : startingCategories
+        _selectedCategories = State(initialValue: seed)
+    }
+
+    private var lookInColumns: [GridItem] {
+        [
+            GridItem(.flexible(), spacing: 8),
+            GridItem(.flexible(), spacing: 8),
+        ]
+    }
 
     var body: some View {
         Form {
+            Section {
+                HStack(spacing: 10) {
+                    assistantButton(.grok)
+                    assistantButton(.chatgpt)
+                }
+            }
+
             Section {
                 TextField("Asheville cabin hot tub", text: $keywords)
                     .textInputAutocapitalization(.never)
@@ -172,16 +294,27 @@ struct FindIdeasView: View {
                 Text("Keywords")
                     .font(.system(size: 12))
             } footer: {
-                Text("Type a few words, then pick where to look.")
+                Text("Type a few words, then pick where to look. Grok and ChatGPT use these words too.")
                     .font(.system(size: 12))
             }
 
             Section {
-                ForEach(IdeaSource.allCases) { source in
-                    Button {
-                        open(source)
-                    } label: {
-                        Label(source.title, systemImage: source.symbol)
+                LazyVGrid(columns: lookInColumns, spacing: 8) {
+                    ForEach(IdeaSource.allCases) { source in
+                        Button {
+                            open(source)
+                        } label: {
+                            Label(source.title, systemImage: source.symbol)
+                                .font(.system(size: 15, weight: .medium))
+                                .lineLimit(2)
+                                .minimumScaleFactor(0.75)
+                                .multilineTextAlignment(.leading)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .padding(.vertical, 8)
+                                .padding(.horizontal, 8)
+                        }
+                        .buttonStyle(.bordered)
+                        .tint(Palette.brandBlue(colorScheme))
                     }
                 }
             } header: {
@@ -189,6 +322,16 @@ struct FindIdeasView: View {
                     .font(.system(size: 12))
             } footer: {
                 Text("Airbnb, Google, Maps, Instagram, Pinterest, TripAdvisor, and X open here. TikTok opens that app to search.")
+                    .font(.system(size: 12))
+            }
+
+            Section {
+                CategoryPickerGrid(selection: $selectedCategories, compact: true)
+            } header: {
+                Text("Category")
+                    .font(.system(size: 12))
+            } footer: {
+                Text("Grok and ChatGPT suggest ideas for the categories you pick.")
                     .font(.system(size: 12))
             }
         }
@@ -210,6 +353,77 @@ struct FindIdeasView: View {
                 }
             )
         }
+    }
+
+    private func assistantButton(_ assistant: IdeaAssistant) -> some View {
+        Button {
+            openAssistant(assistant)
+        } label: {
+            Label(assistant.title, systemImage: assistant.symbol)
+                .font(.system(size: 16, weight: .semibold))
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 4)
+        }
+        .buttonStyle(.borderedProminent)
+        .tint(Palette.brandBlue(colorScheme))
+        .accessibilityLabel(assistant.title)
+    }
+
+    private var chosenCategories: [ItemCategory] {
+        let ordered = ItemCategory.pages.flatMap { $0 }.filter { selectedCategories.contains($0) }
+        return ordered.isEmpty ? [.places] : ordered
+    }
+
+    private var promptText: String {
+        let chosen = chosenCategories
+        let homeLabel: String? = {
+            guard HomeBase.shared.isSet else { return nil }
+            let label = HomeBase.shared.displayLabel.trimmingCharacters(in: .whitespacesAndNewlines)
+            if label.isEmpty || label == "Not set" { return nil }
+            return label
+        }()
+        return IdeaPrompt.text(
+            homeLabel: homeLabel,
+            categoryNames: chosen.map { categoryNames.title(for: $0) },
+            existing: existingLines(in: chosen),
+            keywords: keywords
+        )
+    }
+
+    private func existingLines(in chosen: [ItemCategory]) -> [IdeaListLine] {
+        scopedItems
+            .filter { item in item.categories.contains { chosen.contains($0) } }
+            .map { item in
+                IdeaListLine(
+                    title: item.title.trimmingCharacters(in: .whitespacesAndNewlines),
+                    notes: clipped(item.notes),
+                    url: item.urlString
+                )
+            }
+            .filter { !$0.title.isEmpty }
+            .sorted { $0.title.localizedCaseInsensitiveCompare($1.title) == .orderedAscending }
+    }
+
+    private var scopedItems: [TodoItem] {
+        let active = pairSession.pairID
+        if let active, !active.isEmpty {
+            if pairSession.hasMultiplePairs {
+                return items.filter { $0.pairID == active }
+            }
+            return items.filter { $0.pairID == active || $0.pairID.isEmpty }
+        }
+        return items
+    }
+
+    private func clipped(_ notes: String) -> String {
+        let trimmed = notes.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard trimmed.count > 80 else { return trimmed }
+        return String(trimmed.prefix(77)) + "..."
+    }
+
+    private func openAssistant(_ assistant: IdeaAssistant) {
+        guard let url = assistant.askURL(prompt: promptText) else { return }
+        UIApplication.shared.open(url)
     }
 
     private func open(_ source: IdeaSource) {

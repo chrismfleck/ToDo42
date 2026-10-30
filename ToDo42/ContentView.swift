@@ -2356,7 +2356,10 @@ struct AddItemView: View {
 
                 Section {
                     NavigationLink {
-                        FindIdeasView { preview in
+                        FindIdeasView(
+                            startingCategories: selectedCategories.isEmpty ? [category] : selectedCategories,
+                            items: items
+                        ) { preview in
                             applyFindIdeasPreview(preview)
                         }
                     } label: {

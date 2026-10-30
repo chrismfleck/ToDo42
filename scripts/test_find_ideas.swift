@@ -101,6 +101,82 @@ enum IdeaSource: String, CaseIterable {
     }
 }
 
+enum IdeaAssistant: String {
+    case grok
+    case chatgpt
+
+    func askURL(prompt: String) -> URL? {
+        let host = self == .grok ? "https://grok.com/" : "https://chatgpt.com/"
+        var components = URLComponents(string: host)
+        components?.queryItems = [URLQueryItem(name: "q", value: prompt)]
+        return components?.url
+    }
+}
+
+struct IdeaListLine: Equatable {
+    var title: String
+    var notes: String
+    var url: String?
+}
+
+enum IdeaPrompt {
+    static let existingLimit = 12
+
+    static func text(
+        homeLabel: String?,
+        categoryNames: [String],
+        existing: [IdeaListLine],
+        keywords: String
+    ) -> String {
+        let names = categoryNames
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+        let categoryPhrase = names.isEmpty ? "this list" : names.joined(separator: " and ")
+        let home = homeLabel?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let homeLine = home.isEmpty
+            ? "We have not set a home location."
+            : "We live near \(home)."
+
+        var lines = [
+            "\(homeLine) We are a couple looking for ideas for \(categoryPhrase).",
+            "",
+            "The ideas must fit this category: \(categoryPhrase)."
+        ]
+
+        let saved = existing.prefix(existingLimit)
+        if !saved.isEmpty {
+            lines.append("")
+            lines.append("Already saved. Do not suggest these again:")
+            for item in saved {
+                var bullet = "- \(item.title)"
+                let notes = item.notes.trimmingCharacters(in: .whitespacesAndNewlines)
+                if !notes.isEmpty {
+                    bullet += " — \(notes)"
+                }
+                if let url = item.url?.trimmingCharacters(in: .whitespacesAndNewlines), !url.isEmpty {
+                    bullet += " — \(url)"
+                }
+                lines.append(bullet)
+            }
+        }
+
+        let words = keywords.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !words.isEmpty {
+            lines.append("")
+            lines.append("Also use these keywords: \(words).")
+        }
+
+        lines.append("")
+        lines.append("Suggest 8 new ideas for \(categoryPhrase), within about an hour of home when that fits. For a trip category, suggest ideas in that destination.")
+        lines.append("")
+        lines.append("Reply with only a list. One item per line:")
+        lines.append("Title — one sentence why it fits — https://full-link")
+        lines.append("")
+        lines.append("Each link must be a real page we can open.")
+        return lines.joined(separator: "\n")
+    }
+}
+
 var failed = 0
 func expect(_ condition: Bool, _ message: String) {
     if !condition {
@@ -167,6 +243,30 @@ expect(IdeaSource.hashtagSlugs(query) == ["asheville", "cabin", "hot", "tub", "a
 
 let emptyAirbnb = IdeaSource.airbnb.searchURL(keywords: "  ")?.absoluteString ?? ""
 expect(emptyAirbnb == "https://www.airbnb.com/", "empty airbnb homepage")
+
+let grok = IdeaAssistant.grok.askURL(prompt: "Fun 4 Two cabin")?.absoluteString ?? ""
+expect(grok.hasPrefix("https://grok.com/?q="), "grok host")
+expect(grok.contains("Fun"), "grok keeps category words")
+expect(grok.contains("cabin"), "grok keeps the rest of the prompt")
+
+let chat = IdeaAssistant.chatgpt.askURL(prompt: "Table 4 Two")?.absoluteString ?? ""
+expect(chat.hasPrefix("https://chatgpt.com/?q="), "chatgpt host")
+expect(chat.contains("Table"), "chatgpt keeps category words")
+
+let prompt = IdeaPrompt.text(
+    homeLabel: "Annapolis, MD",
+    categoryNames: ["Fun 4 Two"],
+    existing: [IdeaListLine(title: "Hobie Sailing", notes: "Book a lesson", url: "https://www.hobie.com/")],
+    keywords: "sunset"
+)
+expect(prompt.contains("We live near Annapolis, MD."), "prompt home")
+expect(prompt.contains("The ideas must fit this category: Fun 4 Two."), "prompt category")
+expect(prompt.contains("Hobie Sailing — Book a lesson — https://www.hobie.com/"), "prompt existing")
+expect(prompt.contains("Also use these keywords: sunset."), "prompt keywords")
+
+let noHome = IdeaPrompt.text(homeLabel: "  ", categoryNames: [], existing: [], keywords: "")
+expect(noHome.contains("We have not set a home location."), "missing home")
+expect(noHome.contains("The ideas must fit this category: this list."), "missing category fallback")
 
 if failed > 0 {
     fputs("\(failed) failed\n", stderr)
