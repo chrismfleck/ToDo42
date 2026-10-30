@@ -284,6 +284,10 @@ struct FindIdeasView: View {
                     assistantButton(.grok)
                     assistantButton(.chatgpt)
                 }
+                CategoryPickerGrid(selection: $selectedCategories, compact: true)
+            } footer: {
+                Text("Grok or ChatGPT will suggest ideas for the category.")
+                    .font(.system(size: 12))
             }
 
             Section {
@@ -291,10 +295,7 @@ struct FindIdeasView: View {
                     .textInputAutocapitalization(.never)
                     .autocorrectionDisabled()
             } header: {
-                Text("Keywords")
-                    .font(.system(size: 12))
-            } footer: {
-                Text("Type a few words, then pick where to look. Grok and ChatGPT use these words too.")
+                Text("Or use keywords")
                     .font(.system(size: 12))
             }
 
@@ -325,15 +326,6 @@ struct FindIdeasView: View {
                     .font(.system(size: 12))
             }
 
-            Section {
-                CategoryPickerGrid(selection: $selectedCategories, compact: true)
-            } header: {
-                Text("Category")
-                    .font(.system(size: 12))
-            } footer: {
-                Text("Grok and ChatGPT suggest ideas for the categories you pick.")
-                    .font(.system(size: 12))
-            }
         }
         .font(.system(size: 15.5))
         .navigationTitle("Find Ideas")
