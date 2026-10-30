@@ -168,10 +168,10 @@ enum IdeaAssistant: String, CaseIterable, Identifiable {
         }
     }
 
-    var symbol: String {
+    var iconName: String {
         switch self {
-        case .grok: "sparkles"
-        case .chatgpt: "bubble.left.and.bubble.right"
+        case .grok: "GrokIcon"
+        case .chatgpt: "ChatGPTIcon"
         }
     }
 
@@ -351,10 +351,18 @@ struct FindIdeasView: View {
         Button {
             openAssistant(assistant)
         } label: {
-            Label(assistant.title, systemImage: assistant.symbol)
-                .font(.system(size: 16, weight: .semibold))
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 4)
+            HStack(spacing: 8) {
+                Image(assistant.iconName)
+                    .resizable()
+                    .interpolation(.high)
+                    .scaledToFit()
+                    .frame(width: 22, height: 22)
+                    .clipShape(RoundedRectangle(cornerRadius: 5, style: .continuous))
+                Text(assistant.title)
+                    .font(.system(size: 16, weight: .semibold))
+            }
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 4)
         }
         .buttonStyle(.borderedProminent)
         .tint(Palette.brandBlue(colorScheme))
