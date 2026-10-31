@@ -189,29 +189,66 @@ struct IdeaListLine: Equatable {
     var url: String?
 }
 
+struct IdeaPromptCategory: Equatable {
+    var name: String
+    var kind: String
+}
+
 enum IdeaPrompt {
     static let existingLimit = 12
 
+    static func guidance(for kind: String) -> String {
+        switch kind {
+        case "places":
+            "places to stay for two, such as a cabin, inn, hotel, or vacation rental, within about an hour of home"
+        case "fun":
+            "fun activities for two people to do together, within about an hour of home"
+        case "eats":
+            "restaurants and places to eat out for two, within about an hour of home"
+        case "projects":
+            "home projects the two of us can do together at home"
+        case "recipe":
+            "recipes for two people to cook together at home. Each link must open a recipe page, not a restaurant, a store, or a trip"
+        case "health":
+            "health tips for two people. Each link must open a practical health article or guide"
+        case "vegas":
+            "things for two people to do in Las Vegas. Keep every idea in Las Vegas, not near home"
+        case "london":
+            "things for two people to do in London. Keep every idea in London, not near home"
+        case "dc":
+            "things for two people to do in Washington, DC. Keep every idea in Washington, DC, not near home"
+        default:
+            "ideas that fit this list"
+        }
+    }
+
     static func text(
         homeLabel: String?,
-        categoryNames: [String],
+        categories: [IdeaPromptCategory],
         existing: [IdeaListLine],
         keywords: String
     ) -> String {
-        let names = categoryNames
-            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-            .filter { !$0.isEmpty }
-        let categoryPhrase = names.isEmpty ? "this list" : names.joined(separator: " and ")
+        let chosen = categories.filter {
+            !$0.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        }
         let home = homeLabel?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         let homeLine = home.isEmpty
             ? "We have not set a home location."
             : "We live near \(home)."
 
-        var lines = [
-            "\(homeLine) We are a couple looking for ideas for \(categoryPhrase).",
-            "",
-            "The ideas must fit this category: \(categoryPhrase)."
-        ]
+        var lines = ["\(homeLine) We are a couple.", ""]
+        if chosen.isEmpty {
+            lines.append("Suggest ideas for this list. These must be \(guidance(for: "")).")
+        } else if chosen.count == 1, let only = chosen.first {
+            let name = only.name.trimmingCharacters(in: .whitespacesAndNewlines)
+            lines.append("Suggest ideas for \(name). These must be \(guidance(for: only.kind)).")
+        } else {
+            lines.append("Suggest ideas for each category below. Keep each idea in its own category.")
+            for category in chosen {
+                let name = category.name.trimmingCharacters(in: .whitespacesAndNewlines)
+                lines.append("- \(name): \(guidance(for: category.kind)).")
+            }
+        }
 
         let saved = existing.prefix(existingLimit)
         if !saved.isEmpty {
@@ -237,7 +274,7 @@ enum IdeaPrompt {
         }
 
         lines.append("")
-        lines.append("Suggest 8 new ideas for \(categoryPhrase), within about an hour of home when that fits. For a trip category, suggest ideas in that destination.")
+        lines.append("Suggest 8 new ideas.")
         lines.append("")
         lines.append("Reply with only a list. One item per line:")
         lines.append("Title — one sentence why it fits — https://full-link")
@@ -295,7 +332,7 @@ struct FindIdeasView: View {
                     .textInputAutocapitalization(.never)
                     .autocorrectionDisabled()
             } header: {
-                Text("Or use keywords")
+                Text("Optional keywords")
                     .font(.system(size: 12))
             }
 
@@ -319,7 +356,7 @@ struct FindIdeasView: View {
                     }
                 }
             } header: {
-                Text("Look in")
+                Text("Or look in")
                     .font(.system(size: 12))
             } footer: {
                 Text("Airbnb, Google, Maps, Instagram, Pinterest, TripAdvisor, and X open here. TikTok opens that app to search.")
@@ -384,7 +421,9 @@ struct FindIdeasView: View {
         }()
         return IdeaPrompt.text(
             homeLabel: homeLabel,
-            categoryNames: chosen.map { categoryNames.title(for: $0) },
+            categories: chosen.map {
+                IdeaPromptCategory(name: categoryNames.title(for: $0), kind: $0.ideaPromptKind)
+            },
             existing: existingLines(in: chosen),
             keywords: keywords
         )

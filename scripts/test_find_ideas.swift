@@ -119,29 +119,66 @@ struct IdeaListLine: Equatable {
     var url: String?
 }
 
+struct IdeaPromptCategory: Equatable {
+    var name: String
+    var kind: String
+}
+
 enum IdeaPrompt {
     static let existingLimit = 12
 
+    static func guidance(for kind: String) -> String {
+        switch kind {
+        case "places":
+            "places to stay for two, such as a cabin, inn, hotel, or vacation rental, within about an hour of home"
+        case "fun":
+            "fun activities for two people to do together, within about an hour of home"
+        case "eats":
+            "restaurants and places to eat out for two, within about an hour of home"
+        case "projects":
+            "home projects the two of us can do together at home"
+        case "recipe":
+            "recipes for two people to cook together at home. Each link must open a recipe page, not a restaurant, a store, or a trip"
+        case "health":
+            "health tips for two people. Each link must open a practical health article or guide"
+        case "vegas":
+            "things for two people to do in Las Vegas. Keep every idea in Las Vegas, not near home"
+        case "london":
+            "things for two people to do in London. Keep every idea in London, not near home"
+        case "dc":
+            "things for two people to do in Washington, DC. Keep every idea in Washington, DC, not near home"
+        default:
+            "ideas that fit this list"
+        }
+    }
+
     static func text(
         homeLabel: String?,
-        categoryNames: [String],
+        categories: [IdeaPromptCategory],
         existing: [IdeaListLine],
         keywords: String
     ) -> String {
-        let names = categoryNames
-            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-            .filter { !$0.isEmpty }
-        let categoryPhrase = names.isEmpty ? "this list" : names.joined(separator: " and ")
+        let chosen = categories.filter {
+            !$0.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        }
         let home = homeLabel?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         let homeLine = home.isEmpty
             ? "We have not set a home location."
             : "We live near \(home)."
 
-        var lines = [
-            "\(homeLine) We are a couple looking for ideas for \(categoryPhrase).",
-            "",
-            "The ideas must fit this category: \(categoryPhrase)."
-        ]
+        var lines = ["\(homeLine) We are a couple.", ""]
+        if chosen.isEmpty {
+            lines.append("Suggest ideas for this list. These must be \(guidance(for: "")).")
+        } else if chosen.count == 1, let only = chosen.first {
+            let name = only.name.trimmingCharacters(in: .whitespacesAndNewlines)
+            lines.append("Suggest ideas for \(name). These must be \(guidance(for: only.kind)).")
+        } else {
+            lines.append("Suggest ideas for each category below. Keep each idea in its own category.")
+            for category in chosen {
+                let name = category.name.trimmingCharacters(in: .whitespacesAndNewlines)
+                lines.append("- \(name): \(guidance(for: category.kind)).")
+            }
+        }
 
         let saved = existing.prefix(existingLimit)
         if !saved.isEmpty {
@@ -167,7 +204,7 @@ enum IdeaPrompt {
         }
 
         lines.append("")
-        lines.append("Suggest 8 new ideas for \(categoryPhrase), within about an hour of home when that fits. For a trip category, suggest ideas in that destination.")
+        lines.append("Suggest 8 new ideas.")
         lines.append("")
         lines.append("Reply with only a list. One item per line:")
         lines.append("Title — one sentence why it fits — https://full-link")
@@ -255,18 +292,50 @@ expect(chat.contains("Table"), "chatgpt keeps category words")
 
 let prompt = IdeaPrompt.text(
     homeLabel: "Annapolis, MD",
-    categoryNames: ["Fun 4 Two"],
+    categories: [IdeaPromptCategory(name: "Fun 4 Two", kind: "fun")],
     existing: [IdeaListLine(title: "Hobie Sailing", notes: "Book a lesson", url: "https://www.hobie.com/")],
     keywords: "sunset"
 )
 expect(prompt.contains("We live near Annapolis, MD."), "prompt home")
-expect(prompt.contains("The ideas must fit this category: Fun 4 Two."), "prompt category")
+expect(prompt.contains("Suggest ideas for Fun 4 Two. These must be fun activities for two people to do together, within about an hour of home."), "prompt fun")
 expect(prompt.contains("Hobie Sailing — Book a lesson — https://www.hobie.com/"), "prompt existing")
 expect(prompt.contains("Also use these keywords: sunset."), "prompt keywords")
 
-let noHome = IdeaPrompt.text(homeLabel: "  ", categoryNames: [], existing: [], keywords: "")
+let recipe = IdeaPrompt.text(
+    homeLabel: "Annapolis, MD",
+    categories: [IdeaPromptCategory(name: "Recipe 4 Two", kind: "recipe")],
+    existing: [],
+    keywords: ""
+)
+expect(recipe.contains("recipes for two people to cook together at home"), "recipe asks for recipes")
+expect(recipe.contains("recipe page"), "recipe asks for a recipe link")
+expect(!recipe.contains("hour of home"), "recipe is not a nearby outing")
+expect(!recipe.contains("Las Vegas"), "recipe is not a trip")
+
+let expected: [(String, String)] = [
+    ("places", "places to stay for two"),
+    ("fun", "fun activities for two people"),
+    ("eats", "restaurants and places to eat out"),
+    ("projects", "home projects"),
+    ("recipe", "recipes for two people to cook"),
+    ("health", "health tips for two people"),
+    ("vegas", "in Las Vegas"),
+    ("london", "in London"),
+    ("dc", "in Washington, DC"),
+]
+for pair in expected {
+    let sample = IdeaPrompt.text(
+        homeLabel: nil,
+        categories: [IdeaPromptCategory(name: pair.0, kind: pair.0)],
+        existing: [],
+        keywords: ""
+    )
+    expect(sample.contains(pair.1), "prompt kind \(pair.0)")
+}
+
+let noHome = IdeaPrompt.text(homeLabel: "  ", categories: [], existing: [], keywords: "")
 expect(noHome.contains("We have not set a home location."), "missing home")
-expect(noHome.contains("The ideas must fit this category: this list."), "missing category fallback")
+expect(noHome.contains("ideas that fit this list"), "missing category fallback")
 
 if failed > 0 {
     fputs("\(failed) failed\n", stderr)
