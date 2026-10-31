@@ -197,12 +197,16 @@ struct IdeaPromptCategory: Equatable {
 enum IdeaPrompt {
     static let existingLimit = 12
 
-    static func guidance(for kind: String) -> String {
+    static func guidance(for kind: String, hasSaved: Bool) -> String {
         switch kind {
         case "places":
-            "places to stay for two, such as a cabin, inn, hotel, or vacation rental, within about an hour of home"
+            hasSaved
+                ? "places to stay for two that are similar to the places already saved on this list"
+                : "places to stay for two, such as a cabin, inn, hotel, or vacation rental"
         case "fun":
-            "fun activities for two people to do together, within about an hour of home"
+            hasSaved
+                ? "fun things for two people to do nearby that are similar to the activities already saved on this list"
+                : "fun activities for two people to do together, within about an hour of home"
         case "eats":
             "restaurants and places to eat out for two, within about an hour of home"
         case "projects":
@@ -236,17 +240,20 @@ enum IdeaPrompt {
             ? "We have not set a home location."
             : "We live near \(home)."
 
+        let hasSaved = existing.contains {
+            !$0.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        }
         var lines = ["\(homeLine) We are a couple.", ""]
         if chosen.isEmpty {
-            lines.append("Suggest ideas for this list. These must be \(guidance(for: "")).")
+            lines.append("Suggest ideas for this list. These must be \(guidance(for: "", hasSaved: false)).")
         } else if chosen.count == 1, let only = chosen.first {
             let name = only.name.trimmingCharacters(in: .whitespacesAndNewlines)
-            lines.append("Suggest ideas for \(name). These must be \(guidance(for: only.kind)).")
+            lines.append("Suggest ideas for \(name). These must be \(guidance(for: only.kind, hasSaved: hasSaved)).")
         } else {
             lines.append("Suggest ideas for each category below. Keep each idea in its own category.")
             for category in chosen {
                 let name = category.name.trimmingCharacters(in: .whitespacesAndNewlines)
-                lines.append("- \(name): \(guidance(for: category.kind)).")
+                lines.append("- \(name): \(guidance(for: category.kind, hasSaved: hasSaved)).")
             }
         }
 
@@ -264,6 +271,14 @@ enum IdeaPrompt {
                     bullet += " — \(url)"
                 }
                 lines.append(bullet)
+            }
+            let kinds = Set(chosen.map(\.kind))
+            if kinds.contains("places"), kinds.contains("fun") {
+                lines.append("Suggest a new place to stay similar to the saved places, and something fun nearby similar to the saved activities.")
+            } else if kinds.contains("places") {
+                lines.append("Suggest a new place to stay similar to the saved places.")
+            } else if kinds.contains("fun") {
+                lines.append("Suggest something fun nearby similar to the saved activities.")
             }
         }
 
