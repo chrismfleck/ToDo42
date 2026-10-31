@@ -155,42 +155,229 @@ struct FindIdeasPagePreview {
     var imageJPEG: Data?
 }
 
+enum IdeaAssistant: String, CaseIterable, Identifiable {
+    case grok
+    case chatgpt
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .grok: "Grok"
+        case .chatgpt: "ChatGPT"
+        }
+    }
+
+    var iconName: String {
+        switch self {
+        case .grok: "GrokIcon"
+        case .chatgpt: "ChatGPTIcon"
+        }
+    }
+
+    func askURL(prompt: String) -> URL? {
+        let host = self == .grok ? "https://grok.com/" : "https://chatgpt.com/"
+        var components = URLComponents(string: host)
+        components?.queryItems = [URLQueryItem(name: "q", value: prompt)]
+        return components?.url
+    }
+}
+
+struct IdeaListLine: Equatable {
+    var title: String
+    var notes: String
+    var url: String?
+}
+
+struct IdeaPromptCategory: Equatable {
+    var name: String
+    var kind: String
+}
+
+enum IdeaPrompt {
+    static let existingLimit = 12
+
+    static func guidance(for kind: String, hasSaved: Bool) -> String {
+        switch kind {
+        case "places":
+            hasSaved
+                ? "places to stay for two that are similar to the places already saved on this list"
+                : "places to stay for two, such as a cabin, inn, hotel, or vacation rental"
+        case "fun":
+            hasSaved
+                ? "fun things for two people to do nearby that are similar to the activities already saved on this list"
+                : "fun activities for two people to do together, within about an hour of home"
+        case "eats":
+            "restaurants and places to eat out for two, within about an hour of home"
+        case "projects":
+            "home projects the two of us can do together at home"
+        case "recipe":
+            "recipes for two people to cook together at home. Each link must open a recipe page, not a restaurant, a store, or a trip"
+        case "health":
+            "health tips for two people. Each link must open a practical health article or guide"
+        case "vegas":
+            "things for two people to do in Las Vegas. Keep every idea in Las Vegas, not near home"
+        case "london":
+            "things for two people to do in London. Keep every idea in London, not near home"
+        case "dc":
+            "things for two people to do in Washington, DC. Keep every idea in Washington, DC, not near home"
+        default:
+            "ideas that fit this list"
+        }
+    }
+
+    static func text(
+        homeLabel: String?,
+        categories: [IdeaPromptCategory],
+        existing: [IdeaListLine],
+        keywords: String
+    ) -> String {
+        let chosen = categories.filter {
+            !$0.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        }
+        let home = homeLabel?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let homeLine = home.isEmpty
+            ? "We have not set a home location."
+            : "We live near \(home)."
+
+        let hasSaved = existing.contains {
+            !$0.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        }
+        var lines = ["\(homeLine) We are a couple.", ""]
+        if chosen.isEmpty {
+            lines.append("Suggest ideas for this list. These must be \(guidance(for: "", hasSaved: false)).")
+        } else if chosen.count == 1, let only = chosen.first {
+            let name = only.name.trimmingCharacters(in: .whitespacesAndNewlines)
+            lines.append("Suggest ideas for \(name). These must be \(guidance(for: only.kind, hasSaved: hasSaved)).")
+        } else {
+            lines.append("Suggest ideas for each category below. Keep each idea in its own category.")
+            for category in chosen {
+                let name = category.name.trimmingCharacters(in: .whitespacesAndNewlines)
+                lines.append("- \(name): \(guidance(for: category.kind, hasSaved: hasSaved)).")
+            }
+        }
+
+        let saved = existing.prefix(existingLimit)
+        if !saved.isEmpty {
+            lines.append("")
+            lines.append("Already saved. Do not suggest these again:")
+            for item in saved {
+                var bullet = "- \(item.title)"
+                let notes = item.notes.trimmingCharacters(in: .whitespacesAndNewlines)
+                if !notes.isEmpty {
+                    bullet += " — \(notes)"
+                }
+                if let url = item.url?.trimmingCharacters(in: .whitespacesAndNewlines), !url.isEmpty {
+                    bullet += " — \(url)"
+                }
+                lines.append(bullet)
+            }
+            let kinds = Set(chosen.map(\.kind))
+            if kinds.contains("places"), kinds.contains("fun") {
+                lines.append("Suggest a new place to stay similar to the saved places, and something fun nearby similar to the saved activities.")
+            } else if kinds.contains("places") {
+                lines.append("Suggest a new place to stay similar to the saved places.")
+            } else if kinds.contains("fun") {
+                lines.append("Suggest something fun nearby similar to the saved activities.")
+            }
+        }
+
+        let words = keywords.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !words.isEmpty {
+            lines.append("")
+            lines.append("Also use these keywords: \(words).")
+        }
+
+        lines.append("")
+        lines.append("Suggest 8 new ideas.")
+        lines.append("")
+        lines.append("Reply with only a list. One item per line:")
+        lines.append("Title — one sentence why it fits — https://full-link")
+        lines.append("")
+        lines.append("Each link must be a real page we can open.")
+        return lines.joined(separator: "\n")
+    }
+}
+
 struct FindIdeasView: View {
+    var items: [TodoItem]
     var onSavePage: (FindIdeasPagePreview) -> Void
 
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.colorScheme) private var colorScheme
+    @Environment(PairSession.self) private var pairSession
+    @Environment(CategoryNames.self) private var categoryNames
     @State private var keywords = ""
     @State private var browser: BrowserPage?
+    @State private var selectedCategories: Set<ItemCategory>
+
+    init(
+        startingCategories: Set<ItemCategory>,
+        items: [TodoItem],
+        onSavePage: @escaping (FindIdeasPagePreview) -> Void
+    ) {
+        self.items = items
+        self.onSavePage = onSavePage
+        let seed = startingCategories.isEmpty ? [ItemCategory.places] : startingCategories
+        _selectedCategories = State(initialValue: seed)
+    }
+
+    private var lookInColumns: [GridItem] {
+        [
+            GridItem(.flexible(), spacing: 8),
+            GridItem(.flexible(), spacing: 8),
+        ]
+    }
 
     var body: some View {
         Form {
+            Section {
+                HStack(spacing: 10) {
+                    assistantButton(.grok)
+                    assistantButton(.chatgpt)
+                }
+                CategoryPickerGrid(selection: $selectedCategories, compact: true)
+            } footer: {
+                Text("Grok or ChatGPT will suggest ideas for the category.")
+                    .font(.system(size: 12))
+            }
+
             Section {
                 TextField("Asheville cabin hot tub", text: $keywords)
                     .textInputAutocapitalization(.never)
                     .autocorrectionDisabled()
             } header: {
-                Text("Keywords")
-                    .font(.system(size: 12))
-            } footer: {
-                Text("Type a few words, then pick where to look.")
+                Text("Optional keywords")
                     .font(.system(size: 12))
             }
 
             Section {
-                ForEach(IdeaSource.allCases) { source in
-                    Button {
-                        open(source)
-                    } label: {
-                        Label(source.title, systemImage: source.symbol)
+                LazyVGrid(columns: lookInColumns, spacing: 8) {
+                    ForEach(IdeaSource.allCases) { source in
+                        Button {
+                            open(source)
+                        } label: {
+                            Label(source.title, systemImage: source.symbol)
+                                .font(.system(size: 15, weight: .medium))
+                                .lineLimit(2)
+                                .minimumScaleFactor(0.75)
+                                .multilineTextAlignment(.leading)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .padding(.vertical, 8)
+                                .padding(.horizontal, 8)
+                        }
+                        .buttonStyle(.bordered)
+                        .tint(Palette.brandBlue(colorScheme))
                     }
                 }
             } header: {
-                Text("Look in")
+                Text("Or look in")
                     .font(.system(size: 12))
             } footer: {
                 Text("Airbnb, Google, Maps, Instagram, Pinterest, TripAdvisor, and X open here. TikTok opens that app to search.")
                     .font(.system(size: 12))
             }
+
         }
         .font(.system(size: 15.5))
         .navigationTitle("Find Ideas")
@@ -210,6 +397,87 @@ struct FindIdeasView: View {
                 }
             )
         }
+    }
+
+    private func assistantButton(_ assistant: IdeaAssistant) -> some View {
+        Button {
+            openAssistant(assistant)
+        } label: {
+            HStack(spacing: 8) {
+                Image(assistant.iconName)
+                    .resizable()
+                    .interpolation(.high)
+                    .scaledToFit()
+                    .frame(width: 22, height: 22)
+                    .clipShape(RoundedRectangle(cornerRadius: 5, style: .continuous))
+                Text(assistant.title)
+                    .font(.system(size: 16, weight: .semibold))
+            }
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 4)
+        }
+        .buttonStyle(.borderedProminent)
+        .tint(Palette.brandBlue(colorScheme))
+        .accessibilityLabel(assistant.title)
+    }
+
+    private var chosenCategories: [ItemCategory] {
+        let ordered = ItemCategory.pages.flatMap { $0 }.filter { selectedCategories.contains($0) }
+        return ordered.isEmpty ? [.places] : ordered
+    }
+
+    private var promptText: String {
+        let chosen = chosenCategories
+        let homeLabel: String? = {
+            guard HomeBase.shared.isSet else { return nil }
+            let label = HomeBase.shared.displayLabel.trimmingCharacters(in: .whitespacesAndNewlines)
+            if label.isEmpty || label == "Not set" { return nil }
+            return label
+        }()
+        return IdeaPrompt.text(
+            homeLabel: homeLabel,
+            categories: chosen.map {
+                IdeaPromptCategory(name: categoryNames.title(for: $0), kind: $0.ideaPromptKind)
+            },
+            existing: existingLines(in: chosen),
+            keywords: keywords
+        )
+    }
+
+    private func existingLines(in chosen: [ItemCategory]) -> [IdeaListLine] {
+        scopedItems
+            .filter { item in item.categories.contains { chosen.contains($0) } }
+            .map { item in
+                IdeaListLine(
+                    title: item.title.trimmingCharacters(in: .whitespacesAndNewlines),
+                    notes: clipped(item.notes),
+                    url: item.urlString
+                )
+            }
+            .filter { !$0.title.isEmpty }
+            .sorted { $0.title.localizedCaseInsensitiveCompare($1.title) == .orderedAscending }
+    }
+
+    private var scopedItems: [TodoItem] {
+        let active = pairSession.pairID
+        if let active, !active.isEmpty {
+            if pairSession.hasMultiplePairs {
+                return items.filter { $0.pairID == active }
+            }
+            return items.filter { $0.pairID == active || $0.pairID.isEmpty }
+        }
+        return items
+    }
+
+    private func clipped(_ notes: String) -> String {
+        let trimmed = notes.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard trimmed.count > 80 else { return trimmed }
+        return String(trimmed.prefix(77)) + "..."
+    }
+
+    private func openAssistant(_ assistant: IdeaAssistant) {
+        guard let url = assistant.askURL(prompt: promptText) else { return }
+        UIApplication.shared.open(url)
     }
 
     private func open(_ source: IdeaSource) {

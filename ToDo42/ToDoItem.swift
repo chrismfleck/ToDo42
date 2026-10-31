@@ -34,6 +34,21 @@ enum ItemCategory: String, CaseIterable, Identifiable {
         }
     }
 
+    /// Kind of idea Find Ideas should ask for. Display names like "Recipe 4 Two" are not enough on their own.
+    var ideaPromptKind: String {
+        switch self {
+        case .places: "places"
+        case .fun: "fun"
+        case .eats: "eats"
+        case .projects: "projects"
+        case .recipe: "recipe"
+        case .health: "health"
+        case .vegasTrip: "vegas"
+        case .londonTrip: "london"
+        case .dcTrip: "dc"
+        }
+    }
+
     @MainActor
     var title: String { CategoryNames.shared.title(for: self) }
 
