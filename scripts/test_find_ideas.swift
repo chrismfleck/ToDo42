@@ -135,8 +135,8 @@ enum IdeaPrompt {
                 : "places to stay for two, such as a cabin, inn, hotel, or vacation rental"
         case "fun":
             hasSaved
-                ? "fun things for two people to do nearby that are similar to the activities already saved on this list"
-                : "fun activities for two people to do together, within about an hour of home"
+                ? "fun things for two people to do that are similar to the activities already saved on this list"
+                : "fun activities for two people to do together"
         case "eats":
             "restaurants and places to eat out for two, within about an hour of home"
         case "projects":
@@ -165,15 +165,18 @@ enum IdeaPrompt {
         let chosen = categories.filter {
             !$0.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         }
+        let words = keywords.trimmingCharacters(in: .whitespacesAndNewlines)
         let home = homeLabel?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        let homeLine = home.isEmpty
-            ? "We have not set a home location."
-            : "We live near \(home)."
+        let location = !words.isEmpty ? words : (home.isEmpty ? nil : home)
 
         let hasSaved = existing.contains {
             !$0.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         }
-        var lines = ["\(homeLine) We are a couple.", ""]
+        var lines: [String] = []
+        if let location {
+            lines.append("Use these keywords: \(location).")
+            lines.append("")
+        }
         if chosen.isEmpty {
             lines.append("Suggest ideas for this list. These must be \(guidance(for: "", hasSaved: false)).")
         } else if chosen.count == 1, let only = chosen.first {
@@ -203,19 +206,13 @@ enum IdeaPrompt {
                 lines.append(bullet)
             }
             let kinds = Set(chosen.map(\.kind))
-            if kinds.contains("places"), kinds.contains("fun") {
-                lines.append("Suggest a new place to stay similar to the saved places, and something fun nearby similar to the saved activities.")
-            } else if kinds.contains("places") {
-                lines.append("Suggest a new place to stay similar to the saved places.")
-            } else if kinds.contains("fun") {
-                lines.append("Suggest something fun nearby similar to the saved activities.")
+            let whereClause = location.map { ", using this location: \($0)" } ?? ""
+            if kinds.contains("places") {
+                lines.append("Suggest a new place to stay similar to the saved places\(whereClause).")
             }
-        }
-
-        let words = keywords.trimmingCharacters(in: .whitespacesAndNewlines)
-        if !words.isEmpty {
-            lines.append("")
-            lines.append("Also use these keywords: \(words).")
+            if kinds.contains("fun") {
+                lines.append("Suggest something fun similar to the saved activities\(whereClause).")
+            }
         }
 
         lines.append("")
@@ -311,9 +308,10 @@ let prompt = IdeaPrompt.text(
     existing: [IdeaListLine(title: "Hobie Sailing", notes: "Book a lesson", url: "https://www.hobie.com/")],
     keywords: "sunset"
 )
-expect(prompt.contains("We live near Annapolis, MD."), "prompt home")
-expect(prompt.contains("Suggest ideas for Fun 4 Two. These must be fun things for two people to do nearby that are similar to the activities already saved on this list."), "prompt fun")
-expect(prompt.contains("Suggest something fun nearby similar to the saved activities."), "prompt fun follow-up")
+expect(prompt.hasPrefix("Use these keywords: sunset."), "keywords come first")
+expect(!prompt.contains("We live near"), "home is not a separate opening when keywords exist")
+expect(prompt.contains("Suggest ideas for Fun 4 Two. These must be fun things for two people to do that are similar to the activities already saved on this list."), "prompt fun")
+expect(prompt.contains("Suggest something fun similar to the saved activities, using this location: sunset."), "prompt fun follow-up")
 
 let stays = IdeaPrompt.text(
     homeLabel: "Annapolis, MD",
@@ -321,10 +319,11 @@ let stays = IdeaPrompt.text(
     existing: [IdeaListLine(title: "Lake House", notes: "Weekend getaway", url: "https://maps.apple.com/?q=Lake+House")],
     keywords: ""
 )
+expect(stays.hasPrefix("Use these keywords: Annapolis, MD."), "empty keywords use home")
 expect(stays.contains("places to stay for two that are similar to the places already saved on this list"), "places match the list")
-expect(stays.contains("Suggest a new place to stay similar to the saved places."), "places follow-up")
+expect(stays.contains("Suggest a new place to stay similar to the saved places, using this location: Annapolis, MD."), "places follow-up")
 expect(prompt.contains("Hobie Sailing — Book a lesson — https://www.hobie.com/"), "prompt existing")
-expect(prompt.contains("Also use these keywords: sunset."), "prompt keywords")
+expect(prompt.contains("Use these keywords: sunset."), "prompt keywords")
 
 let recipe = IdeaPrompt.text(
     homeLabel: "Annapolis, MD",
@@ -359,7 +358,7 @@ for pair in expected {
 }
 
 let noHome = IdeaPrompt.text(homeLabel: "  ", categories: [], existing: [], keywords: "")
-expect(noHome.contains("We have not set a home location."), "missing home")
+expect(!noHome.contains("Use these keywords:"), "missing home and keywords")
 expect(noHome.contains("ideas that fit this list"), "missing category fallback")
 
 if failed > 0 {

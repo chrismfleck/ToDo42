@@ -205,8 +205,8 @@ enum IdeaPrompt {
                 : "places to stay for two, such as a cabin, inn, hotel, or vacation rental"
         case "fun":
             hasSaved
-                ? "fun things for two people to do nearby that are similar to the activities already saved on this list"
-                : "fun activities for two people to do together, within about an hour of home"
+                ? "fun things for two people to do that are similar to the activities already saved on this list"
+                : "fun activities for two people to do together"
         case "eats":
             "restaurants and places to eat out for two, within about an hour of home"
         case "projects":
@@ -235,15 +235,18 @@ enum IdeaPrompt {
         let chosen = categories.filter {
             !$0.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         }
+        let words = keywords.trimmingCharacters(in: .whitespacesAndNewlines)
         let home = homeLabel?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        let homeLine = home.isEmpty
-            ? "We have not set a home location."
-            : "We live near \(home)."
+        let location = !words.isEmpty ? words : (home.isEmpty ? nil : home)
 
         let hasSaved = existing.contains {
             !$0.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         }
-        var lines = ["\(homeLine) We are a couple.", ""]
+        var lines: [String] = []
+        if let location {
+            lines.append("Use these keywords: \(location).")
+            lines.append("")
+        }
         if chosen.isEmpty {
             lines.append("Suggest ideas for this list. These must be \(guidance(for: "", hasSaved: false)).")
         } else if chosen.count == 1, let only = chosen.first {
@@ -273,19 +276,13 @@ enum IdeaPrompt {
                 lines.append(bullet)
             }
             let kinds = Set(chosen.map(\.kind))
-            if kinds.contains("places"), kinds.contains("fun") {
-                lines.append("Suggest a new place to stay similar to the saved places, and something fun nearby similar to the saved activities.")
-            } else if kinds.contains("places") {
-                lines.append("Suggest a new place to stay similar to the saved places.")
-            } else if kinds.contains("fun") {
-                lines.append("Suggest something fun nearby similar to the saved activities.")
+            let whereClause = location.map { ", using this location: \($0)" } ?? ""
+            if kinds.contains("places") {
+                lines.append("Suggest a new place to stay similar to the saved places\(whereClause).")
             }
-        }
-
-        let words = keywords.trimmingCharacters(in: .whitespacesAndNewlines)
-        if !words.isEmpty {
-            lines.append("")
-            lines.append("Also use these keywords: \(words).")
+            if kinds.contains("fun") {
+                lines.append("Suggest something fun similar to the saved activities\(whereClause).")
+            }
         }
 
         lines.append("")
