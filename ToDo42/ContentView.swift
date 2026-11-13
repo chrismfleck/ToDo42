@@ -939,9 +939,11 @@ struct ContentView: View {
             }
             _ = await group.next()
             group.cancelAll()
-            work.cancel()
             deadline.cancel()
         }
+        // Do not cancel `work`. The 8s limit only ends the pull-to-refresh
+        // spinner. Cancelling the pull itself dropped partner updates, so the
+        // list stayed stale until another manual refresh.
         seedIfNeeded()
         repairSampleLinks()
         // Leave CloudKit sortOrder as pulled. The list ranks from hearts, done,
@@ -953,7 +955,9 @@ struct ContentView: View {
     }
 
     /// Push delivery is unreliable on the public DB. While the app is open and
-    /// paired, pull every few seconds so Deena sees Chris's adds without relaunch.
+    /// paired, pull every few seconds so a partner's edits show up without a
+    /// pull-to-refresh. This awaits the light pull; it does not use the 8s
+    /// spinner timeout, which was aborting the fetch before it could apply.
     private func startSyncPolling() {
         syncPollTask?.cancel()
         guard pairSession.isPaired else {
@@ -962,13 +966,25 @@ struct ContentView: View {
         }
         syncPollTask = Task { @MainActor in
             while !Task.isCancelled {
-                try? await Task.sleep(nanoseconds: 5_000_000_000)
+                try? await Task.sleep(nanoseconds: 3_000_000_000)
                 guard !Task.isCancelled else { break }
-                guard pairSession.isPaired else { break }
-                guard scenePhase == .active else { break }
+                guard pairSession.isPaired, scenePhase == .active else { continue }
                 if CloudSync.shared.isBusySyncing { continue }
-                await refreshFromCloud()
+                await pullPartnerUpdates()
             }
+        }
+    }
+
+    private func pullPartnerUpdates() async {
+        await CloudSync.shared.sync(
+            modelContext: modelContext,
+            coalesce: true,
+            catchupPush: false
+        )
+        seedIfNeeded()
+        repairSampleLinks()
+        if let cat = PairSession.shared.takeRevealCategory() {
+            selectCategory(cat)
         }
     }
 
