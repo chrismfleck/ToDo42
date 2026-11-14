@@ -1130,11 +1130,14 @@ final class CloudSync {
             let sample = Array(live.suffix(5))
             let fetched = await fetchNamedRecords(sample.map { "item-\($0)" })
             let queryMode = lastPairQuerySucceeded ? "query ok" : (lastUsedCatalogFetch ? "catalog fetch" : "query fallback")
-            var line = "Pair …\(short) · \(role) · code \(code) · catalog \(live.count) · fetch \(fetched.count)/\(sample.count) · \(queryMode)"
+            var line = "Pair …\(short) · \(role) · code \(code) · catalog \(live.count) · fetch \(fetched.records.count)/\(sample.count) · \(queryMode)"
             if lastPullCatalogCount > 0 {
                 line += " · pulled \(lastPullFetchedCount)/\(lastPullCatalogCount)"
             }
-            if !sample.isEmpty, fetched.count < sample.count {
+            if lastPrunedGhostCount > 0 {
+                line += "\nCleared \(lastPrunedGhostCount) ghost catalog ids (no iCloud row)."
+            }
+            if !sample.isEmpty, fetched.records.count < sample.count {
                 line += "\nSome catalog ids have no item row — partner should Force sync to re-upload."
             } else if lastPullCatalogCount > 0, lastPullFetchedCount + 5 < lastPullCatalogCount {
                 line += "\nPartial catalog download — Force sync again on both phones."
@@ -1904,8 +1907,10 @@ final class CloudSync {
         // Push payloads name the changed record. Query indexes can lag seconds
         // behind a save, so the partner's pull would miss the brand-new TDItem
         // without this strongly-consistent named fetch.
+        var ghostCatalogIDs: [String] = []
         if !hintRecordIDs.isEmpty {
-            for record in await fetchNamedRecords(hintRecordIDs.map(\.recordName)) {
+            let hinted = await fetchNamedRecords(hintRecordIDs.map(\.recordName))
+            for record in hinted.records {
                 if let pid = record["pairID"] as? String, !pid.isEmpty, pid != pairID {
                     continue
                 }
@@ -1938,8 +1943,12 @@ final class CloudSync {
             refreshNames = Array(Set(missing + Array(listedIDs.suffix(80))))
         }
         if !refreshNames.isEmpty {
-            for record in await fetchNamedRecords(refreshNames.map { "item-\($0)" }) {
+            let refreshed = await fetchNamedRecords(refreshNames.map { "item-\($0)" })
+            for record in refreshed.records {
                 found[record.recordID.recordName] = record
+            }
+            for name in refreshed.unknownNames where name.hasPrefix("item-") {
+                ghostCatalogIDs.append(String(name.dropFirst("item-".count)))
             }
         }
         // One short retry for catalog ids still missing (index lag). Build 204
@@ -1947,10 +1956,23 @@ final class CloudSync {
         var stillMissing = listedIDs.filter { found["item-\($0)"] == nil }
         if !stillMissing.isEmpty, stillMissing.count <= 120 {
             try? await Task.sleep(nanoseconds: 250_000_000)
-            for record in await fetchNamedRecords(stillMissing.map { "item-\($0)" }) {
+            let retried = await fetchNamedRecords(stillMissing.map { "item-\($0)" })
+            for record in retried.records {
                 found[record.recordID.recordName] = record
             }
+            for name in retried.unknownNames where name.hasPrefix("item-") {
+                ghostCatalogIDs.append(String(name.dropFirst("item-".count)))
+            }
             stillMissing = listedIDs.filter { found["item-\($0)"] == nil }
+        }
+        // Force sync: prune catalog ids with no CloudKit row so pulled N/N can
+        // finish. These ghosts permanently showed as 206/236 for Chris.
+        let uniqueGhosts = Array(Set(ghostCatalogIDs.filter { stillMissing.contains($0) }))
+        lastPrunedGhostCount = 0
+        if preferCatalogFetch, !uniqueGhosts.isEmpty {
+            try? await markCatalogDeleted(uniqueGhosts)
+            lastPrunedGhostCount = uniqueGhosts.count
+            stillMissing.removeAll { uniqueGhosts.contains($0) }
         }
         // Extra photos only for list items we actually downloaded. Probe slot N+1
         // only when slot N exists — fetching empty extra4…extra9 for every item
@@ -1971,14 +1993,17 @@ final class CloudSync {
             guard !candidates.isEmpty else { break }
             let missing = candidates.filter { found["\(prefix)\($0)"] == nil }
             guard !missing.isEmpty else { continue }
-            for record in await fetchNamedRecords(missing.map { "\(prefix)\($0)" }) {
+            let extras = await fetchNamedRecords(missing.map { "\(prefix)\($0)" })
+            for record in extras.records {
                 found[record.recordID.recordName] = record
             }
         }
         lastPairQuerySucceeded = pairQueryOK
         lastUsedCatalogFetch = preferCatalogFetch
         let listItems = found.values.filter { recordKind($0) == .listItem }.count
-        lastPullCatalogCount = listedIDs.count
+        // After pruning ghosts, report against the live catalog that remains.
+        let effectiveCatalog = listedIDs.count - lastPrunedGhostCount
+        lastPullCatalogCount = max(0, effectiveCatalog)
         lastPullFetchedCount = listItems
         // Only treat the catalog as complete when every listed id was fetched.
         // A non-empty catalog with large gaps used to trigger cleanup as if we
@@ -1993,6 +2018,8 @@ final class CloudSync {
     private(set) var lastUsedCatalogFetch = false
     private(set) var lastPullCatalogCount = 0
     private(set) var lastPullFetchedCount = 0
+    /// Ghost pair.itemIDs cleared on the last Force sync (no TDItem row).
+    private(set) var lastPrunedGhostCount = 0
 
     private func fetchRecoverableItemRecords(oldCode: String) async -> (records: [CKRecord], emptyMessage: String) {
         var found: [String: CKRecord] = [:]
@@ -2019,7 +2046,7 @@ final class CloudSync {
                     .split(separator: ",")
                     .map(String.init)
                     .filter { !$0.isEmpty }
-                add(await fetchNamedRecords(ids.map { "item-\($0)" }))
+                add(await fetchNamedRecords(ids.map { "item-\($0)" }).records)
             }
         }
 
@@ -2134,9 +2161,15 @@ final class CloudSync {
         }
     }
 
-    private func fetchNamedRecords(_ names: [String]) async -> [CKRecord] {
+    private struct NamedFetchResult {
+        var records: [CKRecord]
+        var unknownNames: Set<String>
+    }
+
+    private func fetchNamedRecords(_ names: [String]) async -> NamedFetchResult {
         var records: [CKRecord] = []
         var got = Set<String>()
+        var unknownNames = Set<String>()
         let uniqueNames = Array(Set(names.filter { !$0.isEmpty }))
         let ids = uniqueNames.map { CKRecord.ID(recordName: $0) }
         var start = 0
@@ -2144,7 +2177,8 @@ final class CloudSync {
             let end = min(start + 50, ids.count)
             var pending = Array(ids[start..<end])
             // Retry only transient failures. unknownItem is permanent (empty
-            // photo slots) — retrying those ×3 per pull froze Build 204.
+            // photo slots / ghost catalog ids) — retrying those ×3 per pull
+            // froze Build 204.
             for attempt in 0..<3 where !pending.isEmpty {
                 if attempt > 0 {
                     try? await Task.sleep(nanoseconds: UInt64(200_000_000 * attempt))
@@ -2161,6 +2195,7 @@ final class CloudSync {
                         }
                     case .failure(let error):
                         if let ck = error as? CKError, ck.code == .unknownItem {
+                            unknownNames.insert(id.recordName)
                             continue
                         }
                         still.append(id)
@@ -2172,7 +2207,7 @@ final class CloudSync {
             }
             start = end
         }
-        return records
+        return NamedFetchResult(records: records, unknownNames: unknownNames)
     }
 
     private func saveItem(_ item: TodoItem, notifyKind: String, allowCreate: Bool = true) async throws {
