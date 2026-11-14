@@ -860,6 +860,11 @@ final class CloudSync {
             }
             return
         }
+        // Force sync already pulls + repairs. Drop a queued light poll so the
+        // spinner is not held for a second full pass after a long photo upload.
+        if preferCatalogFetch {
+            pendingLightPull = false
+        }
         let generation = syncGeneration + 1
         syncGeneration = generation
         await enqueue {
@@ -880,6 +885,9 @@ final class CloudSync {
                             && self.lastSubscribeAt.map { Date().timeIntervalSince($0) > 600 } ?? true
                     )
                 if shouldRefreshSubs {
+                    if preferCatalogFetch {
+                        PairSession.shared.statusMessage = "Syncing with iCloud… (notifications)"
+                    }
                     _ = try? await self.withTimeout(seconds: 8) {
                         try await self.subscribe()
                     }
@@ -911,6 +919,9 @@ final class CloudSync {
                         preferCatalogFetch: preferCatalogFetch
                     )
                 } else {
+                    if preferCatalogFetch {
+                        PairSession.shared.statusMessage = "Syncing with iCloud… (downloading)"
+                    }
                     try await self.pull(
                         modelContext: modelContext,
                         hintRecordIDs: hints,
@@ -922,6 +933,9 @@ final class CloudSync {
                         includeUnscoped: false
                     )
                     if catchupPush {
+                        if preferCatalogFetch {
+                            PairSession.shared.statusMessage = "Syncing with iCloud… (uploading)"
+                        }
                         try await self.pushAll(afterPull, allowCreate: false)
                     }
                     // Re-try brand-new locals that never got an iCloud row (failed first
@@ -955,7 +969,7 @@ final class CloudSync {
                 hintFollowUpsRemaining: hintFollowUpsRemaining - 1,
                 catchupPush: catchupPush
             )
-        } else if pendingLightPull {
+        } else if pendingLightPull, !preferCatalogFetch {
             pendingLightPull = false
             await sync(
                 modelContext: modelContext,
@@ -965,6 +979,8 @@ final class CloudSync {
                 hintFollowUpsRemaining: 0,
                 catchupPush: false
             )
+        } else if preferCatalogFetch {
+            pendingLightPull = false
         }
     }
 
@@ -1792,7 +1808,12 @@ final class CloudSync {
     private func pushAll(_ items: [TodoItem], allowCreate: Bool) async throws {
         // One bad row must not fail the whole sync (that left a sticky
         // "Couldn't sync" banner on the home screen).
-        for item in items {
+        let total = items.count
+        for (index, item) in items.enumerated() {
+            if total > 3, index == 0 || index % 5 == 0 || index + 1 == total {
+                PairSession.shared.statusMessage =
+                    "Syncing with iCloud… (uploading \(index + 1)/\(total))"
+            }
             do {
                 try await saveItem(item, notifyKind: "", allowCreate: allowCreate)
             } catch {
@@ -1825,8 +1846,13 @@ final class CloudSync {
                     // Partner (or we) already deleted this — drop the local leftover.
                     continue
                 }
-                // Row exists but may be missing its photo — best-effort attach.
-                if item.hasAnyPhotos || (item.imageData?.isEmpty == false) {
+                // Only re-upload when the primary photo is missing remotely.
+                // Re-pushing every recent photo item on Force sync left "Syncing…"
+                // stuck for minutes after a multi-photo add.
+                let remoteHasPhoto = (existing["image"] as? CKAsset) != nil
+                    || (existing["image2"] as? CKAsset) != nil
+                let localHasPhoto = item.hasAnyPhotos || (item.imageData?.isEmpty == false)
+                if localHasPhoto, !remoteHasPhoto {
                     try? await saveItem(item, notifyKind: "", allowCreate: false)
                 }
                 continue
@@ -2208,9 +2234,12 @@ final class CloudSync {
                 return
             }
             if notifyKind.isEmpty, shouldSkipCatchupPush(item, existing: existing) {
-                // Still publish a local bottom photo that never made it to iCloud
-                // (older builds dropped those uploads), without rewriting newer fields.
-                if item.hasAnyExtraPhotos {
+                // Only repair companions when the primary remote photo is missing.
+                // Unconditional companion re-upload on every Force sync made
+                // "Syncing…" look stuck after adding several photos.
+                let remoteHasPhoto = (existing["image"] as? CKAsset) != nil
+                    || (existing["image2"] as? CKAsset) != nil
+                if item.hasAnyExtraPhotos, !remoteHasPhoto {
                     await saveCompanionPhotos(for: item, pairID: pairID)
                 }
                 return

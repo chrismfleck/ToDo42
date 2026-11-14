@@ -729,7 +729,9 @@ struct PairingView: View {
     private func forceSync() async {
         errorText = ""
         session.isBusy = true
-        session.statusMessage = "Syncing with iCloud…"
+        session.statusMessage = CloudSync.shared.isBusySyncing
+            ? "Finishing photo upload, then Force sync…"
+            : "Syncing with iCloud…"
         defer { session.isBusy = false }
         // Always wait for sync to finish. A 45s cancel used to abort catalog
         // downloads on query-fallback (Chris saw catalog 149 / fetch 3/5 and

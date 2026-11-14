@@ -1,5 +1,5 @@
 #!/bin/bash
-# Sync this checkout to BRANCH (default: partner new-item catalog fix / Build 212),
+# Sync this checkout to BRANCH (default: Force sync hang + catalog fix / Build 213),
 # close Xcode, open the right project.
 # After git reset, the script re-execs itself so stamp checks always match the
 # newly pulled files (hard-coded 176 vs 177 used to fail mid-run).
