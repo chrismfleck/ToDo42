@@ -545,6 +545,12 @@ final class CloudSync {
     private var pendingLightPull = false
     private var syncGeneration = 0
 
+    /// Open-app polls call this when `isBusySyncing` so a partner add that arrived
+    /// mid-Force-sync still gets a light pull after the queue drains.
+    func notePendingLightPull() {
+        pendingLightPull = true
+    }
+
     private func enqueueHints(_ ids: [CKRecord.ID]) {
         for id in ids {
             let name = id.recordName.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -973,13 +979,16 @@ final class CloudSync {
                     PairSession.shared.statusMessage = ""
                     return
                 }
-                // Save the TDItem row FIRST. Registering the catalog id before
-                // save left orphan catalog entries when Production rejected the
-                // row (Chris saw catalog N↑ but fetch 3/5 — no item to download).
-                // Partner pull still accepts provisional / push-hinted adds while
-                // the post-save catalog register catches up.
+                // Save text → register catalog → then photos (inside saveItem).
+                // Registering before any save left orphan catalog ids when
+                // Production rejected the row. Waiting until after photos left a
+                // long window where the partner had no catalog id and often missed
+                // the add entirely (push hints + query lag are unreliable).
                 try await self.saveItem(item, notifyKind: notifyKind)
                 let itemID = item.id.uuidString
+                // saveItem already registers on "add" right after the text row.
+                // Repeat here so edit/heart-adjacent paths and any early-register
+                // failure still get a catalog write + background retry.
                 do {
                     try await self.registerItemIDs([itemID], retries: 5)
                     PairSession.shared.statusMessage = ""
@@ -987,8 +996,6 @@ final class CloudSync {
                     PairSession.shared.statusMessage = notifyKind == "add"
                         ? "Saved item; catalog retry needed — tap Force sync."
                         : Self.friendlyMessage(error)
-                    // Keep retrying catalog registration so the partner pull can
-                    // find the id even if the first mutatePairRecord raced.
                     if notifyKind == "add" {
                         Task { await self.retryCatalogRegister(itemID) }
                     }
@@ -1468,16 +1475,32 @@ final class CloudSync {
                 if catalogIDs.contains(itemID) { idsToStrip.append(itemID) }
                 continue
             }
-            if DeletedItemLedger.containsURL(pairID: pairID, urlString: record["urlString"] as? String) {
-                DeletedItemLedger.record(pairID: pairID, id: uuid, urlString: record["urlString"] as? String)
-                if let local = localByID[itemID], local.pairID.isEmpty || local.pairID == pairID {
-                    modelContext.delete(local)
-                    localByID.removeValue(forKey: itemID)
-                }
-                idsToStrip.append(itemID)
-                continue
-            }
             let notifyKind = record["notifyKind"] as? String
+            let remoteCreated = record["createdAt"] as? Date
+                ?? record["updatedAt"] as? Date
+                ?? .distantPast
+            // Partner deliberately re-added a link we once deleted. Clear the URL
+            // ledger for this new UUID so the add sticks; the old id stays blocked.
+            if DeletedItemLedger.containsURL(pairID: pairID, urlString: record["urlString"] as? String) {
+                if RemoteItemApply.isProvisionalCatalogAdd(
+                    notifyKind: notifyKind,
+                    createdAt: remoteCreated
+                ) {
+                    DeletedItemLedger.allowAgain(
+                        pairID: pairID,
+                        urlString: record["urlString"] as? String,
+                        id: uuid
+                    )
+                } else {
+                    DeletedItemLedger.record(pairID: pairID, id: uuid, urlString: record["urlString"] as? String)
+                    if let local = localByID[itemID], local.pairID.isEmpty || local.pairID == pairID {
+                        modelContext.delete(local)
+                        localByID.removeValue(forKey: itemID)
+                    }
+                    idsToStrip.append(itemID)
+                    continue
+                }
+            }
             if RemoteItemApply.isTombstone(notifyKind: notifyKind) {
                 if let local = localByID[itemID], local.pairID.isEmpty || local.pairID == pairID {
                     modelContext.delete(local)
@@ -1496,9 +1519,6 @@ final class CloudSync {
                 //   • recent / notifyKind=="add" provisional rows
                 // Leave older non-hinted own-side orphans alone so pre-tombstone
                 // hard-deletes stay gone.
-                let created = record["createdAt"] as? Date
-                    ?? record["updatedAt"] as? Date
-                    ?? .distantPast
                 let hinted = hintNames.contains(record.recordID.recordName)
                     || hintNames.contains("item-\(itemID)")
                 let editor = (record["lastEditor"] as? String ?? "")
@@ -1510,7 +1530,7 @@ final class CloudSync {
                     || fromPartner
                     || RemoteItemApply.isProvisionalCatalogAdd(
                         notifyKind: notifyKind,
-                        createdAt: created
+                        createdAt: remoteCreated
                     )
                 {
                     idsToHeal.append(itemID)
@@ -1589,9 +1609,20 @@ final class CloudSync {
                     continue
                 }
                 if DeletedItemLedger.containsURL(pairID: pairID, urlString: record["urlString"] as? String) {
-                    DeletedItemLedger.record(pairID: pairID, id: uuid, urlString: record["urlString"] as? String)
-                    idsToStrip.append(itemID)
-                    continue
+                    if RemoteItemApply.isProvisionalCatalogAdd(
+                        notifyKind: notifyKind,
+                        createdAt: remoteCreated
+                    ) {
+                        DeletedItemLedger.allowAgain(
+                            pairID: pairID,
+                            urlString: record["urlString"] as? String,
+                            id: uuid
+                        )
+                    } else {
+                        DeletedItemLedger.record(pairID: pairID, id: uuid, urlString: record["urlString"] as? String)
+                        idsToStrip.append(itemID)
+                        continue
+                    }
                 }
                 let title = RemoteItemApply.resolvedTitle(localTitle: "", remoteTitle: record["title"] as? String)
                 guard !title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { continue }
@@ -2226,6 +2257,13 @@ final class CloudSync {
         // others miss”. Photo is best-effort afterward.
         let photoData = item.imageData
         try await saveOverwriting(record)
+        // Put the id on the shared catalog as soon as the text row exists —
+        // before photo / companion uploads. Partner discovery keys off
+        // pair.itemIDs; waiting for images left Chris/Deena missing each
+        // other's new items for a long (sometimes permanent) window.
+        if notifyKind == "add" {
+            try? await registerItemIDs([item.id.uuidString], retries: 5)
+        }
         if let data = photoData, !data.isEmpty {
             do {
                 let url = FileManager.default.temporaryDirectory
