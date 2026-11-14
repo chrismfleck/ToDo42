@@ -572,6 +572,7 @@ struct ContentView: View {
             importSharedDrafts()
             seedIfNeeded()
             repairSampleLinks()
+            repairSauerkrautCategory()
             normalizeStoredText()
             offerPairRestoreIfNeeded()
             Task { await refreshFromCloud() }
@@ -594,6 +595,7 @@ struct ContentView: View {
             }
         }
         .onChange(of: pairSession.pairID) { _, _ in
+            repairSauerkrautCategory()
             startSyncPolling()
         }
         .onReceive(NotificationCenter.default.publisher(for: .todo42CloudPush)) { _ in
@@ -602,6 +604,7 @@ struct ContentView: View {
             Task { @MainActor in
                 seedIfNeeded()
                 repairSampleLinks()
+                repairSauerkrautCategory()
                 if let cat = PairSession.shared.takeRevealCategory() {
                     selectCategory(cat)
                 }
@@ -946,6 +949,7 @@ struct ContentView: View {
         // list stayed stale until another manual refresh.
         seedIfNeeded()
         repairSampleLinks()
+        repairSauerkrautCategory()
         // Leave CloudKit sortOrder as pulled. The list ranks from hearts, done,
         // and created date. Rewriting sortOrder here made the next poll apply
         // the same reorder row again and banner "reordered the list".
@@ -988,6 +992,7 @@ struct ContentView: View {
         )
         seedIfNeeded()
         repairSampleLinks()
+        repairSauerkrautCategory()
         if let cat = PairSession.shared.takeRevealCategory() {
             selectCategory(cat)
         }
@@ -1067,6 +1072,20 @@ struct ContentView: View {
             let expected = OpenableURL.from(seed.urlString)?.absoluteString ?? seed.urlString
             if current == expected { continue }
             item.urlString = expected
+            PairSession.shared.noteLocalEdit(item, kind: "edit")
+        }
+    }
+
+    /// The sauerkraut preload belongs on Recipe 4 Two. Also runs while paired,
+    /// so a copy already sitting on Table 4 Two moves after this build opens.
+    /// Assign `categories` (not `category`) so Table 4 Two is replaced.
+    private func repairSauerkrautCategory() {
+        for item in pairScopedItems {
+            guard let next = SampleData.misfiledSauerkrautCategories(
+                title: item.title,
+                categories: item.categories
+            ) else { continue }
+            item.categories = next
             PairSession.shared.noteLocalEdit(item, kind: "edit")
         }
     }

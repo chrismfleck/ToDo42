@@ -675,7 +675,7 @@ enum SampleData {
         ),
         Seed(
             title: "Easy Homemade Sauerkraut (Fermented Cabbage)",
-            category: .eats,
+            category: .recipe,
             urlString: "https://www.instagram.com/p/DVrPo6nETT7/",
             imageAssetName: "Sauerkraut",
             notes: """
@@ -698,6 +698,17 @@ enum SampleData {
 
     static func matching(title: String) -> Seed? {
         seeds.first { $0.title == title }
+    }
+
+    /// The sauerkraut preload was first filed on Table 4 Two. A copy that is
+    /// still only on that tab should move to the seed category (Recipe 4 Two).
+    /// Any other assignment is left as the user set it.
+    static func misfiledSauerkrautCategories(title: String, categories: [ItemCategory]) -> [ItemCategory]? {
+        guard let seed = seeds.first(where: { $0.imageAssetName == "Sauerkraut" }) else { return nil }
+        let name = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard name == seed.title else { return nil }
+        guard categories == [.eats], seed.category != .eats else { return nil }
+        return [seed.category]
     }
 
     static func makeItem(_ seed: Seed, sortOrder: Int = 0, pairID: String? = nil) -> TodoItem {
