@@ -1,5 +1,5 @@
 #!/bin/bash
-# Sync this checkout to BRANCH (default: Find Ideas + auto refresh / Build 211),
+# Sync this checkout to BRANCH (default: ghost catalog prune + sync fixes / Build 214),
 # close Xcode, open the right project.
 # After git reset, the script re-execs itself so stamp checks always match the
 # newly pulled files (hard-coded 176 vs 177 used to fail mid-run).
@@ -10,7 +10,7 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
 # Override with: BRANCH=cursor/some-branch-ac25 bash scripts/mac_force_run.sh
-BRANCH="${BRANCH:-cursor/find-ideas-grok-chatgpt-d04b}"
+BRANCH="${BRANCH:-cursor/fix-partner-new-items-224b}"
 
 if [[ "${1:-}" != "--after-sync" ]]; then
   echo "=============================================="

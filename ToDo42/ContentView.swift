@@ -969,7 +969,12 @@ struct ContentView: View {
                 try? await Task.sleep(nanoseconds: 3_000_000_000)
                 guard !Task.isCancelled else { break }
                 guard pairSession.isPaired, scenePhase == .active else { continue }
-                if CloudSync.shared.isBusySyncing { continue }
+                if CloudSync.shared.isBusySyncing {
+                    // Do not drop the tick — run a light pull when the busy sync ends
+                    // so a partner's new item is not waiting on the next lucky poll.
+                    CloudSync.shared.notePendingLightPull()
+                    continue
+                }
                 await pullPartnerUpdates()
             }
         }
