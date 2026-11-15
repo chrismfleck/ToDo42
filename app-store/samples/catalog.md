@@ -1,13 +1,13 @@
 # App Store sample items
 
-These seven items now seed into Save 4 Two on a brand-new empty, unpaired install (`todo42.seeded.v4`). Existing lists are left alone.
+These seven items now seed into Save 4 Two on a brand-new empty, unpaired install (`todo42.seeded.v4`). Existing lists are left alone, except the sauerkraut sample: a copy still filed only on Table 4 Two moves to Recipe 4 Two.
 
 | # | Category | Title | Photo |
 |---|---|---|---|
 | 1 | Places | Luxury private lakefront Barn Loft + Silo Jacuzzi | `01-places-barn-loft.png` |
 | 2 | Places | Eco-Luxurious Lakefront haven (Fire pit & Hot Tub) | `02-places-eco-lux.png` |
 | 3 | Eats | Le Colonial Delray Beach | `03-eats-le-colonial.png` |
-| 4 | Eats | Easy Homemade Sauerkraut (Fermented Cabbage) | `04-eats-sauerkraut.png` |
+| 4 | Recipe | Easy Homemade Sauerkraut (Fermented Cabbage) | `04-eats-sauerkraut.png` |
 | 5 | Fun | Intermediate Pickleball Clinic by the Palm Beach Royals x Nikki Roth | `05-fun-pickleball-clinic.png` |
 | 6 | Fun | Yoga Community in Boca Raton | `06-fun-yoga-journey.png` |
 | 7 | Places | Sail Greece as a Traveler, Not a Tourist | `07-places-greek-seas.png` |
@@ -38,7 +38,7 @@ Famed Vietnamese fare.
 
 Situated in Delray’s lively beachfront town square, Le Colonial transports guests to a different time and place, an era of romance and soft architecture–old world French glamour and vivid flavor. Our warm, romantic atmosphere seamlessly blends indoor and outdoor spaces, creating a vibrant yet relaxed ambiance that harmonizes with the local culture.
 
-## 4. Eats — Easy Homemade Sauerkraut (Fermented Cabbage)
+## 4. Recipe — Easy Homemade Sauerkraut (Fermented Cabbage)
 
 - **Link:** https://www.instagram.com/p/DVrPo6nETT7/
 - **Photo:** `04-eats-sauerkraut.png`
